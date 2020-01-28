@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"testing"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/memswarm"
 	"github.com/stretchr/testify/assert"
 )
@@ -19,7 +18,7 @@ func TestMulti(t *testing.T) {
 	}
 	as := New(privKey, transports)
 
-	locals := as.LocalAddr().(*p2p.AddrList)
+	locals := as.LocalAddrs()
 	t.Log(locals)
-	assert.Len(t, *locals, 2)
+	assert.Len(t, locals, 2)
 }

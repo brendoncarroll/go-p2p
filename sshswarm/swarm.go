@@ -18,6 +18,7 @@ var _ interface {
 const MTU = 1 << 20
 
 type Swarm struct {
+	pubKey p2p.PublicKey
 	signer ssh.Signer
 	l      net.Listener
 
@@ -39,6 +40,7 @@ func New(laddr string, privateKey p2p.PrivateKey) (*Swarm, error) {
 		return nil, err
 	}
 	s := &Swarm{
+		pubKey: privateKey.Public(),
 		signer: signer,
 		l:      l,
 
@@ -57,15 +59,16 @@ func (s *Swarm) MTU(context.Context, p2p.Addr) int {
 	return MTU
 }
 
-func (s *Swarm) LocalAddr() p2p.Addr {
+func (s *Swarm) LocalAddrs() []p2p.Addr {
 	pubKey := s.signer.PublicKey()
 	laddr := s.l.Addr().(*net.TCPAddr)
+
+	ret := []p2p.Addr{}
 	if laddr.IP.IsUnspecified() {
 		addrs, err := net.InterfaceAddrs()
 		if err != nil {
 			panic(err)
 		}
-		al := p2p.AddrList{}
 		for _, addr := range addrs {
 			ipNet := addr.(*net.IPNet)
 			switch {
@@ -81,19 +84,18 @@ func (s *Swarm) LocalAddr() p2p.Addr {
 					IP:          ipNet.IP,
 					Port:        laddr.Port,
 				}
-				al = append(al, a)
+				ret = append(ret, a)
 			}
 		}
-		if len(al) == 1 {
-			return al[0]
+	} else {
+		a := &Addr{
+			Fingerprint: ssh.FingerprintSHA256(pubKey),
+			IP:          laddr.IP,
+			Port:        laddr.Port,
 		}
-		return &al
+		ret = append(ret, a)
 	}
-	return &Addr{
-		Fingerprint: ssh.FingerprintSHA256(pubKey),
-		IP:          laddr.IP,
-		Port:        laddr.Port,
-	}
+	return ret
 }
 
 func (s *Swarm) Close() error {
@@ -101,7 +103,7 @@ func (s *Swarm) Close() error {
 }
 
 func (s *Swarm) PublicKey() p2p.PublicKey {
-	return s.signer.PublicKey().(p2p.PublicKey)
+	return s.pubKey
 }
 
 func (s *Swarm) LookupPublicKey(x p2p.Addr) p2p.PublicKey {

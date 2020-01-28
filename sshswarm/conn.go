@@ -15,6 +15,7 @@ import (
 type Conn struct {
 	swarm      *Swarm
 	remoteAddr *Addr
+	localAddr  *Addr
 	shutdown   chan struct{}
 
 	newChanReqs <-chan ssh.NewChannel
@@ -51,6 +52,11 @@ func newServer(s *Swarm, netConn net.Conn) (*Conn, error) {
 			Fingerprint: ssh.FingerprintSHA256(pubKey),
 			IP:          rip,
 			Port:        port,
+		},
+		localAddr: &Addr{
+			Fingerprint: ssh.FingerprintSHA256(s.signer.PublicKey()),
+			IP:          netConn.LocalAddr().(*net.TCPAddr).IP,
+			Port:        netConn.LocalAddr().(*net.TCPAddr).Port,
 		},
 		shutdown: make(chan struct{}),
 
@@ -108,7 +114,7 @@ func (c *Conn) loop() {
 			ctx := context.TODO()
 			msg := &p2p.Message{
 				Src:     c.RemoteAddr(),
-				Dst:     c.swarm.LocalAddr(),
+				Dst:     c.localAddr,
 				Payload: req.Payload,
 			}
 			if req.WantReply {

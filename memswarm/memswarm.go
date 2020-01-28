@@ -90,7 +90,7 @@ type Swarm struct {
 func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
 	a := addr.(*Addr)
 	msg := &p2p.Message{
-		Src:     s.LocalAddr(),
+		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
 		Payload: data,
 	}
@@ -106,7 +106,7 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	a := addr.(*Addr)
 	msg := &p2p.Message{
-		Src:     s.LocalAddr(),
+		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
 		Payload: data,
 	}
@@ -131,8 +131,8 @@ func (s *Swarm) OnTell(fn p2p.TellHandler) {
 	s.handleTell = fn
 }
 
-func (s *Swarm) LocalAddr() p2p.Addr {
-	return &Addr{N: s.n}
+func (s *Swarm) LocalAddrs() []p2p.Addr {
+	return []p2p.Addr{&Addr{N: s.n}}
 }
 
 func (s *Swarm) MTU(context.Context, p2p.Addr) int {

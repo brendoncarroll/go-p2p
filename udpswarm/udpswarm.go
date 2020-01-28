@@ -72,9 +72,11 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	return err
 }
 
-func (s *Swarm) LocalAddr() p2p.Addr {
+func (s *Swarm) LocalAddrs() []p2p.Addr {
 	laddr := s.conn.LocalAddr().(*net.UDPAddr)
-	return (*Addr)(laddr)
+	return []p2p.Addr{
+		(*Addr)(laddr),
+	}
 }
 
 func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
@@ -93,16 +95,15 @@ func (s *Swarm) Close() error {
 func (s *Swarm) loop() {
 	buf := make([]byte, TheoreticalMTU)
 	for {
-		n, addr, err := s.conn.ReadFrom(buf)
+		n, addr, err := s.conn.ReadFromUDP(buf)
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		uaddr := addr.(*net.UDPAddr)
 
 		msg := &p2p.Message{
-			Src:     (*Addr)(uaddr),
-			Dst:     s.LocalAddr(),
+			Src:     (*Addr)(addr),
+			Dst:     s.LocalAddrs()[0],
 			Payload: buf[:n],
 		}
 		s.handleTell(msg)

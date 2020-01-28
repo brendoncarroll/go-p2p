@@ -20,7 +20,7 @@ func NoOpTellHandler(msg *Message) {}
 type Swarm interface {
 	Teller
 
-	LocalAddr() Addr
+	LocalAddrs() []Addr
 	MTU(ctx context.Context, addr Addr) int
 	Close() error
 }

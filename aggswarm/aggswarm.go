@@ -182,30 +182,19 @@ func (s *Swarm) getByPeer(id p2p.PeerID, t string) (*Edge, error) {
 	return nil, errors.New("could not find a connection")
 }
 
-func (s *Swarm) LocalAddr() p2p.Addr {
-	al := p2p.AddrList{}
+func (s *Swarm) LocalAddrs() []p2p.Addr {
+	ret := []p2p.Addr{}
 	for tname, t := range s.transports {
-		laddr := t.LocalAddr()
-		if al2, ok := laddr.(*p2p.AddrList); ok {
-			for _, a := range *al2 {
-				edge := &Edge{
-					PeerID:    s.LocalID(),
-					Transport: tname,
-					Addr:      a,
-				}
-				al = append(al, edge)
+		for _, laddr := range t.LocalAddrs() {
+			edge := &Edge{
+				PeerID:    s.LocalID(),
+				Transport: tname,
+				Addr:      laddr,
 			}
-			continue
+			ret = append(ret, edge)
 		}
-
-		edge := &Edge{
-			PeerID:    s.LocalID(),
-			Transport: tname,
-			Addr:      laddr,
-		}
-		al = append(al, edge)
 	}
-	return &al
+	return ret
 }
 
 func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
@@ -270,7 +259,7 @@ func (s *Swarm) dstEdge(x Edge) *Edge {
 		PeerID:    s.LocalID(),
 		Index:     x.Index,
 		Transport: x.Transport,
-		Addr:      s.transports[x.Transport].LocalAddr(),
+		Addr:      s.transports[x.Transport].LocalAddrs()[0],
 	}
 	return y
 }

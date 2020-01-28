@@ -24,12 +24,12 @@ func TestTell(t *testing.T) {
 		recvMsg = *msg
 		wg.Done()
 	})
-	s2.Tell(ctx, s1.LocalAddr(), []byte("test123"))
+	s2.Tell(ctx, s1.LocalAddrs()[0], []byte("test123"))
 	wg.Wait()
 
 	expectedMsg := p2p.Message{
-		Src:     s2.LocalAddr(),
-		Dst:     s1.LocalAddr(),
+		Src:     s2.LocalAddrs()[0],
+		Dst:     s1.LocalAddrs()[0],
 		Payload: []byte("test123"),
 	}
 	assert.Equal(t, expectedMsg, recvMsg)

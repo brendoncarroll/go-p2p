@@ -31,19 +31,19 @@ func TestTell(t *testing.T) {
 		wg.Done()
 	})
 
-	err = s2.Tell(ctx, s1.LocalAddr(), []byte("test"))
+	err = s2.Tell(ctx, s1.LocalAddrs()[0], []byte("test"))
 	require.Nil(t, err)
 
 	wg.Wait()
 	if assert.NotNil(t, recvTell.Src) {
 		a1 := recvTell.Src.(*Addr)
-		a2 := s2.LocalAddr().(*Addr)
+		a2 := s2.LocalAddrs()[0].(*Addr)
 		assert.Equal(t, a2.Fingerprint, a1.Fingerprint)
 		assert.Equal(t, a2.IP, a2.IP)
 	}
 	if assert.NotNil(t, recvTell.Dst) {
 		a1 := recvTell.Dst.(*Addr)
-		a2 := s1.LocalAddr().(*Addr)
+		a2 := s1.LocalAddrs()[0].(*Addr)
 		assert.Equal(t, a2.Fingerprint, a1.Fingerprint)
 		assert.Equal(t, a2.IP, a2.IP)
 	}

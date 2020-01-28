@@ -71,8 +71,8 @@ func (e *Edge) fixAddr(s *Swarm) error {
 	if !exists {
 		return errors.New("swarm doesn't have that transport")
 	}
-	a := t.LocalAddr()
-	rv := reflect.New(reflect.TypeOf(a))
+	addr := t.LocalAddrs()[0]
+	rv := reflect.New(reflect.TypeOf(addr))
 	x := rv.Interface().(p2p.Addr)
 	if err := x.UnmarshalText([]byte(ta)); err != nil {
 		return err

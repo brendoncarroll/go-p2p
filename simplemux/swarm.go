@@ -51,8 +51,8 @@ func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
 	return s.m.s.MTU(ctx, addr) - channelSize
 }
 
-func (s *Swarm) LocalAddr() p2p.Addr {
-	return s.m.s.LocalAddr()
+func (s *Swarm) LocalAddrs() []p2p.Addr {
+	return s.m.s.LocalAddrs()
 }
 
 func (s *Swarm) Close() error {
