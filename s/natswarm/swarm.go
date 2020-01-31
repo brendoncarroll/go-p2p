@@ -47,6 +47,7 @@ func (s *Swarm) LocalAddrs() []p2p.Addr {
 }
 
 func (s *Swarm) Close() error {
+	s.s.stop()
 	return s.inner.Close()
 }
 

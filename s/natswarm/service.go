@@ -55,7 +55,7 @@ func (s *service) run() {
 	go s.discoverLoop(ctx)
 }
 
-func (s *service) stop(ctx context.Context) {
+func (s *service) stop() {
 	s.discoverCF()
 	s.nmCF()
 }
