@@ -9,7 +9,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p/swarmutil"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/jonboulle/clockwork"

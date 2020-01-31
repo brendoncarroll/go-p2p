@@ -12,6 +12,12 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+var _ interface {
+	p2p.Addr
+	p2p.HasIP
+	p2p.HasTCP
+} = &Addr{}
+
 type Addr struct {
 	Fingerprint string
 	IP          net.IP
@@ -78,9 +84,16 @@ func (a *Addr) MapIP(x net.IP) p2p.Addr {
 	return &a2
 }
 
-func (a Addr) GetTCPAddr() *net.TCPAddr {
-	return &net.TCPAddr{
+func (a Addr) GetTCP() net.TCPAddr {
+	return net.TCPAddr{
 		IP:   a.IP,
 		Port: a.Port,
 	}
+}
+
+func (a *Addr) MapTCP(x net.TCPAddr) p2p.Addr {
+	a2 := *a
+	a2.IP = x.IP
+	a2.Port = x.Port
+	return &a2
 }
