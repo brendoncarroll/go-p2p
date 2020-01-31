@@ -25,7 +25,6 @@ func (a TextAddr) UnmarshalText(data []byte) error {
 }
 
 type HasIP interface {
-	Addr
 	GetIP() net.IP
 	MapIP(net.IP) Addr
 }

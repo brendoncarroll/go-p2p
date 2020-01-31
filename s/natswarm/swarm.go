@@ -2,6 +2,7 @@ package natswarm
 
 import (
 	"context"
+	"io"
 
 	"github.com/brendoncarroll/go-p2p"
 )
@@ -16,12 +17,12 @@ func New(inner p2p.Swarm) p2p.Swarm {
 	case p2p.AskSwarm:
 		return &AskSwarm{
 			inner: x,
-			s:     newService(),
+			s:     newService(inner),
 		}
 	default:
 		return &Swarm{
 			inner: x,
-			s:     newService(),
+			s:     newService(inner),
 		}
 	}
 }
@@ -30,9 +31,10 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	return s.inner.Tell(ctx, addr, data)
 }
 
-func (s *Swarm) OnTell(ctx context.Context, fn p2p.TellHandler) {
+func (s *Swarm) OnTell(fn p2p.TellHandler) {
 	s.inner.OnTell(func(m *p2p.Message) {
 		m.Dst = s.s.mapAddr(m.Dst)
+		fn(m)
 	})
 }
 
@@ -45,7 +47,7 @@ func (s *Swarm) LocalAddrs() []p2p.Addr {
 }
 
 func (s *Swarm) Close() error {
-	s.s.shutdown()
+	s.s.stop()
 	return s.inner.Close()
 }
 
@@ -58,14 +60,22 @@ func (s *AskSwarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	return s.inner.Tell(ctx, addr, data)
 }
 
-func (s *AskSwarm) OnTell(ctx context.Context, fn p2p.TellHandler) {
+func (s *AskSwarm) OnTell(fn p2p.TellHandler) {
 	s.inner.OnTell(func(m *p2p.Message) {
 		m.Dst = s.s.mapAddr(m.Dst)
+		fn(m)
 	})
 }
 
 func (s *AskSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
 	return s.inner.Ask(ctx, addr, data)
+}
+
+func (s *AskSwarm) OnAsk(fn p2p.AskHandler) {
+	s.inner.OnAsk(func(ctx context.Context, m *p2p.Message, w io.Writer) {
+		m.Dst = s.s.mapAddr(m.Dst)
+		fn(ctx, m, w)
+	})
 }
 
 func (s *AskSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
@@ -74,4 +84,8 @@ func (s *AskSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
 
 func (s *AskSwarm) LocalAddrs() []p2p.Addr {
 	return s.s.mapAddrs(s.inner.LocalAddrs())
+}
+
+func (s *AskSwarm) Close() error {
+	return s.inner.Close()
 }
