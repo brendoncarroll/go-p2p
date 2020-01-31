@@ -4,7 +4,7 @@ import (
 	"crypto/ed25519"
 	"testing"
 
-	"github.com/brendoncarroll/go-p2p/memswarm"
+	"github.com/brendoncarroll/go-p2p/s/memswarm"
 	"github.com/stretchr/testify/assert"
 )
 

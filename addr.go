@@ -26,22 +26,19 @@ func (a TextAddr) UnmarshalText(data []byte) error {
 
 type HasIP interface {
 	GetIP() net.IP
+}
+
+type MapIP interface {
 	MapIP(net.IP) Addr
 }
 
-type HasTCP interface {
-	GetTCP() net.TCPAddr
-	MapTCP(net.TCPAddr) Addr
-}
-
-type HasUDP interface {
-	GetUDP() net.UDPAddr
-	MapUDP(net.UDPAddr) Addr
-}
-
 func ExpandUnspecifiedIPs(xs []Addr) (ys []Addr) {
+	type HasMapIP interface {
+		HasIP
+		MapIP
+	}
 	for _, x := range xs {
-		hasIP, ok := x.(HasIP)
+		hasIP, ok := x.(HasMapIP)
 		if !ok {
 			// Doesn't have an IP component, passthrough
 			ys = append(ys, x)
@@ -90,10 +87,10 @@ func init() {
 	}
 }
 
-func FilterLocal(xs []Addr) (ys []Addr) {
+func OnlyGlobal(xs []Addr) (ys []Addr) {
 	for _, x := range xs {
 		hasIP, ok := x.(HasIP)
-		if !ok {
+		if !ok || hasIP.GetIP() == nil {
 			// Doesn't have an IP component, passthrough
 			ys = append(ys, x)
 			continue
@@ -113,7 +110,7 @@ func FilterLocal(xs []Addr) (ys []Addr) {
 				ys = append(ys, x)
 			}
 		case ipAddr.To16() != nil:
-			if ipAddr.IsLinkLocalMulticast() || ipAddr.IsLinkLocalMulticast() {
+			if ipAddr.IsLinkLocalUnicast() || ipAddr.IsLinkLocalMulticast() {
 				continue
 			}
 			ys = append(ys, x)

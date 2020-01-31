@@ -9,7 +9,6 @@ import (
 
 var _ interface {
 	p2p.HasIP
-	p2p.HasUDP
 } = &Addr{}
 
 type Addr net.UDPAddr

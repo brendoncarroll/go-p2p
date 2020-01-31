@@ -2,7 +2,6 @@ package natswarm
 
 import (
 	"context"
-	"io"
 
 	"github.com/brendoncarroll/go-p2p"
 )
@@ -13,12 +12,27 @@ type Swarm struct {
 }
 
 func New(inner p2p.Swarm) p2p.Swarm {
+	type SecureAsk interface {
+		p2p.AskSwarm
+		p2p.Secure
+	}
+
 	switch x := inner.(type) {
+	case SecureAsk:
+		return &SecureAskSwarm{
+			AskSwarm: AskSwarm{
+				inner: x,
+				s:     newService(inner),
+			},
+			secure: x,
+		}
+
 	case p2p.AskSwarm:
 		return &AskSwarm{
 			inner: x,
 			s:     newService(inner),
 		}
+
 	default:
 		return &Swarm{
 			inner: x,
@@ -32,10 +46,7 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 }
 
 func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	s.inner.OnTell(func(m *p2p.Message) {
-		m.Dst = s.s.mapAddr(m.Dst)
-		fn(m)
-	})
+	s.inner.OnTell(fn)
 }
 
 func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
@@ -61,10 +72,7 @@ func (s *AskSwarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 }
 
 func (s *AskSwarm) OnTell(fn p2p.TellHandler) {
-	s.inner.OnTell(func(m *p2p.Message) {
-		m.Dst = s.s.mapAddr(m.Dst)
-		fn(m)
-	})
+	s.inner.OnTell(fn)
 }
 
 func (s *AskSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
@@ -72,10 +80,7 @@ func (s *AskSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte,
 }
 
 func (s *AskSwarm) OnAsk(fn p2p.AskHandler) {
-	s.inner.OnAsk(func(ctx context.Context, m *p2p.Message, w io.Writer) {
-		m.Dst = s.s.mapAddr(m.Dst)
-		fn(ctx, m, w)
-	})
+	s.inner.OnAsk(fn)
 }
 
 func (s *AskSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
@@ -88,4 +93,17 @@ func (s *AskSwarm) LocalAddrs() []p2p.Addr {
 
 func (s *AskSwarm) Close() error {
 	return s.inner.Close()
+}
+
+type SecureAskSwarm struct {
+	AskSwarm
+	secure p2p.Secure
+}
+
+func (s *SecureAskSwarm) LookupPublicKey(addr p2p.Addr) p2p.PublicKey {
+	return s.secure.LookupPublicKey(addr)
+}
+
+func (s *SecureAskSwarm) PublicKey() p2p.PublicKey {
+	return s.secure.PublicKey()
 }

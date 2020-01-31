@@ -3,6 +3,7 @@ package aggswarm
 import (
 	"bytes"
 	"errors"
+	"net"
 	"reflect"
 	"regexp"
 
@@ -11,7 +12,7 @@ import (
 
 type PeerID = p2p.PeerID
 
-// Edge implments p2p.Edge
+// Edge implments p2p.Addr
 // it represents one connection the aggregating swarm has seen.
 // Index is relative to a specific instance and is not serialized.
 type Edge struct {
@@ -24,7 +25,11 @@ type Edge struct {
 
 func (e Edge) Key() string {
 	x, _ := e.Addr.MarshalText()
-	return e.Transport + ":" + string(x)
+	return string(x)
+}
+
+func (e Edge) String() string {
+	return e.Key()
 }
 
 func (e *Edge) MarshalText() ([]byte, error) {
@@ -78,5 +83,12 @@ func (e *Edge) fixAddr(s *Swarm) error {
 		return err
 	}
 	e.Addr = x
+	return nil
+}
+
+func (e *Edge) GetIP() net.IP {
+	if hasIP, ok := e.Addr.(p2p.HasIP); ok {
+		return hasIP.GetIP()
+	}
 	return nil
 }

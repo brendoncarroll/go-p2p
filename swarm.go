@@ -40,11 +40,13 @@ type AskSwarm interface {
 	Asker
 }
 
-type IterableSwarm interface {
-	Remotes() []Addr
+type SecureAskSwarm interface {
+	Swarm
+	Asker
+	Secure
 }
 
-type SecureSwarm interface {
+type Secure interface {
 	PublicKey() PublicKey
 	LookupPublicKey(addr Addr) PublicKey
 }

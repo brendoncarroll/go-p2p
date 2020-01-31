@@ -12,7 +12,9 @@ import (
 )
 
 var _ interface {
-	p2p.SecureSwarm
+	p2p.Swarm
+	p2p.Secure
+	p2p.Asker
 } = &Swarm{}
 
 const MTU = 1 << 20

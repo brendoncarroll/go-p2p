@@ -13,7 +13,7 @@ import (
 )
 
 type Transport interface {
-	p2p.SecureSwarm
+	p2p.Secure
 	p2p.Swarm
 }
 

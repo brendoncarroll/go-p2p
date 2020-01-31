@@ -115,8 +115,8 @@ func (s *service) clearMappings() {
 
 func (s *service) putTCP(local, external net.TCPAddr) {
 	log.WithFields(logrus.Fields{
-		"local_addr":    local,
-		"external_addr": external,
+		"local_addr":    local.String(),
+		"external_addr": external.String(),
 	}).Debug("added tcp mapping")
 	s.mu.Lock()
 	s.tcpMap[local.String()] = external
@@ -137,14 +137,14 @@ func (s *service) mapAddr(x p2p.Addr) p2p.Addr {
 	s.mu.RLock()
 	s.mu.RUnlock()
 	switch x := x.(type) {
-	case p2p.HasTCP:
+	case HasTCP:
 		tcpAddr := x.GetTCP()
 		mapped, exists := s.tcpMap[tcpAddr.String()]
 		if !exists {
 			return x.(p2p.Addr)
 		}
 		return x.MapTCP(mapped)
-	case p2p.HasUDP:
+	case HasUDP:
 		udpAddr := x.GetUDP()
 		mapped, exists := s.udpMap[udpAddr.String()]
 		if !exists {

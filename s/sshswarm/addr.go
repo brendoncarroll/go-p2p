@@ -15,7 +15,6 @@ import (
 var _ interface {
 	p2p.Addr
 	p2p.HasIP
-	p2p.HasTCP
 } = &Addr{}
 
 type Addr struct {
