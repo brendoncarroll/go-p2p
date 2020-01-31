@@ -8,7 +8,7 @@ import (
 	"net"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/swarmutil"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"golang.org/x/crypto/ssh"
 )
 

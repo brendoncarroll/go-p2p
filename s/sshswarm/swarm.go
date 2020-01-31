@@ -62,40 +62,14 @@ func (s *Swarm) MTU(context.Context, p2p.Addr) int {
 func (s *Swarm) LocalAddrs() []p2p.Addr {
 	pubKey := s.signer.PublicKey()
 	laddr := s.l.Addr().(*net.TCPAddr)
-
-	ret := []p2p.Addr{}
-	if laddr.IP.IsUnspecified() {
-		addrs, err := net.InterfaceAddrs()
-		if err != nil {
-			panic(err)
-		}
-		for _, addr := range addrs {
-			ipNet := addr.(*net.IPNet)
-			switch {
-			case ipNet.IP.IsLoopback():
-				continue
-			case ipNet.IP.IsLinkLocalMulticast():
-				continue
-			case ipNet.IP.IsLinkLocalUnicast():
-				continue
-			default:
-				a := &Addr{
-					Fingerprint: ssh.FingerprintSHA256(pubKey),
-					IP:          ipNet.IP,
-					Port:        laddr.Port,
-				}
-				ret = append(ret, a)
-			}
-		}
-	} else {
-		a := &Addr{
-			Fingerprint: ssh.FingerprintSHA256(pubKey),
-			IP:          laddr.IP,
-			Port:        laddr.Port,
-		}
-		ret = append(ret, a)
+	x := &Addr{
+		Fingerprint: ssh.FingerprintSHA256(pubKey),
+		IP:          laddr.IP,
+		Port:        laddr.Port,
 	}
-	return ret
+
+	ys := p2p.ExpandUnspecifiedIPs([]p2p.Addr{x})
+	return ys
 }
 
 func (s *Swarm) Close() error {

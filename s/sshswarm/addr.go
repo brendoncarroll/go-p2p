@@ -59,9 +59,23 @@ func (a *Addr) UnmarshalText(data []byte) error {
 	return nil
 }
 
+func (a Addr) String() string {
+	return a.Key()
+}
+
 func (a Addr) Key() string {
 	data, _ := a.MarshalText()
 	return string(data)
+}
+
+func (a Addr) GetIP() net.IP {
+	return a.IP
+}
+
+func (a *Addr) MapIP(x net.IP) p2p.Addr {
+	a2 := *a
+	a2.IP = x
+	return &a2
 }
 
 func (a Addr) GetTCPAddr() *net.TCPAddr {
