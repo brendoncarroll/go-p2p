@@ -19,6 +19,7 @@ const (
 
 type Muxer interface {
 	OpenChannel(x string) (p2p.Swarm, error)
+	LocalAddrs() []p2p.Addr
 }
 
 type muxer struct {
@@ -28,7 +29,7 @@ type muxer struct {
 	mu     sync.RWMutex
 	i2c    []string
 	c2i    map[string]uint32
-	swarms []*Swarm
+	swarms []*baseSwarm
 	reqs   map[channelKey]chan struct{}
 
 	cache    sync.Map
@@ -36,10 +37,6 @@ type muxer struct {
 }
 
 func MultiplexSwarm(s p2p.Swarm) Muxer {
-	if mswarm, ok := s.(p2p.Mux); ok {
-		return mswarm
-	}
-
 	m := &muxer{
 		s:         s,
 		sessionID: uuid.New(),
@@ -49,7 +46,7 @@ func MultiplexSwarm(s p2p.Swarm) Muxer {
 			"MUX_RES",
 		},
 		c2i: map[string]uint32{},
-		swarms: []*Swarm{
+		swarms: []*baseSwarm{
 			nil,
 			nil,
 		},
@@ -62,6 +59,10 @@ func MultiplexSwarm(s p2p.Swarm) Muxer {
 	}
 
 	return m
+}
+
+func (m *muxer) LocalAddrs() []p2p.Addr {
+	return m.s.LocalAddrs()
 }
 
 func (m *muxer) handleTell(msg *p2p.Message) {
@@ -164,7 +165,12 @@ func (m *muxer) OpenChannel(x string) (p2p.Swarm, error) {
 	m.i2c = append(m.i2c, x)
 	m.swarms = append(m.swarms, s)
 
-	return s, nil
+	switch x := m.s.(type) {
+	case p2p.SecureAskSwarm:
+		return p2p.ComposeSecureAskSwarm(s, s, x), nil
+	default:
+		panic("invalid swarm")
+	}
 }
 
 func (m *muxer) Close() error {

@@ -16,10 +16,10 @@ func TestTell(t *testing.T) {
 	privKey1 := getPrivateKey(0)
 	privKey2 := getPrivateKey(1)
 
-	s1, err := New("127.0.0.1:", privKey1)
+	s1, err := New("127.0.0.1:", privKey1, nil)
 	require.Nil(t, err)
 	defer s1.Close()
-	s2, err := New("127.0.0.1:", privKey2)
+	s2, err := New("127.0.0.1:", privKey2, nil)
 	require.Nil(t, err)
 	defer s2.Close()
 

@@ -2,29 +2,12 @@ package p2p
 
 import (
 	"bytes"
-	"crypto"
-	"crypto/x509"
+
 	"encoding/base64"
 	"errors"
 
 	"golang.org/x/crypto/sha3"
 )
-
-type PrivateKey = crypto.Signer
-
-type PublicKey = crypto.PublicKey
-
-func MarshalPublicKey(x PublicKey) []byte {
-	data, err := x509.MarshalPKIXPublicKey(x)
-	if err != nil {
-		panic(err)
-	}
-	return data
-}
-
-func ParsePublicKey(data []byte) (PublicKey, error) {
-	return x509.ParsePKIXPublicKey(data)
-}
 
 type PeerID [32]byte
 
@@ -63,5 +46,13 @@ func (pid *PeerID) UnmarshalText(data []byte) error {
 		return errors.New("data is wrong length")
 	}
 	enc.Decode(pid[:], data)
+	return nil
+}
+
+func LookupPeerID(s Secure, addr Addr) *PeerID {
+	if pubKey := s.LookupPublicKey(addr); pubKey != nil {
+		id := NewPeerID(pubKey)
+		return &id
+	}
 	return nil
 }

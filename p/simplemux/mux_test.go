@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/memswarm"
+	"github.com/brendoncarroll/go-p2p/s/memswarm"
 	"github.com/stretchr/testify/require"
 	"gotest.tools/assert"
 )

@@ -128,6 +128,19 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	return t.Tell(ctx, raddr.Addr, data)
 }
 
+func (s *Swarm) PublicKey() p2p.PublicKey {
+	return s.localPubKey
+}
+
+func (s *Swarm) LookupPublicKey(addr p2p.Addr) p2p.PublicKey {
+	e := addr.(*Edge)
+	t, exists := s.transports[e.Transport]
+	if !exists {
+		return nil
+	}
+	return t.LookupPublicKey(e.Addr)
+}
+
 func (s *Swarm) lookupEdge(x *Edge) (*Edge, error) {
 	switch {
 	case x.Index > 0:
@@ -187,6 +200,7 @@ func (s *Swarm) LocalAddrs() []p2p.Addr {
 	for tname, t := range s.transports {
 		for _, laddr := range t.LocalAddrs() {
 			edge := &Edge{
+				s:         s,
 				PeerID:    s.LocalID(),
 				Transport: tname,
 				Addr:      laddr,

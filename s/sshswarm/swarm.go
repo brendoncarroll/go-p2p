@@ -11,6 +11,12 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+type AllowFunc = func(p2p.PeerID) bool
+
+func AllowAll(p2p.PeerID) bool {
+	return true
+}
+
 var _ interface {
 	p2p.Swarm
 	p2p.Secure
@@ -23,6 +29,7 @@ type Swarm struct {
 	pubKey p2p.PublicKey
 	signer ssh.Signer
 	l      net.Listener
+	af     AllowFunc
 
 	handleAsk  p2p.AskHandler
 	handleTell p2p.TellHandler
@@ -31,10 +38,13 @@ type Swarm struct {
 	conns map[string]*Conn
 }
 
-func New(laddr string, privateKey p2p.PrivateKey) (*Swarm, error) {
+func New(laddr string, privateKey p2p.PrivateKey, af AllowFunc) (*Swarm, error) {
 	signer, err := ssh.NewSignerFromSigner(privateKey)
 	if err != nil {
 		panic(err)
+	}
+	if af == nil {
+		af = AllowAll
 	}
 
 	l, err := net.Listen("tcp", laddr)
@@ -173,7 +183,7 @@ func (s *Swarm) serveLoop() {
 			log.Println(err)
 		}
 		go func() {
-			c, err := newServer(s, conn)
+			c, err := newServer(s, conn, s.af)
 			if err != nil {
 				log.Println("ERROR:", err)
 				return

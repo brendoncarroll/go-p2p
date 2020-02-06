@@ -24,7 +24,7 @@ type Conn struct {
 	pubKey      ssh.PublicKey
 }
 
-func newServer(s *Swarm, netConn net.Conn) (*Conn, error) {
+func newServer(s *Swarm, netConn net.Conn, af AllowFunc) (*Conn, error) {
 	var pubKey ssh.PublicKey
 	config := &ssh.ServerConfig{
 		PublicKeyCallback: func(md ssh.ConnMetadata, pk ssh.PublicKey) (*ssh.Permissions, error) {
@@ -40,6 +40,10 @@ func newServer(s *Swarm, netConn net.Conn) (*Conn, error) {
 	}
 	if pubKey == nil {
 		return nil, errors.New("pubkey not set after connection")
+	}
+	remoteID := p2p.NewPeerID(pubKey)
+	if !af(remoteID) {
+		return nil, errors.New("peer is not allowed")
 	}
 
 	raddr := sconn.RemoteAddr().(*net.TCPAddr)

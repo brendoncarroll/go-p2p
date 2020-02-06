@@ -16,6 +16,8 @@ type PeerID = p2p.PeerID
 // it represents one connection the aggregating swarm has seen.
 // Index is relative to a specific instance and is not serialized.
 type Edge struct {
+	s *Swarm
+
 	PeerID p2p.PeerID
 	Index  int
 
