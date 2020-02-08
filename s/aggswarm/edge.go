@@ -3,8 +3,8 @@ package aggswarm
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net"
-	"reflect"
 	"regexp"
 
 	"github.com/brendoncarroll/go-p2p"
@@ -16,8 +16,6 @@ type PeerID = p2p.PeerID
 // it represents one connection the aggregating swarm has seen.
 // Index is relative to a specific instance and is not serialized.
 type Edge struct {
-	s *Swarm
-
 	PeerID p2p.PeerID
 	Index  int
 
@@ -56,36 +54,29 @@ func (e *Edge) MarshalText() ([]byte, error) {
 
 var addrRe = regexp.MustCompile(`^(.+?)@(.+?):(.+)$`)
 
-func (e *Edge) UnmarshalText(data []byte) error {
+func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
+	addr := &Edge{}
 	groups := addrRe.FindSubmatch(data)
 	if len(groups) != 3 {
-		return errors.New("could not unmarshal")
+		return nil, errors.New("could not unmarshal")
 	}
-	if err := e.PeerID.UnmarshalText(groups[0]); err != nil {
-		return err
+	// id
+	if err := addr.PeerID.UnmarshalText(groups[0]); err != nil {
+		return nil, err
 	}
-	e.Transport = string(groups[1])
-	e.Addr = p2p.TextAddr(groups[2])
-	return nil
-}
-
-func (e *Edge) fixAddr(s *Swarm) error {
-	ta, ok := e.Addr.(p2p.TextAddr)
+	// transport
+	tname := string(groups[1])
+	inner, ok := s.transports[tname]
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("AggSwarm does not have transport %s", tname)
 	}
-	t, exists := s.transports[e.Transport]
-	if !exists {
-		return errors.New("swarm doesn't have that transport")
+	addr.Transport = tname
+	innerAddr, err := inner.ParseAddr(groups[2])
+	if err != nil {
+		return nil, err
 	}
-	addr := t.LocalAddrs()[0]
-	rv := reflect.New(reflect.TypeOf(addr))
-	x := rv.Interface().(p2p.Addr)
-	if err := x.UnmarshalText([]byte(ta)); err != nil {
-		return err
-	}
-	e.Addr = x
-	return nil
+	addr.Addr = innerAddr
+	return addr, nil
 }
 
 func (e *Edge) GetIP() net.IP {

@@ -2,33 +2,11 @@ package p2p
 
 import (
 	"net"
-	"reflect"
 )
 
 type Addr interface {
 	Key() string
 	MarshalText() ([]byte, error)
-	UnmarshalText([]byte) error
-}
-
-type TextAddr []byte
-
-func (a TextAddr) MarshalText() ([]byte, error) {
-	return []byte(a), nil
-}
-
-func (a TextAddr) Key() string {
-	panic("cannot use TextAddr")
-}
-
-func (a TextAddr) UnmarshalText(data []byte) error {
-	panic("cannot unmarshal into TextAddr")
-}
-
-func NewAddrOfType(s Swarm) Addr {
-	addr := s.LocalAddrs()[0]
-	rty := reflect.TypeOf(addr)
-	return reflect.New(rty).Interface().(Addr)
 }
 
 type HasIP interface {

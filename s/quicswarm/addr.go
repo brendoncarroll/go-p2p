@@ -32,27 +32,28 @@ func (a *Addr) MarshalText() ([]byte, error) {
 
 var addrRe = regexp.MustCompile(`^([A-z0-9\-_]+)@(.+):([0-9]+)$`)
 
-func (a *Addr) UnmarshalText(data []byte) error {
+func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
+	a := &Addr{}
 	groups := addrRe.FindSubmatch(data)
 	if len(groups) < 3 {
-		return errors.New("could not parse addr")
+		return nil, errors.New("could not parse addr")
 	}
 	if err := a.ID.UnmarshalText(groups[0]); err != nil {
-		return err
+		return nil, err
 	}
 	if ip := net.ParseIP(string(groups[1])); ip == nil {
-		return errors.New("could not parse ip")
+		return nil, errors.New("could not parse ip")
 	} else {
 		a.IP = ip
 	}
 	port, _ := strconv.Atoi(string(groups[2]))
 	a.Port = port
 	if port < 0 {
-		return errors.New("invalid port")
+		return nil, errors.New("invalid port")
 	} else {
 		a.Port = port
 	}
-	return nil
+	return a, nil
 }
 
 func (a *Addr) GetUDP() net.UDPAddr {

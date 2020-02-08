@@ -48,20 +48,21 @@ func (a *Addr) MarshalText() ([]byte, error) {
 
 var addrRe = regexp.MustCompile(`^([A-z0-9\-_]+)@(.+):([0-9]+)$`)
 
-func (a *Addr) UnmarshalText(data []byte) error {
+func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
+	a := &Addr{}
 	matches := addrRe.FindSubmatch(data)
 	if len(matches) < 3 {
-		return errors.New("could not parse addr")
+		return nil, errors.New("could not parse addr")
 	}
 	a.Fingerprint = string(matches[0])
 	if ip := net.ParseIP(string(matches[1])); ip == nil {
-		return errors.New("could not parse ip")
+		return nil, errors.New("could not parse ip")
 	} else {
 		a.IP = ip
 	}
 	port, _ := strconv.Atoi(string(matches[2]))
 	a.Port = port
-	return nil
+	return a, nil
 }
 
 func (a Addr) String() string {

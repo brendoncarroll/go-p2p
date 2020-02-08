@@ -1,6 +1,10 @@
 package memswarm
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/brendoncarroll/go-p2p"
+)
 
 type Addr struct {
 	N int
@@ -14,11 +18,12 @@ func (a *Addr) MarshalText() ([]byte, error) {
 	return []byte(strconv.Itoa(a.N)), nil
 }
 
-func (a *Addr) UnmarshalText(data []byte) error {
+func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
+	a := &Addr{}
 	n, err := strconv.Atoi(string(data))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	a.N = n
-	return nil
+	return a, nil
 }

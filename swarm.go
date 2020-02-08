@@ -23,6 +23,7 @@ type Swarm interface {
 	LocalAddrs() []Addr
 	MTU(ctx context.Context, addr Addr) int
 	Close() error
+	ParseAddr(data []byte) (Addr, error)
 }
 
 type Teller interface {

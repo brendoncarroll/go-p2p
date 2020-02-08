@@ -10,6 +10,7 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/aggswarm"
 	"github.com/brendoncarroll/go-p2p/s/natswarm"
+	"github.com/brendoncarroll/go-p2p/s/quicswarm"
 	"github.com/brendoncarroll/go-p2p/s/sshswarm"
 	"github.com/spf13/cobra"
 	"github.com/syncthing/syncthing/lib/upnp"
@@ -64,19 +65,25 @@ var testConnectCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		_, privKey, _ := ed25519.GenerateKey(rand.Reader)
 
-		s1, err := sshswarm.New("0.0.0.0:", privKey, nil)
+		s11, err := sshswarm.New("0.0.0.0:", privKey, nil)
 		if err != nil {
-			log.Error(err)
+			return err
+		}
+		s12, err := quicswarm.New("0.0.0.0", privKey)
+		if err != nil {
+			return err
 		}
 
-		s2 := natswarm.New(s1).(p2p.SecureAskSwarm)
+		s21 := natswarm.WrapSecureAsk(s11)
+		s22 := natswarm.WrapSecureAsk(s12)
 		s3 := aggswarm.New(privKey, map[string]aggswarm.Transport{
-			"ssh": s2,
+			"ssh":  s21,
+			"quic": s22,
 		})
 
 		s3.OnTell(func(m *p2p.Message) {
 			ctx := context.TODO()
-			s2.Tell(ctx, m.Src, m.Payload)
+			s3.Tell(ctx, m.Src, m.Payload)
 			log.Println("MSG:", m.Src, "->", m.Dst, " ", m.Payload)
 		})
 

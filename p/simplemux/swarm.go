@@ -56,5 +56,11 @@ func (s *baseSwarm) LocalAddrs() []p2p.Addr {
 }
 
 func (s *baseSwarm) Close() error {
+	s.handleAsk = p2p.NoOpAskHandler
+	s.handleTell = p2p.NoOpTellHandler
 	return nil
+}
+
+func (s *baseSwarm) ParseAddr(data []byte) (p2p.Addr, error) {
+	return s.m.s.ParseAddr(data)
 }
