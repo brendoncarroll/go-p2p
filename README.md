@@ -58,7 +58,10 @@ The interface ends up resembling a hybrid between the server in `http` and the `
 An insecure swarm, included mainly as a building block.
 
 - **SSH Swarm**
-A secure swarm supporting `Asks`
+A secure swarm supporting `Asks` built on the SSH protocol (TCP based).
+
+- **QUIC Swarm**
+A secure swarm supporting `Asks` built on the QUIC protocol (UDP based).
 
 - **Aggregating Swarm**
 Aggregates messages from multiple transport swarms by the public key that sent them.
