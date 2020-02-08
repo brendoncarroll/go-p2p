@@ -2,9 +2,7 @@ package quicswarm
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
+	"crypto/ed25519"
 	"sync"
 	"testing"
 
@@ -56,9 +54,7 @@ func TestTell(t *testing.T) {
 }
 
 func getPrivateKey(i uint8) p2p.PrivateKey {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		panic(err)
-	}
-	return key
+	seed := make([]byte, ed25519.SeedSize)
+	seed[0] = i
+	return ed25519.NewKeyFromSeed(seed)
 }

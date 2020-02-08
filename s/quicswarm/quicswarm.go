@@ -39,7 +39,7 @@ type Swarm struct {
 
 func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
 	tlsConfig := generateServerTLS(privKey)
-	l, err := quic.ListenAddr(laddr, tlsConfig, nil)
+	l, err := quic.ListenAddr(laddr, tlsConfig, generateQUICConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (s *Swarm) openSession(ctx context.Context, dst *Addr) (sess quic.Session, 
 		return sess, nil
 	}
 	raddr := dst.IP.String() + ":" + strconv.Itoa(dst.Port)
-	sess, err = quic.DialAddrContext(ctx, raddr, generateClientTLS(s.privKey), nil)
+	sess, err = quic.DialAddrContext(ctx, raddr, generateClientTLS(s.privKey), generateQUICConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -346,4 +346,8 @@ func generateServerTLS(privKey p2p.PrivateKey) *tls.Config {
 		NextProtos:   []string{"go-p2p"},
 		ClientAuth:   tls.RequireAnyClientCert,
 	}
+}
+
+func generateQUICConfig() *quic.Config {
+	return nil
 }
