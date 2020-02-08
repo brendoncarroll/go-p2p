@@ -94,9 +94,6 @@ func (s *Swarm) OnTell(fn p2p.TellHandler) {
 
 func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
 	e := addr.(*Edge)
-	if err := e.fixAddr(s); err != nil {
-		return nil, err
-	}
 	raddr, err := s.lookupEdge(e)
 	if err != nil {
 		return nil, err
@@ -114,9 +111,6 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	e := addr.(*Edge)
-	if err := e.fixAddr(s); err != nil {
-		return err
-	}
 	raddr, err := s.lookupEdge(e)
 	if err != nil {
 		return err
@@ -200,7 +194,6 @@ func (s *Swarm) LocalAddrs() []p2p.Addr {
 	for tname, t := range s.transports {
 		for _, laddr := range t.LocalAddrs() {
 			edge := &Edge{
-				s:         s,
 				PeerID:    s.LocalID(),
 				Transport: tname,
 				Addr:      laddr,

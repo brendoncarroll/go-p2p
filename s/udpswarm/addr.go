@@ -22,19 +22,20 @@ func (a Addr) String() string {
 	return fmt.Sprintf("%s:%d", a.IP.String(), a.Port)
 }
 
-func (a *Addr) UnmarshalText(x []byte) error {
+func (s *Swarm) ParseAddr(x []byte) (p2p.Addr, error) {
+	a := &Addr{}
 	host, port, err := net.SplitHostPort(string(x))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if _, err = fmt.Sscan(port, &a.Port); err != nil {
-		return err
+		return nil, err
 	}
 	a.IP = net.ParseIP(host)
 	if a.IP == nil {
-		fmt.Errorf("could not parse ip from: %s", host)
+		return nil, fmt.Errorf("could not parse ip from: %s", host)
 	}
-	return err
+	return a, nil
 }
 
 func (a *Addr) MarshalText() ([]byte, error) {
