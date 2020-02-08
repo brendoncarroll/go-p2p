@@ -27,6 +27,8 @@ const DefaultMTU = 1 << 20
 
 var log = p2p.Logger
 
+var _ p2p.SecureAskSwarm = &Swarm{}
+
 type Swarm struct {
 	mtu       int
 	privKey   p2p.PrivateKey
@@ -136,6 +138,27 @@ func (s *Swarm) Close() error {
 func (s *Swarm) LocalAddrs() []p2p.Addr {
 	addr := s.makeLocalAddr(s.l.Addr())
 	return p2p.ExpandUnspecifiedIPs([]p2p.Addr{addr})
+}
+
+func (s *Swarm) MTU(context.Context, p2p.Addr) int {
+	return s.mtu
+}
+
+func (s *Swarm) PublicKey() p2p.PublicKey {
+	return s.privKey.Public()
+}
+
+func (s *Swarm) LookupPublicKey(x p2p.Addr) p2p.PublicKey {
+	a := x.(*Addr)
+	sess := s.getSession(a)
+	if sess == nil {
+		return nil
+	}
+	tlsState := sess.ConnectionState()
+	// ok to panic here on OOB, it is a bug to have a session with
+	// no certificates in the cache.
+	cert := tlsState.PeerCertificates[0]
+	return cert.PublicKey
 }
 
 func (s *Swarm) openSession(ctx context.Context, dst *Addr) (sess quic.Session, err error) {

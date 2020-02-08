@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"regexp"
+	"strconv"
 
 	"github.com/brendoncarroll/go-p2p"
 )
@@ -28,11 +30,27 @@ func (a *Addr) MarshalText() ([]byte, error) {
 	return []byte(y), nil
 }
 
-func (a *Addr) UnmarshalText(data []byte) error {
-	panic("not implemented")
+var addrRe = regexp.MustCompile(`^([A-z0-9\-_]+)@(.+):([0-9]+)$`)
 
-	if a.Port < 0 {
+func (a *Addr) UnmarshalText(data []byte) error {
+	groups := addrRe.FindSubmatch(data)
+	if len(groups) < 3 {
+		return errors.New("could not parse addr")
+	}
+	if err := a.ID.UnmarshalText(groups[0]); err != nil {
+		return err
+	}
+	if ip := net.ParseIP(string(groups[1])); ip == nil {
+		return errors.New("could not parse ip")
+	} else {
+		a.IP = ip
+	}
+	port, _ := strconv.Atoi(string(groups[2]))
+	a.Port = port
+	if port < 0 {
 		return errors.New("invalid port")
+	} else {
+		a.Port = port
 	}
 	return nil
 }
