@@ -12,6 +12,7 @@ type PublicKey = crypto.PublicKey
 func MarshalPublicKey(x PublicKey) []byte {
 	data, err := x509.MarshalPKIXPublicKey(x)
 	if err != nil {
+		log.Infof("%T %+v", x, x)
 		panic(err)
 	}
 	return data

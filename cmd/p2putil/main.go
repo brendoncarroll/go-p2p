@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/d/stdisco"
 	"github.com/brendoncarroll/go-p2p/s/aggswarm"
 	"github.com/brendoncarroll/go-p2p/s/natswarm"
 	"github.com/brendoncarroll/go-p2p/s/sshswarm"
@@ -65,7 +64,7 @@ var testConnectCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		_, privKey, _ := ed25519.GenerateKey(rand.Reader)
 
-		s1, err := sshswarm.New("0.0.0.0:", privKey)
+		s1, err := sshswarm.New("0.0.0.0:", privKey, nil)
 		if err != nil {
 			log.Error(err)
 		}
@@ -80,10 +79,6 @@ var testConnectCmd = &cobra.Command{
 			s2.Tell(ctx, m.Src, m.Payload)
 			log.Println("MSG:", m.Src, "->", m.Dst, " ", m.Payload)
 		})
-
-		disco := stdisco.NewClient(privKey, stdisco.PublicEndpoint)
-		beac := p2p.NewBeacon(disco, s3, 5*time.Second)
-		defer beac.Close()
 
 		addrs := map[string]p2p.Addr{}
 		for {

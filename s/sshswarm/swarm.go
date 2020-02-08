@@ -55,6 +55,7 @@ func New(laddr string, privateKey p2p.PrivateKey, af AllowFunc) (*Swarm, error) 
 		pubKey: privateKey.Public(),
 		signer: signer,
 		l:      l,
+		af:     af,
 
 		handleAsk:  p2p.NoOpAskHandler,
 		handleTell: p2p.NoOpTellHandler,
