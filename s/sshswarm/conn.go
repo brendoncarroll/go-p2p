@@ -41,7 +41,11 @@ func newServer(s *Swarm, netConn net.Conn, af AllowFunc) (*Conn, error) {
 	if pubKey == nil {
 		return nil, errors.New("pubkey not set after connection")
 	}
-	remoteID := p2p.NewPeerID(pubKey)
+	convertKey, ok := pubKey.(ssh.CryptoPublicKey)
+	if !ok {
+		return nil, errors.New("public key not supported")
+	}
+	remoteID := p2p.NewPeerID(convertKey.CryptoPublicKey())
 	if !af(remoteID) {
 		return nil, errors.New("peer is not allowed")
 	}
