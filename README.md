@@ -77,6 +77,8 @@ Applies the mappings to values returned from `LocalAddr`
 
 Routers for distributed routing protocols like CJDNS, or Yggdrasil would be next on the wishlist.
 
+The `swarmutil` package contains utilities for writing `Swarms` and a test suite to make sure it exhibits all the behaviors expected.
+
 ### P is for Protocols
 
 The utility of this library is determined entirely by how easily well-known p2p algorithms can be built and composed using it's primitives.

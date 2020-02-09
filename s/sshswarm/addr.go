@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"regexp"
 	"strconv"
@@ -46,21 +47,26 @@ func (a *Addr) MarshalText() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-var addrRe = regexp.MustCompile(`^([A-z0-9\-_]+)@(.+):([0-9]+)$`)
+var addrRe = regexp.MustCompile(`^([A-z0-9\-_/:]+)@(.+):([0-9]+)$`)
 
 func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	a := &Addr{}
 	matches := addrRe.FindSubmatch(data)
-	if len(matches) < 3 {
+	if len(matches) < 4 {
+		log.Println(matches)
 		return nil, errors.New("could not parse addr")
 	}
-	a.Fingerprint = string(matches[0])
-	if ip := net.ParseIP(string(matches[1])); ip == nil {
+	a.Fingerprint = string(matches[1])
+	if ip := net.ParseIP(string(matches[2])); ip == nil {
 		return nil, errors.New("could not parse ip")
 	} else {
 		a.IP = ip
 	}
-	port, _ := strconv.Atoi(string(matches[2]))
+	if a.IP.To4() != nil {
+		a.IP = a.IP.To4()
+	}
+
+	port, _ := strconv.Atoi(string(matches[3]))
 	a.Port = port
 	return a, nil
 }

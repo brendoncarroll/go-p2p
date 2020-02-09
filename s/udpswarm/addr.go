@@ -35,6 +35,9 @@ func (s *Swarm) ParseAddr(x []byte) (p2p.Addr, error) {
 	if a.IP == nil {
 		return nil, fmt.Errorf("could not parse ip from: %s", host)
 	}
+	if a.IP.To4() != nil {
+		a.IP = a.IP.To4()
+	}
 	return a, nil
 }
 

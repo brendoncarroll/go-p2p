@@ -3,8 +3,8 @@ package udpswarm
 import (
 	"context"
 	"errors"
-	"log"
 	"net"
+	"strings"
 
 	"github.com/brendoncarroll/go-p2p"
 )
@@ -15,6 +15,8 @@ const (
 
 	TheoreticalMTU = 1 << 16
 )
+
+var log = p2p.Logger
 
 var _ interface {
 	p2p.Swarm
@@ -95,7 +97,10 @@ func (s *Swarm) loop() {
 	for {
 		n, addr, err := s.conn.ReadFromUDP(buf)
 		if err != nil {
-			log.Println(err)
+			if strings.Contains(err.Error(), "use of closed network connection") {
+				return
+			}
+			log.Error(err)
 			return
 		}
 

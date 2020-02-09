@@ -30,23 +30,26 @@ func (a *Addr) MarshalText() ([]byte, error) {
 	return []byte(y), nil
 }
 
-var addrRe = regexp.MustCompile(`^([A-z0-9\-_]+)@(.+):([0-9]+)$`)
+var addrRe = regexp.MustCompile(`^([A-z0-9\-_]+)@([0-9.]+):([0-9]+)$`)
 
 func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	a := &Addr{}
 	groups := addrRe.FindSubmatch(data)
-	if len(groups) < 3 {
+	if len(groups) != 4 {
 		return nil, errors.New("could not parse addr")
 	}
-	if err := a.ID.UnmarshalText(groups[0]); err != nil {
+	if err := a.ID.UnmarshalText(groups[1]); err != nil {
 		return nil, err
 	}
-	if ip := net.ParseIP(string(groups[1])); ip == nil {
+	if ip := net.ParseIP(string(groups[2])); ip == nil {
 		return nil, errors.New("could not parse ip")
 	} else {
 		a.IP = ip
 	}
-	port, _ := strconv.Atoi(string(groups[2]))
+	if a.IP.To4() != nil {
+		a.IP = a.IP.To4()
+	}
+	port, _ := strconv.Atoi(string(groups[3]))
 	a.Port = port
 	if port < 0 {
 		return nil, errors.New("invalid port")
