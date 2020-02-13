@@ -150,7 +150,7 @@ func (s *Swarm) PublicKey() p2p.PublicKey {
 }
 
 func (s *Swarm) LookupPublicKey(addr p2p.Addr) p2p.PublicKey {
-	a := addr.(*Addr)
+	a := addr.(Addr)
 	other := s.r.swarms[a.N]
 	return other.privateKey.Public()
 }
