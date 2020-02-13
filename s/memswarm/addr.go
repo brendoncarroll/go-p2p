@@ -14,12 +14,12 @@ func (a Addr) Key() string {
 	return strconv.Itoa(a.N)
 }
 
-func (a *Addr) MarshalText() ([]byte, error) {
+func (a Addr) MarshalText() ([]byte, error) {
 	return []byte(strconv.Itoa(a.N)), nil
 }
 
 func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
-	a := &Addr{}
+	a := Addr{}
 	n, err := strconv.Atoi(string(data))
 	if err != nil {
 		return nil, err

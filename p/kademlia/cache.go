@@ -1,6 +1,7 @@
 package kademlia
 
 import (
+	"bytes"
 	"math/bits"
 )
 
@@ -43,12 +44,12 @@ func (kc *Cache) Lookup(key []byte) interface{} {
 	return e.Value
 }
 
-func (kc *Cache) Add(key []byte, v interface{}) (evicted *Entry) {
+func (kc *Cache) Put(key []byte, v interface{}) (evicted *Entry) {
 	e := Entry{Key: key, Value: v}
 	dist := XORBytes(kc.locus, e.Key)
 	lz := Leading0s(dist)
 
-	for len(kc.entries) < lz {
+	for len(kc.entries) <= lz {
 		kc.entries = append(kc.entries, map[string]Entry{})
 	}
 	b := kc.entries[lz]
@@ -89,6 +90,28 @@ func (kc *Cache) ForEach(fn func(e Entry) bool) {
 			}
 		}
 	}
+}
+
+func (kc *Cache) Closest(key []byte) *Entry {
+	dist := XORBytes(kc.locus, key)
+	lz := Leading0s(dist)
+
+	if len(kc.entries) < lz {
+		return nil
+	}
+	b := kc.entries[lz]
+
+	var minDist []byte
+	var closestEntry *Entry
+	for _, e := range b {
+		dist = XORBytes(e.Key, key)
+		if minDist == nil || bytes.Compare(dist, minDist) < 0 {
+			minDist = dist
+			closestEntry = &e
+		}
+	}
+
+	return closestEntry
 }
 
 func (kc *Cache) evict() *Entry {

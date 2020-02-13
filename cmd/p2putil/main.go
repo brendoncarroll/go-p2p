@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/aggswarm"
+	"github.com/brendoncarroll/go-p2p/s/multiswarm"
 	"github.com/brendoncarroll/go-p2p/s/natswarm"
 	"github.com/brendoncarroll/go-p2p/s/quicswarm"
 	"github.com/brendoncarroll/go-p2p/s/sshswarm"
@@ -69,14 +69,14 @@ var testConnectCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		s12, err := quicswarm.New("0.0.0.0", privKey)
+		s12, err := quicswarm.New("0.0.0.0:", privKey)
 		if err != nil {
 			return err
 		}
 
 		s21 := natswarm.WrapSecureAsk(s11)
 		s22 := natswarm.WrapSecureAsk(s12)
-		s3 := aggswarm.New(privKey, map[string]aggswarm.Transport{
+		s3 := multiswarm.NewSecureAsk(map[string]p2p.SecureAskSwarm{
 			"ssh":  s21,
 			"quic": s22,
 		})

@@ -41,15 +41,20 @@ type AskSwarm interface {
 	Asker
 }
 
+type Secure interface {
+	PublicKey() PublicKey
+	LookupPublicKey(addr Addr) PublicKey
+}
+
+type SecureSwarm interface {
+	Swarm
+	Secure
+}
+
 type SecureAskSwarm interface {
 	Swarm
 	Asker
 	Secure
-}
-
-type Secure interface {
-	PublicKey() PublicKey
-	LookupPublicKey(addr Addr) PublicKey
 }
 
 type Mux interface {

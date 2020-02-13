@@ -63,9 +63,10 @@ A secure swarm supporting `Asks` built on the SSH protocol (TCP based).
 - **QUIC Swarm**
 A secure swarm supporting `Asks` built on the QUIC protocol (UDP based).
 
-- **Aggregating Swarm**
-Aggregates messages from multiple transport swarms by the public key that sent them.
-Assigns indexes to each new `(swarm, address)` pair that is encountered.
+- **Multi Swarm**
+Aggregates messages from multiple transport swarms.
+Creates a multiplexed addressed space using names given to each subswarm.
+Applications can use this to "future-proof" their transport layer.
 
 - **In-Memory Swarm**
 A swarm which transfers data to other swarms in memory. Useful for testing.
@@ -74,6 +75,9 @@ A swarm which transfers data to other swarms in memory. Useful for testing.
 Creates and manages NAT mappings for addresses behind a IPv4 router using NAT.
 Applies the mappings to values returned from `LocalAddr`
 
+- **Peer Swarm**
+A swarm that uses PeerIDs as addresses.
+It requires an underlying swarm, and a function that maps PeerIDs to addresses.
 
 Routers for distributed routing protocols like CJDNS, or Yggdrasil would be next on the wishlist.
 

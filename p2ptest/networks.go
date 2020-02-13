@@ -32,3 +32,35 @@ func HubAndSpoke(swarms []p2p.Swarm) (adjList AdjList) {
 	}
 	return adjList
 }
+
+func Chain(swarms []p2p.Swarm) (adjList AdjList) {
+	adjList = make(AdjList, len(swarms))
+	for i := range adjList {
+		if i-1 >= 0 {
+			adjList[i] = append(adjList[i], swarms[i-1].LocalAddrs()[0])
+		}
+		if i+1 < len(swarms) {
+			adjList[i] = append(adjList[i], swarms[i+1].LocalAddrs()[0])
+		}
+	}
+	return adjList
+}
+
+func CastSlice(x interface{}) []p2p.Swarm {
+	swarms := []p2p.Swarm{}
+	switch x := x.(type) {
+	case []p2p.SecureAskSwarm:
+		for _, s := range x {
+			swarms = append(swarms, s)
+		}
+	case []p2p.SecureSwarm:
+		for _, s := range x {
+			swarms = append(swarms, s)
+		}
+	case []p2p.AskSwarm:
+		for _, s := range x {
+			swarms = append(swarms, s)
+		}
+	}
+	return swarms
+}

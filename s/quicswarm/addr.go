@@ -59,6 +59,10 @@ func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	return a, nil
 }
 
+func (a *Addr) GetPeerID() p2p.PeerID {
+	return a.ID
+}
+
 func (a *Addr) GetUDP() net.UDPAddr {
 	return net.UDPAddr{
 		IP:   a.IP,
