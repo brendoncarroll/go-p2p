@@ -4,9 +4,8 @@ go 1.13
 
 require (
 	github.com/google/go-cmp v0.4.0 // indirect
-	github.com/google/martian v2.1.0+incompatible
 	github.com/google/uuid v1.1.1
-	github.com/jonboulle/clockwork v0.1.0
+	github.com/jonboulle/clockwork v0.1.1-0.20190114141812-62fb9bc030d1
 	github.com/lucas-clemente/quic-go v0.14.0
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/sirupsen/logrus v1.4.2

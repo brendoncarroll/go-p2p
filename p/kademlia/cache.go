@@ -2,7 +2,6 @@ package kademlia
 
 import (
 	"bytes"
-	"log"
 	"math/bits"
 )
 
@@ -30,6 +29,7 @@ func NewCache(locus []byte, max, minPerBucket int) *Cache {
 	return kc
 }
 
+// Lookup returns the value at key
 func (kc *Cache) Lookup(key []byte) interface{} {
 	dist := XORBytes(key, kc.locus)
 	lz := Leading0s(dist)
@@ -45,6 +45,7 @@ func (kc *Cache) Lookup(key []byte) interface{} {
 	return e.Value
 }
 
+// Put puts an entry in the cache, replacing the entry at that key.
 func (kc *Cache) Put(key []byte, v interface{}) (evicted *Entry) {
 	e := Entry{Key: key, Value: v}
 	dist := XORBytes(kc.locus, e.Key)
@@ -66,6 +67,7 @@ func (kc *Cache) Put(key []byte, v interface{}) (evicted *Entry) {
 	return nil
 }
 
+// Delete removes the entry at the given key
 func (kc *Cache) Delete(key []byte) *Entry {
 	dist := XORBytes(kc.locus, key)
 	lz := Leading0s(dist)
@@ -95,6 +97,7 @@ func (kc *Cache) ForEach(fn func(e Entry) bool) {
 	}
 }
 
+// Closest returns the Entry in the cache where e.Key is closest to key.
 func (kc *Cache) Closest(key []byte) *Entry {
 	dist := XORBytes(kc.locus, key)
 	lz := Leading0s(dist)
@@ -117,6 +120,28 @@ func (kc *Cache) Closest(key []byte) *Entry {
 	return closestEntry
 }
 
+// IsFull returns whether the cache is full
+// further calls to Put will attempt an eviction.
+func (kc *Cache) IsFull() bool {
+	return kc.count >= kc.max
+}
+
+// WouldAccept returns the number of matching bits that would cause an
+// entry to make it into the cache.
+func (kc *Cache) WouldAccept() int {
+	for i, b := range kc.entries {
+		if len(b) < kc.minPerBucket {
+			return i
+		}
+	}
+	return len(kc.entries)
+}
+
+// Count returns the number of entries in the cache.
+func (kc *Cache) Count() int {
+	return kc.count
+}
+
 func (kc *Cache) evict() *Entry {
 	n := -1
 	for i, b := range kc.entries {
@@ -130,7 +155,6 @@ func (kc *Cache) evict() *Entry {
 	}
 
 	b := kc.entries[n]
-	log.Println("evicting", kc.count, kc.minPerBucket, len(b))
 	k := getOne(b)
 	ent := b[k]
 	delete(b, k)
