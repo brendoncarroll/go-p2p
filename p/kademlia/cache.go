@@ -2,6 +2,7 @@ package kademlia
 
 import (
 	"bytes"
+	"log"
 	"math/bits"
 )
 
@@ -53,9 +54,10 @@ func (kc *Cache) Put(key []byte, v interface{}) (evicted *Entry) {
 		kc.entries = append(kc.entries, map[string]Entry{})
 	}
 	b := kc.entries[lz]
+	if _, exists := b[string(e.Key)]; !exists {
+		kc.count++
+	}
 	b[string(e.Key)] = e
-	kc.entries[lz] = b
-	kc.count++
 
 	needToEvict := kc.count > kc.max
 	if needToEvict {
@@ -77,6 +79,7 @@ func (kc *Cache) Delete(key []byte) *Entry {
 		return nil
 	}
 	delete(b, string(key))
+	kc.count--
 	return &e
 }
 
@@ -115,17 +118,23 @@ func (kc *Cache) Closest(key []byte) *Entry {
 }
 
 func (kc *Cache) evict() *Entry {
-	n := 0
-	for i := 0; len(kc.entries[i]) <= kc.minPerBucket; i++ {
-		n = i
+	n := -1
+	for i, b := range kc.entries {
+		if len(b) > kc.minPerBucket {
+			n = i
+			break
+		}
 	}
-	if n >= len(kc.entries) {
+	if n < 0 {
 		return nil
 	}
+
 	b := kc.entries[n]
+	log.Println("evicting", kc.count, kc.minPerBucket, len(b))
 	k := getOne(b)
 	ent := b[k]
 	delete(b, k)
+	kc.count--
 	return &ent
 }
 

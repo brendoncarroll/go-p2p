@@ -24,6 +24,4 @@ func init() {
 			Logger.SetLevel(level)
 		}
 	}
-
-	Logger.Info("logging at level", Logger.GetLevel())
 }
