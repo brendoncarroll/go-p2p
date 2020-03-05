@@ -53,6 +53,28 @@ It will error if the message cannot be set in flight, but does not guarantee the
 The interface ends up resembling a hybrid between the server in `http` and the `PacketConn` interface from `net`
 
 ## Directory Organization 
+
+### C is for Cell
+Compare-and-swap cells are a synchronization primitive.
+They are less general than message passing (`Tell` and `Ask`).
+Message passing enables "push" communication, while cells only allow "pull" communication.
+A cell can be implemented on top of message-passing, but message-passing can only be approximated with a cell (by polling).
+
+Cells are useful for modeling shared state that can change.
+
+- **NaCl Cell**
+A cell which encrypts and signs its contents.
+A secret key must be shared to decrypte the cell contents.
+The payload also signed with a public key.
+
+### D is for Discovery
+Services for discovering peers.
+
+- **Cell Tracker**
+A tracker for announcing and looking up peer addresses.
+Works on top of any cell.
+A default client and server implementation are provided.
+
 ### S is for Swarm
 - **UDP Swarm**
 An insecure swarm, included mainly as a building block.
@@ -93,8 +115,6 @@ A package with a DHT, overlay network, and cache is in the works.  Right now a c
 - **Simple Multiplexing**
 A service which multiplexes multiple logical swarms, over the same underlying transport swarm.
 
-### D is for Discovery
-Services for discovering peers.
 
 ## PKI
 A `PeerID` type is provided to be used as the hash of public keys, for identifying peers.
