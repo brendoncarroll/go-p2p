@@ -62,6 +62,9 @@ A cell can be implemented on top of message-passing, but message-passing can onl
 
 Cells are useful for modeling shared state that can change.
 
+- **HTTP Cell**
+A cell implementation backed by an HTTP server.
+
 - **NaCl Cell**
 A cell which encrypts and signs its contents.
 A secret key must be shared to decrypte the cell contents.
