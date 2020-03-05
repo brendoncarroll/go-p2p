@@ -67,8 +67,7 @@ A cell implementation backed by an HTTP server.
 
 - **NaCl Cell**
 A cell which encrypts and signs its contents.
-A secret key must be shared to decrypte the cell contents.
-The payload also signed with a public key.
+A secret key must be shared to decrypt the cell contents.
 
 ### D is for Discovery
 Services for discovering peers.
