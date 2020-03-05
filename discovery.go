@@ -6,7 +6,6 @@ import (
 )
 
 type DiscoveryService interface {
-	Find(ctx context.Context, token string) ([]Addr, error)
-	Publish(ctx context.Context, addrs []Addr, ttl time.Duration) error
-	GetToken() string
+	Find(ctx context.Context, id PeerID) ([]string, error)
+	Announce(ctx context.Context, id PeerID, addrs []string, ttl time.Duration) error
 }
