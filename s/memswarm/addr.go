@@ -27,3 +27,7 @@ func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	a.N = n
 	return a, nil
 }
+
+func (a Addr) String() string {
+	return a.Key()
+}
