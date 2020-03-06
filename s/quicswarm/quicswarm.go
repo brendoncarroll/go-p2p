@@ -3,19 +3,13 @@ package quicswarm
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/hex"
 	"errors"
 	"io"
 	"io/ioutil"
-	"math/big"
 	"net"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
@@ -325,34 +319,8 @@ func addrFromSession(x quic.Session) (*Addr, error) {
 	}, nil
 }
 
-func generateSelfSigned(privKey p2p.PrivateKey) tls.Certificate {
-	template := x509.Certificate{
-		ExtKeyUsage: []x509.ExtKeyUsage{
-			x509.ExtKeyUsageClientAuth,
-			x509.ExtKeyUsageServerAuth,
-		},
-		BasicConstraintsValid: true,
-		NotBefore:             time.Now(),
-		KeyUsage:              x509.KeyUsageDigitalSignature,
-		NotAfter:              time.Now().AddDate(0, 1, 0),
-		SerialNumber:          big.NewInt(1),
-		Version:               2,
-		Subject:               pkix.Name{CommonName: hex.EncodeToString(make([]byte, 16))},
-		IsCA:                  true,
-	}
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, privKey.Public(), privKey)
-	if err != nil {
-		panic(err)
-	}
-
-	return tls.Certificate{
-		Certificate: [][]byte{certDER},
-		PrivateKey:  privKey,
-	}
-}
-
 func generateClientTLS(privKey p2p.PrivateKey) *tls.Config {
-	cert := generateSelfSigned(privKey)
+	cert := swarmutil.GenerateSelfSigned(privKey)
 
 	return &tls.Config{
 		Certificates:       []tls.Certificate{cert},
@@ -363,7 +331,7 @@ func generateClientTLS(privKey p2p.PrivateKey) *tls.Config {
 }
 
 func generateServerTLS(privKey p2p.PrivateKey) *tls.Config {
-	cert := generateSelfSigned(privKey)
+	cert := swarmutil.GenerateSelfSigned(privKey)
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		NextProtos:   []string{"go-p2p"},

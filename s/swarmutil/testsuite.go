@@ -29,7 +29,7 @@ func TestSuite(t *testing.T, fac SwarmFactory) {
 	}
 
 	func() {
-		xs := make([]p2p.Swarm, 1)
+		xs := make([]p2p.Swarm, 2)
 		fac(xs)
 		for i, x1 := range xs {
 			for j, x2 := range xs {
@@ -83,7 +83,7 @@ func TestTell(t *testing.T, src, dst p2p.Swarm) {
 	}
 
 	assert.Equal(t, string(payload), string(recv.Payload))
-	assert.Equal(t, dstAddr, recv.Dst, "DST addr is incorrect")
+	assert.Equal(t, dstAddr, recv.Dst, "DST addr incorrect. HAVE: %v WANT: %v", recv.Dst, dstAddr)
 	assert.NotNil(t, recv.Src, "SRC addr is nil")
 }
 

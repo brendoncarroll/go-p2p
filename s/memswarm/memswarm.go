@@ -6,6 +6,9 @@ import (
 	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
+	"io/ioutil"
 	"math/rand"
 	"time"
 
@@ -21,12 +24,20 @@ type Realm struct {
 	clock    clockwork.Clock
 	latency  time.Duration
 	dropRate float64
+	logw     io.Writer
 
 	swarms []*Swarm
 }
 
 func NewRealm() *Realm {
-	return &Realm{}
+	return &Realm{
+		logw: ioutil.Discard,
+	}
+}
+
+func (r Realm) WithLogging(w io.Writer) *Realm {
+	r.logw = w
+	return &r
 }
 
 func (r Realm) WithLatency(t time.Duration) *Realm {
@@ -45,6 +56,15 @@ func (r Realm) WithClock(clock clockwork.Clock) *Realm {
 func (r Realm) WithDropRate(dr float64) *Realm {
 	r.dropRate = dr
 	return &r
+}
+
+func (r *Realm) log(isAsk bool, msg *p2p.Message) {
+	method := "TELL"
+	if isAsk {
+		method = "ASK_"
+	}
+	s := fmt.Sprintf("%s: %v -> %v : %x\n", method, msg.Src, msg.Dst, msg.Payload)
+	r.logw.Write([]byte(s))
 }
 
 func (r *Realm) block() bool {
@@ -97,6 +117,7 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 	if !s.r.block() {
 		return nil, errors.New("message dropped")
 	}
+	s.r.log(true, msg)
 	buf := bytes.Buffer{}
 	lw := &swarmutil.LimitWriter{W: &buf, N: MTU}
 	s.r.swarms[a.N].handleAsk(ctx, msg, lw)
@@ -113,6 +134,7 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	if !s.r.block() {
 		return nil
 	}
+	s.r.log(false, msg)
 	s.r.swarms[a.N].handleTell(msg)
 	return nil
 }
