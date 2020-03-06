@@ -103,6 +103,11 @@ Applies the mappings to values returned from `LocalAddr`
 A swarm that uses PeerIDs as addresses.
 It requires an underlying swarm, and a function that maps PeerIDs to addresses.
 
+- **DTLS Swarm**
+A secure higher order swarm.
+It secures messages using the DTLS protocol.
+It can run on top of any other swarm.
+
 Routers for distributed routing protocols like CJDNS, or Yggdrasil would be next on the wishlist.
 
 The `swarmutil` package contains utilities for writing `Swarms` and a test suite to make sure it exhibits all the behaviors expected.
