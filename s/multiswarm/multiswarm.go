@@ -18,15 +18,15 @@ func NewSwarm(m map[string]p2p.Swarm) p2p.Swarm {
 	return multiSwarm(m)
 }
 
-func NewSecure(m map[string]p2p.AskSwarm) p2p.AskSwarm {
+func NewSecure(m map[string]p2p.SecureSwarm) p2p.SecureSwarm {
 	ms := multiSwarm{}
-	ma := multiAsker{}
+	msec := multiSecure{}
 
 	for name, s := range m {
 		ms[name] = s
-		ma[name] = s
+		msec[name] = s
 	}
-	return p2p.ComposeAskSwarm(ms, ma)
+	return p2p.ComposeSecureSwarm(ms, msec)
 }
 
 func NewSecureAsk(m map[string]p2p.SecureAskSwarm) p2p.SecureSwarm {

@@ -61,6 +61,11 @@ type Mux interface {
 	OpenChannel(string) (Swarm, error)
 }
 
+type composedSecureSwarm struct {
+	Swarm
+	Secure
+}
+
 type composedAskSwarm struct {
 	Swarm
 	Asker
@@ -83,6 +88,13 @@ func ComposeSecureAskSwarm(swarm Swarm, ask Asker, sec Secure) SecureAskSwarm {
 	return composedSecureAskSwarm{
 		Swarm:  swarm,
 		Asker:  ask,
+		Secure: sec,
+	}
+}
+
+func ComposeSecureSwarm(swarm Swarm, sec Secure) SecureSwarm {
+	return composedSecureSwarm{
+		Swarm:  swarm,
 		Secure: sec,
 	}
 }
