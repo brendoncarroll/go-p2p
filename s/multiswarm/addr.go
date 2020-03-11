@@ -26,7 +26,6 @@ func (a Addr) Key() string {
 
 func (a Addr) MarshalText() ([]byte, error) {
 	buf := bytes.Buffer{}
-	buf.WriteString("p2p-")
 	buf.WriteString(a.Transport)
 	buf.WriteString("://")
 	data, err := a.Addr.MarshalText()
@@ -37,7 +36,7 @@ func (a Addr) MarshalText() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-var addrRe = regexp.MustCompile(`^p2p-(.+?)://(.+)$`)
+var addrRe = regexp.MustCompile(`^(.+?)://(.+)$`)
 
 func (ms multiSwarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	addr := Addr{}
