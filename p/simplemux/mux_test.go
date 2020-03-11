@@ -18,13 +18,13 @@ func TestMux(t *testing.T) {
 	m1 := MultiplexSwarm(s1)
 	m2 := MultiplexSwarm(s2)
 
-	m1foo, err := m1.OpenChannel("foo")
+	m1foo, err := m1.Open("foo")
 	require.Nil(t, err)
-	m2foo, err := m2.OpenChannel("foo")
+	m2foo, err := m2.Open("foo")
 	require.Nil(t, err)
-	m1bar, err := m1.OpenChannel("bar")
+	m1bar, err := m1.Open("bar")
 	require.Nil(t, err)
-	m2bar, err := m2.OpenChannel("bar")
+	m2bar, err := m2.Open("bar")
 
 	var recvFoo, recvBar string
 	m1foo.OnTell(func(msg *p2p.Message) {

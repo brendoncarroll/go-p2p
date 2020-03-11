@@ -57,10 +57,6 @@ type SecureAskSwarm interface {
 	Secure
 }
 
-type Mux interface {
-	OpenChannel(string) (Swarm, error)
-}
-
 type composedSecureSwarm struct {
 	Swarm
 	Secure

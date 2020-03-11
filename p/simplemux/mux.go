@@ -18,7 +18,11 @@ const (
 )
 
 type Muxer interface {
-	OpenChannel(x string) (p2p.Swarm, error)
+	Open(x string) (p2p.Swarm, error)
+	OpenAsk(x string) (p2p.AskSwarm, error)
+	OpenSecure(x string) (p2p.SecureSwarm, error)
+	OpenSecureAsk(x string) (p2p.SecureAskSwarm, error)
+
 	LocalAddrs() []p2p.Addr
 }
 
@@ -150,7 +154,7 @@ func (m *muxer) handleAsk(ctx context.Context, msg *p2p.Message, w io.Writer) {
 	s.handleAsk(ctx, msg, w)
 }
 
-func (m *muxer) OpenChannel(x string) (p2p.Swarm, error) {
+func (m *muxer) Open(x string) (p2p.Swarm, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	_, exists := m.c2i[x]
@@ -164,13 +168,39 @@ func (m *muxer) OpenChannel(x string) (p2p.Swarm, error) {
 	m.c2i[x] = i
 	m.i2c = append(m.i2c, x)
 	m.swarms = append(m.swarms, s)
+	return s, nil
+}
 
-	switch x := m.s.(type) {
-	case p2p.SecureAskSwarm:
-		return p2p.ComposeSecureAskSwarm(s, s, x), nil
-	default:
-		panic("invalid swarm")
+func (m *muxer) OpenAsk(x string) (p2p.AskSwarm, error) {
+	_ = m.s.(p2p.AskSwarm)
+
+	s, err := m.Open(x)
+	if err != nil {
+		return nil, err
 	}
+
+	return p2p.ComposeAskSwarm(s, s.(p2p.Asker)), nil
+}
+
+func (m *muxer) OpenSecure(x string) (p2p.SecureSwarm, error) {
+	sec := m.s.(p2p.SecureSwarm)
+
+	s, err := m.Open(x)
+	if err != nil {
+		return nil, err
+	}
+	return p2p.ComposeSecureSwarm(s, sec), nil
+}
+
+func (m *muxer) OpenSecureAsk(x string) (p2p.SecureAskSwarm, error) {
+	sec := m.s.(p2p.SecureAskSwarm)
+
+	s, err := m.Open(x)
+	if err != nil {
+		return nil, err
+	}
+
+	return p2p.ComposeSecureAskSwarm(s, s.(p2p.Asker), sec), nil
 }
 
 func (m *muxer) Close() error {

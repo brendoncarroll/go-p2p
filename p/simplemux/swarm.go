@@ -44,7 +44,15 @@ func (s *baseSwarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error 
 }
 
 func (s *baseSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
-	return nil, nil
+	innerSwarm := s.m.s.(p2p.AskSwarm)
+	i, err := s.m.lookup(ctx, addr, s.name)
+	if err != nil {
+		return nil, err
+	}
+	msg := Message{}
+	msg.SetChannel(i)
+	msg.SetData(data)
+	return innerSwarm.Ask(ctx, addr, msg)
 }
 
 func (s *baseSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
