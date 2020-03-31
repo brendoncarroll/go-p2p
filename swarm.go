@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"bytes"
 	"context"
 	"io"
 )
@@ -8,6 +9,35 @@ import (
 type Message struct {
 	Dst, Src Addr
 	Payload  []byte
+	Vector   [][]byte
+}
+
+func (m *Message) AsBytes() []byte {
+	if m.Payload != nil {
+		return m.Payload
+	}
+
+	w := bytes.Buffer{}
+	for _, data := range m.Vector {
+		if _, err := w.Write(data); err != nil {
+			panic(err)
+		}
+	}
+	return w.Bytes()
+}
+
+func (m *Message) WriteAll(w io.Writer) error {
+	if m.Payload != nil {
+		_, err := w.Write(m.Payload)
+		return err
+	}
+
+	for _, data := range m.Vector {
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type AskHandler func(ctx context.Context, req *Message, w io.Writer)
