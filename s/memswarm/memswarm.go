@@ -120,7 +120,9 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 	s.r.log(true, msg)
 	buf := bytes.Buffer{}
 	lw := &swarmutil.LimitWriter{W: &buf, N: MTU}
-	s.r.swarms[a.N].handleAsk(ctx, msg, lw)
+	s2 := s.r.swarms[a.N]
+	handleAsk := swarmutil.AtomicGetAH(&s2.handleAsk)
+	handleAsk(ctx, msg, lw)
 	return buf.Bytes(), nil
 }
 
@@ -135,7 +137,9 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 		return nil
 	}
 	s.r.log(false, msg)
-	s.r.swarms[a.N].handleTell(msg)
+	s2 := s.r.swarms[a.N]
+	handleTell := swarmutil.AtomicGetTH(&s2.handleTell)
+	handleTell(msg)
 	return nil
 }
 
@@ -143,14 +147,14 @@ func (s *Swarm) OnAsk(fn p2p.AskHandler) {
 	if fn == nil {
 		fn = p2p.NoOpAskHandler
 	}
-	s.handleAsk = fn
+	swarmutil.AtomicSetAH(&s.handleAsk, fn)
 }
 
 func (s *Swarm) OnTell(fn p2p.TellHandler) {
 	if fn == nil {
 		fn = p2p.NoOpTellHandler
 	}
-	s.handleTell = fn
+	swarmutil.AtomicSetTH(&s.handleTell, fn)
 }
 
 func (s *Swarm) LocalAddrs() []p2p.Addr {

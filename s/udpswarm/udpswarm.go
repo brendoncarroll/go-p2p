@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 )
 
 const (
@@ -57,7 +58,7 @@ func New(laddr string) (*Swarm, error) {
 }
 
 func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	s.handleTell = fn
+	swarmutil.AtomicSetTH(&s.handleTell, fn)
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
@@ -89,6 +90,7 @@ func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
 }
 
 func (s *Swarm) Close() error {
+	swarmutil.AtomicSetTH(&s.handleTell, p2p.NoOpTellHandler)
 	return s.conn.Close()
 }
 
@@ -109,6 +111,7 @@ func (s *Swarm) loop() {
 			Dst:     s.LocalAddrs()[0],
 			Payload: buf[:n],
 		}
-		s.handleTell(msg)
+		handleTell := swarmutil.AtomicGetTH(&s.handleTell)
+		handleTell(msg)
 	}
 }

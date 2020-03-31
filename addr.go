@@ -40,10 +40,10 @@ func ExpandUnspecifiedIPs(xs []Addr) (ys []Addr) {
 			for _, addr := range addrs {
 				ipNet := addr.(*net.IPNet)
 				switch {
-				case ipNet.IP.IsLoopback():
-					continue
-				case ipNet.IP.IsLinkLocalMulticast():
-					continue
+				// case ipNet.IP.IsLoopback():
+				// 	continue
+				// case ipNet.IP.IsLinkLocalMulticast():
+				// 	continue
 				default:
 					y := hasIP.MapIP(ipNet.IP)
 					ys = append(ys, y)

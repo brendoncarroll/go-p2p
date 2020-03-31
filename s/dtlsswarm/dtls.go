@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
@@ -54,7 +55,7 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) (err error
 }
 
 func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	s.handleTell = fn
+	swarmutil.AtomicSetTH(&s.handleTell, fn)
 }
 
 func (s *Swarm) LocalAddrs() (addrs []p2p.Addr) {
@@ -108,11 +109,11 @@ func (s *Swarm) PublicKey() p2p.PublicKey {
 
 func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
 	dst := addr.(Addr)
-	return s.inner.MTU(ctx, dst) - DTLSOverhead
+	return s.inner.MTU(ctx, dst.Addr) - DTLSOverhead
 }
 
 func (s *Swarm) Close() error {
-	s.handleTell = p2p.NoOpTellHandler
+	s.OnTell(p2p.NoOpTellHandler)
 	return nil
 }
 
@@ -135,7 +136,7 @@ func (s *Swarm) send(ctx context.Context, dst Addr, data []byte) (err error) {
 
 	if !exists {
 		fakeConn, _ := s.getFakeConn(s.inner.LocalAddrs()[0], dst.Addr)
-		conn, err = s.dialConn(dst, fakeConn)
+		conn, err = s.dialConn(ctx, dst, fakeConn)
 		if err != nil {
 			return err
 		}
@@ -145,8 +146,12 @@ func (s *Swarm) send(ctx context.Context, dst Addr, data []byte) (err error) {
 }
 
 func (s *Swarm) serveConn(laddr, raddr p2p.Addr, fakeConn *swarmutil.FakeConn) error {
+	ctx := context.Background()
+	ctx, cf := context.WithTimeout(ctx, 3*time.Second)
+	defer cf()
+
 	config := generateServerConfig(s.privateKey)
-	conn, err := dtls.Server(fakeConn, config)
+	conn, err := dtls.ServerWithContext(ctx, fakeConn, config)
 	if err != nil {
 		return err
 	}
@@ -178,9 +183,9 @@ func (s *Swarm) serveConn(laddr, raddr p2p.Addr, fakeConn *swarmutil.FakeConn) e
 	return s.connLoop(laddr2, raddr2, conn)
 }
 
-func (s *Swarm) dialConn(raddr Addr, fakeConn *swarmutil.FakeConn) (*dtls.Conn, error) {
+func (s *Swarm) dialConn(ctx context.Context, raddr Addr, fakeConn *swarmutil.FakeConn) (*dtls.Conn, error) {
 	config := generateClientConfig(s.privateKey)
-	conn, err := dtls.Client(fakeConn, config)
+	conn, err := dtls.ClientWithContext(ctx, fakeConn, config)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +234,8 @@ func (s *Swarm) connLoop(laddr, raddr Addr, conn *dtls.Conn) error {
 			Dst:     laddr,
 			Payload: buf[:n],
 		}
-		s.handleTell(msg)
+		handleTell := swarmutil.AtomicGetTH(&s.handleTell)
+		handleTell(msg)
 	}
 }
 

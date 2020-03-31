@@ -2,6 +2,7 @@ package swarmutil
 
 import (
 	"context"
+	"io"
 	"net"
 	"time"
 )
@@ -25,15 +26,24 @@ func NewFakeConn() *FakeConn {
 }
 
 func (c *FakeConn) Deliver(msg []byte) {
+	if c.isClosed {
+		return
+	}
 	c.incoming <- msg
 	<-c.doneReading
 }
 
 func (c *FakeConn) Read(p []byte) (n int, err error) {
 	buf := <-c.incoming
-	n = copy(p, buf)
+
+	if len(p) >= len(buf) {
+		n = copy(p, buf)
+	} else {
+		err = io.ErrShortBuffer
+	}
+
 	c.doneReading <- struct{}{}
-	return n, nil
+	return n, err
 }
 
 func (c *FakeConn) Write(p []byte) (n int, err error) {

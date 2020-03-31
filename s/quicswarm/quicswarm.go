@@ -51,11 +51,11 @@ func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
 }
 
 func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	s.onTell = fn
+	swarmutil.AtomicSetTH(&s.onTell, fn)
 }
 
 func (s *Swarm) OnAsk(fn p2p.AskHandler) {
-	s.onAsk = fn
+	swarmutil.AtomicSetAH(&s.onAsk, fn)
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
@@ -241,7 +241,8 @@ func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr *Addr
 			}
 			buf := &bytes.Buffer{}
 			w := &swarmutil.LimitWriter{W: buf, N: s.mtu}
-			s.onAsk(ctx, m, w)
+			onAsk := swarmutil.AtomicGetAH(&s.onAsk)
+			onAsk(ctx, m, w)
 			if _, err := buf.WriteTo(stream); err != nil {
 				log.Error(err)
 			}
@@ -270,7 +271,8 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Add
 				Src:     srcAddr,
 				Payload: data,
 			}
-			s.onTell(m)
+			onTell := swarmutil.AtomicGetTH(&s.onTell)
+			onTell(m)
 		}()
 	}
 }

@@ -107,9 +107,9 @@ func (ps *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 
 func (ps *Swarm) markOnline(id p2p.PeerID, addr p2p.Addr) {
 	ps.mu.RLock()
-	addr2 := ps.lastAddrs[id]
+	addr2, exists := ps.lastAddrs[id]
 	ps.mu.RUnlock()
-	if addr2.Key() == addr.Key() {
+	if exists && (addr2.Key() == addr.Key()) {
 		return
 	}
 
@@ -120,7 +120,7 @@ func (ps *Swarm) markOnline(id p2p.PeerID, addr p2p.Addr) {
 
 func (ps *Swarm) markOffline(id p2p.PeerID, addr p2p.Addr) {
 	ps.mu.Lock()
-	if addr2 := ps.lastAddrs[id]; addr2.Key() == addr.Key() {
+	if addr2, exists := ps.lastAddrs[id]; exists && (addr2.Key() == addr.Key()) {
 		delete(ps.lastAddrs, id)
 	}
 	ps.mu.Unlock()
