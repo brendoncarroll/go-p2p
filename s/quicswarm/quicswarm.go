@@ -188,8 +188,7 @@ func (s *Swarm) serve(ctx context.Context) {
 }
 
 func (s *Swarm) handleSession(ctx context.Context, sess quic.Session) {
-	defer sess.Close()
-
+	defer sess.CloseWithError(0, "")
 	addr, err := addrFromSession(sess)
 	if err != nil {
 		log.Warn(err)
@@ -223,7 +222,7 @@ func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr *Addr
 		stream, err := sess.AcceptStream(ctx)
 		if err != nil {
 			log.Error(err)
-			sess.Close()
+			sess.CloseWithError(0, err.Error())
 			return
 		}
 
@@ -255,7 +254,7 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Add
 		stream, err := sess.AcceptUniStream(ctx)
 		if err != nil {
 			log.Error(err)
-			sess.Close()
+			sess.CloseWithError(0, err.Error())
 			return
 		}
 

@@ -40,7 +40,7 @@ func NewSwarm(s p2p.SecureSwarm, addrSource AddrSource) *Swarm {
 }
 
 func (ps *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
-	return ps.Tell(ctx, addr.(p2p.PeerID), data)
+	return ps.TellPeer(ctx, addr.(p2p.PeerID), data)
 }
 
 func (ps *Swarm) TellPeer(ctx context.Context, dst p2p.PeerID, data []byte) error {
