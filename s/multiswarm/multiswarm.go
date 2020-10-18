@@ -29,7 +29,7 @@ func NewSecure(m map[string]p2p.SecureSwarm) p2p.SecureSwarm {
 	return p2p.ComposeSecureSwarm(ms, msec)
 }
 
-func NewSecureAsk(m map[string]p2p.SecureAskSwarm) p2p.SecureSwarm {
+func NewSecureAsk(m map[string]p2p.SecureAskSwarm) p2p.SecureAskSwarm {
 	ms := multiSwarm{}
 	ma := multiAsker{}
 	msec := multiSecure{}

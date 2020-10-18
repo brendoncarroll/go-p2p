@@ -13,5 +13,6 @@ require (
 	github.com/stretchr/testify v1.6.1
 	github.com/syncthing/syncthing v1.3.4
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
 	gotest.tools v2.2.0+incompatible
 )

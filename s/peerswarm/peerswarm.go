@@ -44,8 +44,9 @@ func (ps *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 }
 
 func (ps *Swarm) TellPeer(ctx context.Context, dst p2p.PeerID, data []byte) error {
+	var err error
 	for _, addr := range ps.possibleAddrs(dst) {
-		err := ps.s.Tell(ctx, addr, data)
+		err = ps.s.Tell(ctx, addr, data)
 		if err != nil {
 			log.Error(err)
 			ps.markOffline(dst, addr)
@@ -54,6 +55,9 @@ func (ps *Swarm) TellPeer(ctx context.Context, dst p2p.PeerID, data []byte) erro
 			ps.markOnline(dst, addr)
 			return nil
 		}
+	}
+	if err != nil {
+		return err
 	}
 	return ErrPeerUnreachable
 }
@@ -158,16 +162,21 @@ func (ps *AskSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte
 }
 
 func (ps *AskSwarm) AskPeer(ctx context.Context, dst p2p.PeerID, data []byte) ([]byte, error) {
+	var err error
+	var res []byte
 	for _, addr := range ps.possibleAddrs(dst) {
-		res, err := ps.s.Ask(ctx, addr, data)
+		res, err = ps.s.Ask(ctx, addr, data)
 		if err != nil {
-			ps.markOffline(dst, addr)
 			log.Error(err)
+			ps.markOffline(dst, addr)
 			continue
 		} else {
 			ps.markOnline(dst, addr)
 			return res, nil
 		}
+	}
+	if err != nil {
+		return nil, err
 	}
 	return nil, ErrPeerUnreachable
 }

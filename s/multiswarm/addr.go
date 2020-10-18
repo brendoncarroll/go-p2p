@@ -9,9 +9,15 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 )
 
+var _ p2p.UnwrapAddr = Addr{}
+
 type Addr struct {
 	Transport string
 	Addr      p2p.Addr
+}
+
+func (a Addr) Unwrap() p2p.Addr {
+	return a.Addr
 }
 
 func (a Addr) String() string {

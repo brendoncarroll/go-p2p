@@ -31,7 +31,8 @@ func NewCache(locus []byte, max, minPerBucket int) *Cache {
 
 // Lookup returns the value at key
 func (kc *Cache) Lookup(key []byte) interface{} {
-	dist := XORBytes(key, kc.locus)
+	dist := make([]byte, len(kc.locus))
+	XORBytes(dist, key, kc.locus)
 	lz := Leading0s(dist)
 
 	if len(kc.entries) <= lz {
@@ -48,7 +49,8 @@ func (kc *Cache) Lookup(key []byte) interface{} {
 // Put puts an entry in the cache, replacing the entry at that key.
 func (kc *Cache) Put(key []byte, v interface{}) (evicted *Entry) {
 	e := Entry{Key: key, Value: v}
-	dist := XORBytes(kc.locus, e.Key)
+	dist := make([]byte, len(kc.locus))
+	XORBytes(dist, kc.locus, e.Key)
 	lz := Leading0s(dist)
 
 	for len(kc.entries) <= lz {
@@ -69,7 +71,8 @@ func (kc *Cache) Put(key []byte, v interface{}) (evicted *Entry) {
 
 // Delete removes the entry at the given key
 func (kc *Cache) Delete(key []byte) *Entry {
-	dist := XORBytes(kc.locus, key)
+	dist := make([]byte, len(kc.locus))
+	XORBytes(dist, kc.locus, key)
 	lz := Leading0s(dist)
 
 	if len(kc.entries) < lz {
@@ -99,7 +102,8 @@ func (kc *Cache) ForEach(fn func(e Entry) bool) {
 
 // Closest returns the Entry in the cache where e.Key is closest to key.
 func (kc *Cache) Closest(key []byte) *Entry {
-	dist := XORBytes(kc.locus, key)
+	dist := make([]byte, len(kc.locus))
+	XORBytes(dist, kc.locus, key)
 	lz := Leading0s(dist)
 
 	if len(kc.entries) < lz {
@@ -110,9 +114,9 @@ func (kc *Cache) Closest(key []byte) *Entry {
 	var minDist []byte
 	var closestEntry *Entry
 	for _, e := range b {
-		dist = XORBytes(e.Key, key)
+		XORBytes(dist, e.Key, key)
 		if minDist == nil || bytes.Compare(dist, minDist) < 0 {
-			minDist = dist
+			minDist = append([]byte{}, dist...)
 			closestEntry = &e
 		}
 	}
@@ -174,21 +178,14 @@ func Leading0s(x []byte) int {
 	return total
 }
 
-func XORBytes(a, b []byte) []byte {
-	var y []byte
-	if len(a) > len(b) {
-		y = make([]byte, len(a))
-		for i := range b {
-			y[i] = a[i] ^ b[i]
-		}
-	} else {
-		y = make([]byte, len(b))
-		for i := range a {
-			y[i] = a[i] ^ b[i]
-		}
+func XORBytes(dst, a, b []byte) {
+	l := len(a)
+	if len(b) < len(a) {
+		l = len(b)
 	}
-
-	return y
+	for i := 0; i < l; i++ {
+		dst[i] = a[i] ^ b[i]
+	}
 }
 
 func getOne(m map[string]Entry) string {

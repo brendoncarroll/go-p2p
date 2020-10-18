@@ -1,14 +1,18 @@
 package quicswarm
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"regexp"
 	"strconv"
 
+	"github.com/pkg/errors"
+
 	"github.com/brendoncarroll/go-p2p"
 )
+
+var _ p2p.HasIP = &Addr{}
+var _ p2p.MapIP = &Addr{}
 
 type Addr struct {
 	ID   p2p.PeerID
@@ -30,32 +34,33 @@ func (a *Addr) MarshalText() ([]byte, error) {
 	return []byte(y), nil
 }
 
-var addrRe = regexp.MustCompile(`^([A-z0-9\-_]+)@([0-9.]+):([0-9]+)$`)
+var addrRe = regexp.MustCompile(`^([A-z0-9\-_]+)@([0-9a-fA-F\.:]+):([0-9]+)$`)
 
 func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	a := &Addr{}
 	groups := addrRe.FindSubmatch(data)
 	if len(groups) != 4 {
-		return nil, errors.New("could not parse addr")
+		return nil, errors.Errorf("could not parse quic addr %s", string(data))
 	}
 	if err := a.ID.UnmarshalText(groups[1]); err != nil {
 		return nil, err
 	}
 	if ip := net.ParseIP(string(groups[2])); ip == nil {
-		return nil, errors.New("could not parse ip")
+		return nil, errors.Errorf("could not parse ip from %s", groups[2])
 	} else {
 		a.IP = ip
 	}
 	if a.IP.To4() != nil {
 		a.IP = a.IP.To4()
 	}
-	port, _ := strconv.Atoi(string(groups[3]))
-	a.Port = port
-	if port < 0 {
-		return nil, errors.New("invalid port")
-	} else {
-		a.Port = port
+	port, err := strconv.Atoi(string(groups[3]))
+	if err != nil {
+		return nil, errors.Wrapf(err, "error parsing port")
 	}
+	if port == 0 {
+		return nil, errors.New("invalid port")
+	}
+	a.Port = port
 	return a, nil
 }
 
@@ -77,7 +82,7 @@ func (a *Addr) MapUDP(x net.UDPAddr) p2p.Addr {
 	return &a2
 }
 
-func (a Addr) GetIP() net.IP {
+func (a *Addr) GetIP() net.IP {
 	return a.IP
 }
 

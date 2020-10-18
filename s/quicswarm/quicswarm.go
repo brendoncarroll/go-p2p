@@ -8,13 +8,13 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
-	"strconv"
 	"sync"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 const DefaultMTU = 1 << 20
@@ -24,10 +24,13 @@ var log = p2p.Logger
 var _ p2p.SecureAskSwarm = &Swarm{}
 
 type Swarm struct {
-	mtu       int
-	privKey   p2p.PrivateKey
-	l         quic.Listener
-	sessCache sync.Map
+	mtu     int
+	privKey p2p.PrivateKey
+	udpConn *net.UDPConn
+	l       quic.Listener
+
+	mu        sync.Mutex
+	sessCache map[string]quic.Session
 
 	onAsk  p2p.AskHandler
 	onTell p2p.TellHandler
@@ -35,16 +38,28 @@ type Swarm struct {
 
 func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
 	tlsConfig := generateServerTLS(privKey)
-	l, err := quic.ListenAddr(laddr, tlsConfig, generateQUICConfig())
+	udpAddr, err := net.ResolveUDPAddr("udp", laddr)
+	if err != nil {
+		return nil, err
+	}
+	udpConn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		return nil, err
+	}
+	l, err := quic.Listen(udpConn, tlsConfig, generateQUICConfig())
 	if err != nil {
 		return nil, err
 	}
 	s := &Swarm{
 		mtu:     DefaultMTU,
+		udpConn: udpConn,
 		l:       l,
 		privKey: privKey,
-		onAsk:   p2p.NoOpAskHandler,
-		onTell:  p2p.NoOpTellHandler,
+
+		sessCache: map[string]quic.Session{},
+
+		onAsk:  p2p.NoOpAskHandler,
+		onTell: p2p.NoOpTellHandler,
 	}
 	go s.serve(context.Background())
 	return s, nil
@@ -63,26 +78,21 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	if len(data) > s.mtu {
 		return p2p.ErrMTUExceeded
 	}
+	return s.withSession(ctx, dst, func(sess quic.Session) error {
+		// stream
+		stream, err := sess.OpenUniStreamSync(ctx)
+		if err != nil {
+			return err
+		}
+		defer stream.Close()
+		deadline, _ := ctx.Deadline()
+		if err := stream.SetWriteDeadline(deadline); err != nil {
+			return err
+		}
 
-	// session
-	sess, err := s.openSession(ctx, dst)
-	if err != nil {
+		_, err = stream.Write(data)
 		return err
-	}
-
-	// stream
-	stream, err := sess.OpenUniStreamSync(ctx)
-	if err != nil {
-		return err
-	}
-	defer stream.Close()
-	deadline, _ := ctx.Deadline()
-	if err := stream.SetWriteDeadline(deadline); err != nil {
-		return err
-	}
-
-	_, err = stream.Write(data)
-	return err
+	})
 }
 
 func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
@@ -90,37 +100,37 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 	if len(data) > s.mtu {
 		return nil, p2p.ErrMTUExceeded
 	}
-
-	// session
-	sess, err := s.openSession(ctx, dst)
-	if err != nil {
+	var respData []byte
+	if err := s.withSession(ctx, dst, func(sess quic.Session) error {
+		// stream
+		stream, err := sess.OpenStreamSync(ctx)
+		if err != nil {
+			return err
+		}
+		defer stream.Close()
+		// deadlines
+		deadline, yes := ctx.Deadline()
+		if yes {
+			if err := stream.SetWriteDeadline(deadline); err != nil {
+				return err
+			}
+			if err := stream.SetReadDeadline(deadline); err != nil {
+				return err
+			}
+		}
+		// write
+		_, err = stream.Write(data)
+		if err != nil {
+			return err
+		}
+		// read
+		lr := io.LimitReader(stream, int64(s.mtu))
+		respData, err = ioutil.ReadAll(lr)
+		return err
+	}); err != nil {
 		return nil, err
 	}
-
-	// stream
-	stream, err := sess.OpenStreamSync(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer stream.Close()
-
-	deadline, _ := ctx.Deadline()
-	if err := stream.SetWriteDeadline(deadline); err != nil {
-		return nil, err
-	}
-	if err := stream.SetReadDeadline(deadline); err != nil {
-		return nil, err
-	}
-
-	// write
-	_, err = stream.Write(data)
-	if err != nil {
-		return nil, err
-	}
-
-	// read
-	lr := io.LimitReader(stream, int64(s.mtu))
-	return ioutil.ReadAll(lr)
+	return respData, nil
 }
 
 func (s *Swarm) Close() error {
@@ -144,7 +154,9 @@ func (s *Swarm) PublicKey() p2p.PublicKey {
 
 func (s *Swarm) LookupPublicKey(x p2p.Addr) p2p.PublicKey {
 	a := x.(*Addr)
-	sess := s.getSession(a)
+	s.mu.Lock()
+	sess := s.sessCache[a.Key()]
+	s.mu.Unlock()
 	if sess == nil {
 		return nil
 	}
@@ -155,25 +167,31 @@ func (s *Swarm) LookupPublicKey(x p2p.Addr) p2p.PublicKey {
 	return cert.PublicKey
 }
 
-func (s *Swarm) openSession(ctx context.Context, dst *Addr) (sess quic.Session, err error) {
-	sess = s.getSession(dst)
-	if sess != nil {
-		return sess, nil
+func (s *Swarm) withSession(ctx context.Context, dst *Addr, fn func(sess quic.Session) error) error {
+	s.mu.Lock()
+	sess, exists := s.sessCache[dst.Key()]
+	s.mu.Unlock()
+	if exists {
+		return fn(sess)
 	}
-	raddr := dst.IP.String() + ":" + strconv.Itoa(dst.Port)
-	sess, err = quic.DialAddrContext(ctx, raddr, generateClientTLS(s.privKey), generateQUICConfig())
+
+	raddr := net.UDPAddr{
+		IP:   dst.IP,
+		Port: dst.Port,
+	}
+	sess, err := quic.DialContext(ctx, s.udpConn, &raddr, raddr.String(), generateClientTLS(s.privKey), generateQUICConfig())
 	if err != nil {
-		return nil, err
+		return err
 	}
 	confirmAddr, err := addrFromSession(sess)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !confirmAddr.Equals(dst) {
-		return nil, errors.New("wrong peer")
+		return errors.New("wrong peer")
 	}
 	go s.handleSession(context.Background(), sess)
-	return sess, nil
+	return fn(sess)
 }
 
 func (s *Swarm) serve(ctx context.Context) {
@@ -198,32 +216,35 @@ func (s *Swarm) handleSession(ctx context.Context, sess quic.Session) {
 		"remote_addr": *addr,
 	}).Debug("session established")
 
-	// add session to cache
-	s.putSession(addr, sess)
-	defer s.deleteSession(addr)
-
-	// run serve loops
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	go func() {
-		s.handleAsks(ctx, sess, addr)
-		wg.Done()
+	s.mu.Lock()
+	s.sessCache[addr.Key()] = sess
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.sessCache, addr.Key())
+		s.mu.Unlock()
 	}()
-	go func() {
-		s.handleTells(ctx, sess, addr)
-		wg.Done()
-	}()
-	wg.Wait()
 
+	group := errgroup.Group{}
+	group.Go(func() error {
+		return s.handleAsks(ctx, sess, addr)
+	})
+	group.Go(func() error {
+		return s.handleTells(ctx, sess, addr)
+	})
+	if err := group.Wait(); err != nil {
+		logrus.Error(err)
+		if err := sess.CloseWithError(0, err.Error()); err != nil {
+			logrus.Error(err)
+		}
+	}
 }
 
-func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr *Addr) {
+func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr *Addr) error {
 	for {
 		stream, err := sess.AcceptStream(ctx)
 		if err != nil {
-			log.Error(err)
-			sess.CloseWithError(0, err.Error())
-			return
+			return err
 		}
 
 		go func() {
@@ -249,13 +270,11 @@ func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr *Addr
 	}
 }
 
-func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Addr) {
+func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Addr) error {
 	for {
 		stream, err := sess.AcceptUniStream(ctx)
 		if err != nil {
-			log.Error(err)
-			sess.CloseWithError(0, err.Error())
-			return
+			return err
 		}
 
 		go func() {
@@ -274,22 +293,6 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Add
 			onTell(m)
 		}()
 	}
-}
-
-func (s *Swarm) putSession(addr *Addr, sess quic.Session) {
-	s.sessCache.Store(addr.Key(), sess)
-}
-
-func (s *Swarm) getSession(addr *Addr) quic.Session {
-	x, ok := s.sessCache.Load(addr.Key())
-	if !ok {
-		return nil
-	}
-	return x.(quic.Session)
-}
-
-func (s *Swarm) deleteSession(addr *Addr) {
-	s.sessCache.Delete(addr.Key())
 }
 
 func (s *Swarm) makeLocalAddr(x net.Addr) *Addr {
