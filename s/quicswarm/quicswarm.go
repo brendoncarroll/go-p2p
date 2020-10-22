@@ -199,17 +199,10 @@ func (s *Swarm) withSession(ctx context.Context, dst *Addr, fn func(sess quic.Se
 	if !peerAddr.Equals(dst) {
 		return errors.New("wrong peer")
 	}
+	s.putSession(peerAddr, sess)
 	log.WithFields(logrus.Fields{
 		"remote_addr": peerAddr,
 	}).Debug("session established via dial")
-	s.mu.Lock()
-	if oldSess, exists := s.sessCache[peerAddr.Key()]; exists {
-		if err := oldSess.CloseWithError(0, "session replaced"); err != nil {
-			log.Error(err)
-		}
-	}
-	s.sessCache[peerAddr.Key()] = sess
-	s.mu.Unlock()
 	go s.handleSession(context.Background(), sess, peerAddr)
 	return fn(sess)
 }
@@ -226,6 +219,7 @@ func (s *Swarm) serve(ctx context.Context) {
 			log.Warn(err)
 			continue
 		}
+		s.putSession(addr, sess)
 		log.WithFields(logrus.Fields{
 			"remote_addr": addr,
 		}).Debug("session established via listen")
@@ -236,11 +230,9 @@ func (s *Swarm) serve(ctx context.Context) {
 func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, addr *Addr) {
 	defer func() {
 		s.mu.Lock()
-		sess.CloseWithError(0, "")
 		delete(s.sessCache, addr.Key())
 		s.mu.Unlock()
 	}()
-
 	group := errgroup.Group{}
 	group.Go(func() error {
 		return s.handleAsks(ctx, sess, addr)
@@ -249,11 +241,12 @@ func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, addr *Addr
 		return s.handleTells(ctx, sess, addr)
 	})
 	if err := group.Wait(); err != nil {
-		logrus.Error(err)
+		logrus.Error("closing session with error: ", err)
 		if err := sess.CloseWithError(1, err.Error()); err != nil {
 			logrus.Error(err)
 		}
 	}
+	sess.CloseWithError(0, "")
 }
 
 func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr *Addr) error {
@@ -316,6 +309,17 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Add
 			onTell(m)
 		}()
 	}
+}
+
+func (s *Swarm) putSession(addr *Addr, sess quic.Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if oldSess, exists := s.sessCache[addr.Key()]; exists {
+		if err := oldSess.CloseWithError(0, "session replaced"); err != nil {
+			log.Error(err)
+		}
+	}
+	s.sessCache[addr.Key()] = sess
 }
 
 func (s *Swarm) makeLocalAddr(x net.Addr) *Addr {
