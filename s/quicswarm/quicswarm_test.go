@@ -5,18 +5,32 @@ import (
 	"testing"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"github.com/brendoncarroll/go-p2p/s/swarmtest"
 	"github.com/stretchr/testify/require"
 )
 
-func TestSwarm(t *testing.T) {
-	swarmutil.TestSuite(t, func(xs []p2p.Swarm) {
+func TestQUICSwarm(t *testing.T) {
+	swarmtest.TestSuiteSwarm(t, func(n int, fn func(xs []p2p.Swarm)) {
+		xs := make([]p2p.Swarm, n)
 		for i := range xs {
 			privKey := getPrivateKey(i)
 			s, err := New("127.0.0.1:", privKey)
 			require.Nil(t, err)
 			xs[i] = s
 		}
+		fn(xs)
+		swarmtest.CloseSwarms(t, xs)
+	})
+	swarmtest.TestSuiteAskSwarm(t, func(n int, fn func(xs []p2p.AskSwarm)) {
+		xs := make([]p2p.AskSwarm, n)
+		for i := range xs {
+			privKey := getPrivateKey(i)
+			s, err := New("127.0.0.1:", privKey)
+			require.Nil(t, err)
+			xs[i] = s
+		}
+		fn(xs)
+		swarmtest.CloseAskSwarms(t, xs)
 	})
 }
 

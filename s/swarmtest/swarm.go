@@ -1,4 +1,4 @@
-package swarmutil
+package swarmtest
 
 import (
 	"context"
@@ -9,40 +9,33 @@ import (
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-type SwarmFactory func([]p2p.Swarm)
-type AskSwarmFactory func(int) []p2p.Swarm
-
-func TestSuite(t *testing.T, fac SwarmFactory) {
-
-	singleTests := []func(t *testing.T, x p2p.Swarm){
-		TestLocalAddrs,
-		TestMarshalParse,
-	}
-	for _, test := range singleTests {
-		xs := make([]p2p.Swarm, 1)
-		fac(xs)
-		x := xs[0]
-		test(t, x)
-		assert.Nil(t, x.Close())
-	}
-
-	func() {
-		xs := make([]p2p.Swarm, 2)
-		fac(xs)
-		for i, x1 := range xs {
-			for j, x2 := range xs {
-				if j == i {
-					continue
+func TestSuiteSwarm(t *testing.T, withSwarms func(int, func([]p2p.Swarm))) {
+	t.Run("TestLocalAddrs", func(t *testing.T) {
+		withSwarms(1, func(xs []p2p.Swarm) {
+			x := xs[0]
+			TestLocalAddrs(t, x)
+		})
+	})
+	t.Run("TestMarshalParse", func(t *testing.T) {
+		withSwarms(1, func(xs []p2p.Swarm) {
+			x := xs[0]
+			TestLocalAddrs(t, x)
+		})
+	})
+	t.Run("TestTell", func(t *testing.T) {
+		withSwarms(1, func(xs []p2p.Swarm) {
+			for i, x1 := range xs {
+				for j, x2 := range xs {
+					if j != i {
+						TestTell(t, x1, x2)
+					}
 				}
-				TestTell(t, x1, x2)
 			}
-		}
-		for _, x := range xs {
-			assert.Nil(t, x.Close())
-		}
-	}()
+		})
+	})
 }
 
 func TestLocalAddrs(t *testing.T, s p2p.Swarm) {
@@ -90,4 +83,16 @@ func TestTell(t *testing.T, src, dst p2p.Swarm) {
 func genPayload() []byte {
 	x := fmt.Sprintf("test-%d", mrand.Int63())
 	return []byte(x)
+}
+
+func CloseSwarms(t *testing.T, xs []p2p.Swarm) {
+	for i := range xs {
+		require.Nil(t, xs[i].Close())
+	}
+}
+
+func CloseAskSwarms(t *testing.T, xs []p2p.AskSwarm) {
+	for i := range xs {
+		require.Nil(t, xs[i].Close())
+	}
 }

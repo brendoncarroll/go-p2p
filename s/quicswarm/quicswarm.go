@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -85,11 +86,12 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 			return err
 		}
 		defer stream.Close()
-		deadline, _ := ctx.Deadline()
-		if err := stream.SetWriteDeadline(deadline); err != nil {
-			return err
+		deadline, yes := ctx.Deadline()
+		if yes {
+			if err := stream.SetWriteDeadline(deadline); err != nil {
+				return err
+			}
 		}
-
 		_, err = stream.Write(data)
 		return err
 	})
@@ -100,6 +102,9 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 	if len(data) > s.mtu {
 		return nil, p2p.ErrMTUExceeded
 	}
+	log := log.WithFields(logrus.Fields{
+		"remote_addr": dst,
+	})
 	var respData []byte
 	if err := s.withSession(ctx, dst, func(sess quic.Session) error {
 		// stream
@@ -108,6 +113,8 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 			return err
 		}
 		defer stream.Close()
+
+		log.Debugf("opened bidi-stream %d", stream.StreamID())
 		// deadlines
 		deadline, yes := ctx.Deadline()
 		if yes {
@@ -119,14 +126,16 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 			}
 		}
 		// write
-		_, err = stream.Write(data)
+		if err := writeFrame(stream, data); err != nil {
+			return err
+		}
+		log.Debug("ask request sent")
+		data, err := readFrame(stream, s.mtu)
 		if err != nil {
 			return err
 		}
-		// read
-		lr := io.LimitReader(stream, int64(s.mtu))
-		respData, err = ioutil.ReadAll(lr)
-		return err
+		respData = data
+		return nil
 	}); err != nil {
 		return nil, err
 	}
@@ -183,14 +192,25 @@ func (s *Swarm) withSession(ctx context.Context, dst *Addr, fn func(sess quic.Se
 	if err != nil {
 		return err
 	}
-	confirmAddr, err := addrFromSession(sess)
+	peerAddr, err := addrFromSession(sess)
 	if err != nil {
 		return err
 	}
-	if !confirmAddr.Equals(dst) {
+	if !peerAddr.Equals(dst) {
 		return errors.New("wrong peer")
 	}
-	go s.handleSession(context.Background(), sess)
+	log.WithFields(logrus.Fields{
+		"remote_addr": peerAddr,
+	}).Debug("session established via dial")
+	s.mu.Lock()
+	if oldSess, exists := s.sessCache[peerAddr.Key()]; exists {
+		if err := oldSess.CloseWithError(0, "session replaced"); err != nil {
+			log.Error(err)
+		}
+	}
+	s.sessCache[peerAddr.Key()] = sess
+	s.mu.Unlock()
+	go s.handleSession(context.Background(), sess, peerAddr)
 	return fn(sess)
 }
 
@@ -201,26 +221,22 @@ func (s *Swarm) serve(ctx context.Context) {
 			log.Error(err)
 			return
 		}
-		go s.handleSession(ctx, sess)
+		addr, err := addrFromSession(sess)
+		if err != nil {
+			log.Warn(err)
+			continue
+		}
+		log.WithFields(logrus.Fields{
+			"remote_addr": addr,
+		}).Debug("session established via listen")
+		go s.handleSession(ctx, sess, addr)
 	}
 }
 
-func (s *Swarm) handleSession(ctx context.Context, sess quic.Session) {
-	defer sess.CloseWithError(0, "")
-	addr, err := addrFromSession(sess)
-	if err != nil {
-		log.Warn(err)
-		return
-	}
-	log.WithFields(logrus.Fields{
-		"remote_addr": *addr,
-	}).Debug("session established")
-
-	s.mu.Lock()
-	s.sessCache[addr.Key()] = sess
-	s.mu.Unlock()
+func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, addr *Addr) {
 	defer func() {
 		s.mu.Lock()
+		sess.CloseWithError(0, "")
 		delete(s.sessCache, addr.Key())
 		s.mu.Unlock()
 	}()
@@ -234,40 +250,48 @@ func (s *Swarm) handleSession(ctx context.Context, sess quic.Session) {
 	})
 	if err := group.Wait(); err != nil {
 		logrus.Error(err)
-		if err := sess.CloseWithError(0, err.Error()); err != nil {
+		if err := sess.CloseWithError(1, err.Error()); err != nil {
 			logrus.Error(err)
 		}
 	}
 }
 
 func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr *Addr) error {
+	log := log.WithFields(logrus.Fields{"remote_addr": *srcAddr})
 	for {
 		stream, err := sess.AcceptStream(ctx)
 		if err != nil {
 			return err
 		}
-
+		log.Debug("accepted bidi-stream ", stream.StreamID())
 		go func() {
-			lr := io.LimitReader(stream, int64(s.mtu))
-			data, err := ioutil.ReadAll(lr)
-			if err != nil {
-				log.Error(err)
-				return
-			}
-			m := &p2p.Message{
-				Dst:     s.makeLocalAddr(sess.LocalAddr()),
-				Src:     srcAddr,
-				Payload: data,
-			}
-			buf := &bytes.Buffer{}
-			w := &swarmutil.LimitWriter{W: buf, N: s.mtu}
-			onAsk := swarmutil.AtomicGetAH(&s.onAsk)
-			onAsk(ctx, m, w)
-			if _, err := buf.WriteTo(stream); err != nil {
-				log.Error(err)
+			if err := s.handleAsk(ctx, stream, srcAddr, s.makeLocalAddr(sess.LocalAddr())); err != nil {
+				log.Errorf("error handling ask: %v", err)
 			}
 		}()
 	}
+}
+
+func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstAddr *Addr) error {
+	log := log.WithFields(logrus.Fields{"remote_addr": *srcAddr})
+	data, err := readFrame(stream, s.mtu)
+	if err != nil {
+		return err
+	}
+	log.Debugf("received ask request len=%d", len(data))
+	m := &p2p.Message{
+		Dst:     dstAddr,
+		Src:     srcAddr,
+		Payload: data,
+	}
+	respBuf := &bytes.Buffer{}
+	w := &swarmutil.LimitWriter{W: respBuf, N: s.mtu}
+	onAsk := swarmutil.AtomicGetAH(&s.onAsk)
+	onAsk(ctx, m, w)
+	if err := writeFrame(stream, respBuf.Bytes()); err != nil {
+		return err
+	}
+	return stream.Close()
 }
 
 func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Addr) error {
@@ -276,7 +300,6 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Add
 		if err != nil {
 			return err
 		}
-
 		go func() {
 			lr := io.LimitReader(stream, int64(s.mtu))
 			data, err := ioutil.ReadAll(lr)
@@ -345,4 +368,21 @@ func generateServerTLS(privKey p2p.PrivateKey) *tls.Config {
 
 func generateQUICConfig() *quic.Config {
 	return nil
+}
+
+func writeFrame(w io.Writer, data []byte) error {
+	if err := binary.Write(w, binary.BigEndian, uint32(len(data))); err != nil {
+		return err
+	}
+	_, err := w.Write(data)
+	return err
+}
+
+func readFrame(src io.Reader, maxLen int) ([]byte, error) {
+	var l uint32
+	binary.Read(src, binary.BigEndian, &l)
+	if int(l) > maxLen {
+		return nil, errors.New("frame is too big")
+	}
+	return ioutil.ReadAll(io.LimitReader(src, int64(l)))
 }
