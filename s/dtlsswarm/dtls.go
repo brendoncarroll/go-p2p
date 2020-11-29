@@ -3,6 +3,7 @@ package dtlsswarm
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -37,6 +38,11 @@ type Swarm struct {
 }
 
 func New(x p2p.Swarm, privateKey p2p.PrivateKey) *Swarm {
+	switch privateKey.(type) {
+	case ed25519.PrivateKey, *ed25519.PrivateKey:
+		panic("ed25519 keys not supported")
+	}
+
 	s := &Swarm{
 		inner:             x,
 		privateKey:        privateKey,
