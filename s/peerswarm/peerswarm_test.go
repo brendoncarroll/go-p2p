@@ -9,9 +9,9 @@ import (
 	"github.com/brendoncarroll/go-p2p/s/swarmtest"
 )
 
-func TestSuite(t *testing.T) {
+func TestPeerSwarm(t *testing.T) {
 	t.Parallel()
-	swarmtest.TestSuiteSwarm(t, func(n int, fn func(xs []p2p.Swarm)) {
+	swarmtest.TestSuiteSwarm(t, func(t testing.TB, n int) []p2p.Swarm {
 		r := memswarm.NewRealm()
 		//r = r.WithLogging(os.Stderr)
 		addrMap := map[p2p.PeerID][]p2p.Addr{}
@@ -25,7 +25,32 @@ func TestSuite(t *testing.T) {
 				return addrMap[id]
 			})
 		}
-		fn(xs)
-		swarmtest.CloseSwarms(t, xs)
+		t.Cleanup(func() {
+			swarmtest.CloseSwarms(t, xs)
+		})
+		return xs
+	})
+}
+
+func TestPeerAskSwarm(t *testing.T) {
+	t.Parallel()
+	swarmtest.TestSuiteAskSwarm(t, func(t testing.TB, n int) []p2p.AskSwarm {
+		r := memswarm.NewRealm()
+		//r = r.WithLogging(os.Stderr)
+		addrMap := map[p2p.PeerID][]p2p.Addr{}
+		xs := make([]p2p.AskSwarm, n)
+		for i := range xs {
+			u := r.NewSwarm()
+			k := p2ptest.GetTestKey(t, i)
+			addrMap[p2p.NewPeerID(k.Public())] = u.LocalAddrs()
+
+			xs[i] = NewAskSwarm(u, func(id p2p.PeerID) []p2p.Addr {
+				return addrMap[id]
+			})
+		}
+		t.Cleanup(func() {
+			swarmtest.CloseAskSwarms(t, xs)
+		})
+		return xs
 	})
 }

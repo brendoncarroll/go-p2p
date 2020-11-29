@@ -10,7 +10,7 @@ import (
 )
 
 func TestQUICSwarm(t *testing.T) {
-	swarmtest.TestSuiteSwarm(t, func(n int, fn func(xs []p2p.Swarm)) {
+	swarmtest.TestSuiteSwarm(t, func(t testing.TB, n int) []p2p.Swarm {
 		xs := make([]p2p.Swarm, n)
 		for i := range xs {
 			privKey := getPrivateKey(i)
@@ -18,10 +18,12 @@ func TestQUICSwarm(t *testing.T) {
 			require.Nil(t, err)
 			xs[i] = s
 		}
-		fn(xs)
-		swarmtest.CloseSwarms(t, xs)
+		t.Cleanup(func() {
+			swarmtest.CloseSwarms(t, xs)
+		})
+		return xs
 	})
-	swarmtest.TestSuiteAskSwarm(t, func(n int, fn func(xs []p2p.AskSwarm)) {
+	swarmtest.TestSuiteAskSwarm(t, func(t testing.TB, n int) []p2p.AskSwarm {
 		xs := make([]p2p.AskSwarm, n)
 		for i := range xs {
 			privKey := getPrivateKey(i)
@@ -29,8 +31,10 @@ func TestQUICSwarm(t *testing.T) {
 			require.Nil(t, err)
 			xs[i] = s
 		}
-		fn(xs)
-		swarmtest.CloseAskSwarms(t, xs)
+		t.Cleanup(func() {
+			swarmtest.CloseAskSwarms(t, xs)
+		})
+		return xs
 	})
 }
 

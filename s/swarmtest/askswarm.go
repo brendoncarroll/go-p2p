@@ -3,6 +3,7 @@ package swarmtest
 import (
 	"context"
 	"io"
+	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -12,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSuiteAskSwarm(t *testing.T, withSwarms func(int, func([]p2p.AskSwarm))) {
+func TestSuiteAskSwarm(t *testing.T, newSwarms func(testing.TB, int) []p2p.AskSwarm) {
 	t.Run("MultipleAsks", func(t *testing.T) {
-		withSwarms(2, func(xs []p2p.AskSwarm) {
-			TestMultipleAsks(t, xs)
-		})
+		xs := newSwarms(t, 10)
+		require.Len(t, xs, 10)
+		TestMultipleAsks(t, xs)
 	})
 }
 
@@ -29,8 +30,8 @@ func TestMultipleAsks(t *testing.T, xs []p2p.AskSwarm) {
 
 func TestAsk(t *testing.T, xs []p2p.AskSwarm) {
 	ctx := context.Background()
-	for i := range xs {
-		for j := range xs {
+	for _, i := range rand.Perm(len(xs)) {
+		for _, j := range rand.Perm(len(xs)) {
 			if i != j {
 				func() {
 					srcAddr := xs[i].LocalAddrs()[0]

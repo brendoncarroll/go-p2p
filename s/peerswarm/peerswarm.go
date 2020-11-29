@@ -13,14 +13,21 @@ type AddrSource func(p2p.PeerID) []p2p.Addr
 
 var (
 	ErrPeerUnreachable = errors.New("peer unreachable")
-
-	log = p2p.Logger
-
-	_ p2p.SecureSwarm    = &Swarm{}
-	_ p2p.SecureAskSwarm = &AskSwarm{}
 )
 
-type Swarm struct {
+var (
+	log = p2p.Logger
+
+	_ p2p.SecureSwarm    = &swarm{}
+	_ p2p.SecureAskSwarm = &askSwarm{}
+)
+
+type Swarm interface {
+	p2p.SecureSwarm
+	TellPeer(ctx context.Context, dst p2p.PeerID, data []byte) error
+}
+
+type swarm struct {
 	s        p2p.SecureSwarm
 	localID  p2p.PeerID
 	getAddrs AddrSource
@@ -29,9 +36,13 @@ type Swarm struct {
 	lastAddrs map[p2p.PeerID]p2p.Addr
 }
 
-func NewSwarm(s p2p.SecureSwarm, addrSource AddrSource) *Swarm {
+func NewSwarm(s p2p.SecureSwarm, addrSource AddrSource) Swarm {
+	return newSwarm(s, addrSource)
+}
+
+func newSwarm(s p2p.SecureSwarm, addrSource AddrSource) *swarm {
 	pubKey := s.PublicKey()
-	return &Swarm{
+	return &swarm{
 		s:         s,
 		localID:   p2p.NewPeerID(pubKey),
 		getAddrs:  addrSource,
@@ -39,16 +50,17 @@ func NewSwarm(s p2p.SecureSwarm, addrSource AddrSource) *Swarm {
 	}
 }
 
-func (ps *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (ps *swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	return ps.TellPeer(ctx, addr.(p2p.PeerID), data)
 }
 
-func (ps *Swarm) TellPeer(ctx context.Context, dst p2p.PeerID, data []byte) error {
+func (ps *swarm) TellPeer(ctx context.Context, dst p2p.PeerID, data []byte) error {
 	var err error
 	for _, addr := range ps.possibleAddrs(dst) {
 		err = ps.s.Tell(ctx, addr, data)
+		log.Println("sent")
 		if err != nil {
-			log.Error(err)
+			log.Errorf("error telling, marking offline %v", err)
 			ps.markOffline(dst, addr)
 			continue
 		} else {
@@ -62,7 +74,7 @@ func (ps *Swarm) TellPeer(ctx context.Context, dst p2p.PeerID, data []byte) erro
 	return ErrPeerUnreachable
 }
 
-func (ps *Swarm) OnTell(fn p2p.TellHandler) {
+func (ps *swarm) OnTell(fn p2p.TellHandler) {
 	ps.s.OnTell(func(m *p2p.Message) {
 		peerID := p2p.NewPeerID(ps.s.LookupPublicKey(m.Src))
 		ps.markOnline(peerID, m.Src)
@@ -72,19 +84,19 @@ func (ps *Swarm) OnTell(fn p2p.TellHandler) {
 	})
 }
 
-func (ps *Swarm) Close() error {
+func (ps *swarm) Close() error {
 	return ps.s.Close()
 }
 
-func (ps *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
+func (ps *swarm) MTU(ctx context.Context, addr p2p.Addr) int {
 	return ps.s.MTU(ctx, addr)
 }
 
-func (ps *Swarm) PublicKey() p2p.PublicKey {
+func (ps *swarm) PublicKey() p2p.PublicKey {
 	return ps.PublicKey()
 }
 
-func (ps *Swarm) LookupPublicKey(addr p2p.Addr) p2p.PublicKey {
+func (ps *swarm) LookupPublicKey(addr p2p.Addr) p2p.PublicKey {
 	id := addr.(p2p.PeerID)
 	addrs := ps.getAddrs(id)
 	if len(addrs) < 1 {
@@ -93,15 +105,15 @@ func (ps *Swarm) LookupPublicKey(addr p2p.Addr) p2p.PublicKey {
 	return ps.s.LookupPublicKey(addrs[0])
 }
 
-func (ps *Swarm) LocalAddrs() []p2p.Addr {
+func (ps *swarm) LocalAddrs() []p2p.Addr {
 	return []p2p.Addr{ps.localID}
 }
 
-func (ps *Swarm) LocalID() p2p.PeerID {
+func (ps *swarm) LocalID() p2p.PeerID {
 	return ps.localID
 }
 
-func (ps *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
+func (ps *swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	id := p2p.PeerID{}
 	if err := id.UnmarshalText(data); err != nil {
 		return nil, err
@@ -109,7 +121,7 @@ func (ps *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	return id, nil
 }
 
-func (ps *Swarm) markOnline(id p2p.PeerID, addr p2p.Addr) {
+func (ps *swarm) markOnline(id p2p.PeerID, addr p2p.Addr) {
 	ps.mu.RLock()
 	addr2, exists := ps.lastAddrs[id]
 	ps.mu.RUnlock()
@@ -122,7 +134,7 @@ func (ps *Swarm) markOnline(id p2p.PeerID, addr p2p.Addr) {
 	ps.mu.Unlock()
 }
 
-func (ps *Swarm) markOffline(id p2p.PeerID, addr p2p.Addr) {
+func (ps *swarm) markOffline(id p2p.PeerID, addr p2p.Addr) {
 	ps.mu.Lock()
 	if addr2, exists := ps.lastAddrs[id]; exists && (addr2.Key() == addr.Key()) {
 		delete(ps.lastAddrs, id)
@@ -130,13 +142,13 @@ func (ps *Swarm) markOffline(id p2p.PeerID, addr p2p.Addr) {
 	ps.mu.Unlock()
 }
 
-func (ps *Swarm) lastAddr(id p2p.PeerID) p2p.Addr {
+func (ps *swarm) lastAddr(id p2p.PeerID) p2p.Addr {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
 	return ps.lastAddrs[id]
 }
 
-func (ps *Swarm) possibleAddrs(dst p2p.PeerID) []p2p.Addr {
+func (ps *swarm) possibleAddrs(dst p2p.PeerID) []p2p.Addr {
 	addrs := make([]p2p.Addr, 0, 5)
 	if addr := ps.lastAddr(dst); addr != nil {
 		addrs = append(addrs, addr)
@@ -145,23 +157,32 @@ func (ps *Swarm) possibleAddrs(dst p2p.PeerID) []p2p.Addr {
 	return addrs
 }
 
-type AskSwarm struct {
-	*Swarm
+type AskSwarm interface {
+	p2p.SecureAskSwarm
+	AskPeer(ctx context.Context, dst p2p.PeerID, data []byte) ([]byte, error)
+}
+
+type askSwarm struct {
+	*swarm
 	s p2p.SecureAskSwarm
 }
 
-func NewAskSwarm(s p2p.SecureAskSwarm, addrSource AddrSource) *AskSwarm {
-	return &AskSwarm{
-		Swarm: NewSwarm(s, addrSource),
+func NewAskSwarm(s p2p.SecureAskSwarm, addrSource AddrSource) AskSwarm {
+	return newAskSwarm(s, addrSource)
+}
+
+func newAskSwarm(s p2p.SecureAskSwarm, addrSource AddrSource) *askSwarm {
+	return &askSwarm{
+		swarm: newSwarm(s, addrSource),
 		s:     s,
 	}
 }
 
-func (ps *AskSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
-	return ps.Ask(ctx, addr.(p2p.PeerID), data)
+func (ps *askSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+	return ps.AskPeer(ctx, addr.(p2p.PeerID), data)
 }
 
-func (ps *AskSwarm) AskPeer(ctx context.Context, dst p2p.PeerID, data []byte) ([]byte, error) {
+func (ps *askSwarm) AskPeer(ctx context.Context, dst p2p.PeerID, data []byte) ([]byte, error) {
 	var err error
 	var res []byte
 	for _, addr := range ps.possibleAddrs(dst) {
@@ -181,7 +202,7 @@ func (ps *AskSwarm) AskPeer(ctx context.Context, dst p2p.PeerID, data []byte) ([
 	return nil, ErrPeerUnreachable
 }
 
-func (ps *AskSwarm) OnAsk(fn p2p.AskHandler) {
+func (ps *askSwarm) OnAsk(fn p2p.AskHandler) {
 	ps.s.OnAsk(func(ctx context.Context, m *p2p.Message, w io.Writer) {
 		peerID := p2p.NewPeerID(ps.s.LookupPublicKey(m.Src))
 		ps.markOnline(peerID, m.Src)

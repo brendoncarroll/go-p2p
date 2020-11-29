@@ -11,7 +11,7 @@ import (
 
 func TestMultiSwarm(t *testing.T) {
 	t.Parallel()
-	swarmtest.TestSuiteSwarm(t, func(n int, fn func(xs []p2p.Swarm)) {
+	swarmtest.TestSuiteSwarm(t, func(t testing.TB, n int) []p2p.Swarm {
 		r1 := memswarm.NewRealm()
 		r2 := memswarm.NewRealm()
 
@@ -25,9 +25,9 @@ func TestMultiSwarm(t *testing.T) {
 			x := NewSecureAsk(m)
 			xs[i] = x
 		}
-		fn(xs)
-		for i := range xs {
-			xs[i].Close()
-		}
+		t.Cleanup(func() {
+			swarmtest.CloseSwarms(t, xs)
+		})
+		return xs
 	})
 }

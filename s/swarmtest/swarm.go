@@ -12,29 +12,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSuiteSwarm(t *testing.T, withSwarms func(int, func([]p2p.Swarm))) {
+func TestSuiteSwarm(t *testing.T, newSwarms func(testing.TB, int) []p2p.Swarm) {
 	t.Run("TestLocalAddrs", func(t *testing.T) {
-		withSwarms(1, func(xs []p2p.Swarm) {
-			x := xs[0]
-			TestLocalAddrs(t, x)
-		})
+		xs := newSwarms(t, 1)
+		x := xs[0]
+		TestLocalAddrs(t, x)
 	})
 	t.Run("TestMarshalParse", func(t *testing.T) {
-		withSwarms(1, func(xs []p2p.Swarm) {
-			x := xs[0]
-			TestLocalAddrs(t, x)
-		})
+		xs := newSwarms(t, 1)
+		x := xs[0]
+		TestMarshalParse(t, x)
 	})
 	t.Run("TestTell", func(t *testing.T) {
-		withSwarms(1, func(xs []p2p.Swarm) {
-			for i, x1 := range xs {
-				for j, x2 := range xs {
-					if j != i {
-						TestTell(t, x1, x2)
-					}
+		xs := newSwarms(t, 10)
+		require.Len(t, xs, 10)
+		for i, x1 := range xs {
+			for j, x2 := range xs {
+				if j != i {
+					TestTell(t, x1, x2)
 				}
 			}
-		})
+		}
 	})
 }
 
@@ -85,13 +83,13 @@ func genPayload() []byte {
 	return []byte(x)
 }
 
-func CloseSwarms(t *testing.T, xs []p2p.Swarm) {
+func CloseSwarms(t testing.TB, xs []p2p.Swarm) {
 	for i := range xs {
 		require.Nil(t, xs[i].Close())
 	}
 }
 
-func CloseAskSwarms(t *testing.T, xs []p2p.AskSwarm) {
+func CloseAskSwarms(t testing.TB, xs []p2p.AskSwarm) {
 	for i := range xs {
 		require.Nil(t, xs[i].Close())
 	}
