@@ -4,8 +4,6 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/hex"
 	"math/big"
 	"time"
 
@@ -13,6 +11,14 @@ import (
 )
 
 func GenerateSelfSigned(privKey p2p.PrivateKey) tls.Certificate {
+	// serial number
+	maxBigInt := &big.Int{}
+	maxBigInt.Exp(big.NewInt(2), big.NewInt(130), nil).Sub(maxBigInt, big.NewInt(1))
+	serialNumber, err := rand.Int(rand.Reader, maxBigInt)
+	if err != nil {
+		panic(err)
+	}
+
 	template := x509.Certificate{
 		ExtKeyUsage: []x509.ExtKeyUsage{
 			x509.ExtKeyUsageClientAuth,
@@ -20,11 +26,10 @@ func GenerateSelfSigned(privKey p2p.PrivateKey) tls.Certificate {
 		},
 		BasicConstraintsValid: true,
 		NotBefore:             time.Now(),
-		KeyUsage:              x509.KeyUsageDigitalSignature,
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
 		NotAfter:              time.Now().AddDate(0, 1, 0),
-		SerialNumber:          big.NewInt(1),
+		SerialNumber:          serialNumber,
 		Version:               2,
-		Subject:               pkix.Name{CommonName: hex.EncodeToString(make([]byte, 16))},
 		IsCA:                  true,
 	}
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, privKey.Public(), privKey)
@@ -35,5 +40,6 @@ func GenerateSelfSigned(privKey p2p.PrivateKey) tls.Certificate {
 	return tls.Certificate{
 		Certificate: [][]byte{certDER},
 		PrivateKey:  privKey,
+		Leaf:        &template,
 	}
 }

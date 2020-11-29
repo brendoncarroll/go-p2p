@@ -105,7 +105,6 @@ func (s *Swarm) loop() {
 			log.Error(err)
 			return
 		}
-
 		msg := &p2p.Message{
 			Src:     (*Addr)(addr),
 			Dst:     s.LocalAddrs()[0],

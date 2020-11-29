@@ -65,7 +65,7 @@ func TestTell(t *testing.T, src, dst p2p.Swarm) {
 	payload := genPayload()
 
 	err := src.Tell(context.TODO(), dstAddr, payload)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	select {
 	case <-done:
