@@ -58,7 +58,6 @@ func (ps *swarm) TellPeer(ctx context.Context, dst p2p.PeerID, data []byte) erro
 	var err error
 	for _, addr := range ps.possibleAddrs(dst) {
 		err = ps.s.Tell(ctx, addr, data)
-		log.Println("sent")
 		if err != nil {
 			log.Errorf("error telling, marking offline %v", err)
 			ps.markOffline(dst, addr)

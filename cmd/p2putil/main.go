@@ -10,7 +10,6 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/multiswarm"
 	"github.com/brendoncarroll/go-p2p/s/natswarm"
-	"github.com/brendoncarroll/go-p2p/s/quicswarm"
 	"github.com/brendoncarroll/go-p2p/s/sshswarm"
 	"github.com/spf13/cobra"
 	"github.com/syncthing/syncthing/lib/upnp"
@@ -69,16 +68,10 @@ var testConnectCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		s12, err := quicswarm.New("0.0.0.0:", privKey)
-		if err != nil {
-			return err
-		}
 
 		s21 := natswarm.WrapSecureAsk(s11)
-		s22 := natswarm.WrapSecureAsk(s12)
 		s3 := multiswarm.NewSecureAsk(map[string]p2p.SecureAskSwarm{
-			"ssh":  s21,
-			"quic": s22,
+			"ssh": s21,
 		})
 
 		s3.OnTell(func(m *p2p.Message) {
