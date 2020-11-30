@@ -2,7 +2,6 @@ package udpswarm
 
 import (
 	"context"
-	"errors"
 	"net"
 	"strings"
 
@@ -62,10 +61,7 @@ func (s *Swarm) OnTell(fn p2p.TellHandler) {
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
-	a, ok := addr.(*Addr)
-	if !ok {
-		return errors.New("invalid address")
-	}
+	a := addr.(*Addr)	
 	udpAddr, err := net.ResolveUDPAddr("", a.String())
 	if err != nil {
 		return err

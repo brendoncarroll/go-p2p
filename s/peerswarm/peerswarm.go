@@ -92,7 +92,7 @@ func (ps *swarm) MTU(ctx context.Context, addr p2p.Addr) int {
 }
 
 func (ps *swarm) PublicKey() p2p.PublicKey {
-	return ps.PublicKey()
+	return ps.s.PublicKey()
 }
 
 func (ps *swarm) LookupPublicKey(addr p2p.Addr) p2p.PublicKey {
