@@ -18,7 +18,7 @@ func TestPeerSwarm(t *testing.T) {
 		xs := make([]p2p.Swarm, n)
 		for i := range xs {
 			u := r.NewSwarm()
-			k := p2ptest.GetTestKey(t, i)
+			k := p2ptest.NewTestKey(t, i)
 			addrMap[p2p.NewPeerID(k.Public())] = u.LocalAddrs()
 
 			xs[i] = NewSwarm(u, func(id p2p.PeerID) []p2p.Addr {
@@ -41,7 +41,7 @@ func TestPeerAskSwarm(t *testing.T) {
 		xs := make([]p2p.AskSwarm, n)
 		for i := range xs {
 			u := r.NewSwarm()
-			k := p2ptest.GetTestKey(t, i)
+			k := p2ptest.NewTestKey(t, i)
 			addrMap[p2p.NewPeerID(k.Public())] = u.LocalAddrs()
 
 			xs[i] = NewAskSwarm(u, func(id p2p.PeerID) []p2p.Addr {

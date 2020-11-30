@@ -17,7 +17,7 @@ func TestMultiSwarm(t *testing.T) {
 
 		xs := make([]p2p.Swarm, n)
 		for i := range xs {
-			privKey := p2ptest.GetTestKey(t, i)
+			privKey := p2ptest.NewTestKey(t, i)
 			m := map[string]p2p.SecureAskSwarm{
 				"mem1": r1.NewSwarmWithKey(privKey),
 				"mem2": r2.NewSwarmWithKey(privKey),
