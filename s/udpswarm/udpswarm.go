@@ -2,6 +2,8 @@ package udpswarm
 
 import (
 	"context"
+	"io"
+	"io/ioutil"
 	"net"
 	"strings"
 
@@ -60,9 +62,17 @@ func (s *Swarm) OnTell(fn p2p.TellHandler) {
 	swarmutil.AtomicSetTH(&s.handleTell, fn)
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
-	a := addr.(*Addr)	
+func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, r io.Reader) error {
+	a := addr.(*Addr)
 	udpAddr, err := net.ResolveUDPAddr("", a.String())
+	if err != nil {
+		return err
+	}
+	if wt, ok := r.(io.WriterTo); ok {
+		_, err := wt.WriteTo(&udpWriter{Addr: udpAddr, Conn: s.conn})
+		return err
+	}
+	data, err := ioutil.ReadAll(r)
 	if err != nil {
 		return err
 	}
@@ -109,4 +119,19 @@ func (s *Swarm) loop() {
 		handleTell := swarmutil.AtomicGetTH(&s.handleTell)
 		handleTell(msg)
 	}
+}
+
+type udpWriter struct {
+	Addr *net.UDPAddr
+	Conn *net.UDPConn
+
+	done bool
+}
+
+func (w *udpWriter) Write(p []byte) (int, error) {
+	if w.done {
+		panic("must only write once to udp conn")
+	}
+	defer func() { w.done = true }()
+	return w.Conn.WriteTo(p, w.Addr)
 }

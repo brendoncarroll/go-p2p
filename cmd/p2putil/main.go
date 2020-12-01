@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -76,7 +77,7 @@ var testConnectCmd = &cobra.Command{
 
 		s3.OnTell(func(m *p2p.Message) {
 			ctx := context.TODO()
-			s3.Tell(ctx, m.Src, m.Payload)
+			s3.Tell(ctx, m.Src, bytes.NewReader(m.Payload))
 			log.Println("MSG:", m.Src, "->", m.Dst, " ", m.Payload)
 		})
 

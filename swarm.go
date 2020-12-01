@@ -27,12 +27,12 @@ type Swarm interface {
 }
 
 type Teller interface {
-	Tell(ctx context.Context, addr Addr, data []byte) error
+	Tell(ctx context.Context, addr Addr, r io.Reader) error
 	OnTell(TellHandler)
 }
 
 type Asker interface {
-	Ask(ctx context.Context, addr Addr, data []byte) ([]byte, error)
+	Ask(ctx context.Context, addr Addr, r io.Reader) ([]byte, error)
 	OnAsk(AskHandler)
 }
 

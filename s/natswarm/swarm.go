@@ -2,6 +2,7 @@ package natswarm
 
 import (
 	"context"
+	"io"
 
 	"github.com/brendoncarroll/go-p2p"
 )
@@ -35,8 +36,8 @@ type Swarm struct {
 	s     *service
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
-	return s.inner.Tell(ctx, addr, data)
+func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, r io.Reader) error {
+	return s.inner.Tell(ctx, addr, r)
 }
 
 func (s *Swarm) OnTell(fn p2p.TellHandler) {
@@ -65,16 +66,16 @@ type AskSwarm struct {
 	s     *service
 }
 
-func (s *AskSwarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
-	return s.inner.Tell(ctx, addr, data)
+func (s *AskSwarm) Tell(ctx context.Context, addr p2p.Addr, r io.Reader) error {
+	return s.inner.Tell(ctx, addr, r)
 }
 
 func (s *AskSwarm) OnTell(fn p2p.TellHandler) {
 	s.inner.OnTell(fn)
 }
 
-func (s *AskSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
-	return s.inner.Ask(ctx, addr, data)
+func (s *AskSwarm) Ask(ctx context.Context, addr p2p.Addr, r io.Reader) ([]byte, error) {
+	return s.inner.Ask(ctx, addr, r)
 }
 
 func (s *AskSwarm) OnAsk(fn p2p.AskHandler) {

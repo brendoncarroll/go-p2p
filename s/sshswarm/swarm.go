@@ -2,6 +2,8 @@ package sshswarm
 
 import (
 	"context"
+	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"strconv"
@@ -119,9 +121,13 @@ func (s *Swarm) OnTell(fn p2p.TellHandler) {
 	s.handleTell = fn
 }
 
-func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, r io.Reader) ([]byte, error) {
 	a2 := addr.(*Addr)
 	c, err := s.getConn(ctx, a2)
+	if err != nil {
+		return nil, err
+	}
+	data, err := ioutil.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}
@@ -132,9 +138,13 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 	return reply, nil
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, r io.Reader) error {
 	a2 := addr.(*Addr)
 	c, err := s.getConn(ctx, a2)
+	if err != nil {
+		return err
+	}
+	data, err := ioutil.ReadAll(r)
 	if err != nil {
 		return err
 	}

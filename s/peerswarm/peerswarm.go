@@ -24,7 +24,7 @@ var (
 
 type Swarm interface {
 	p2p.SecureSwarm
-	TellPeer(ctx context.Context, dst p2p.PeerID, data []byte) error
+	TellPeer(ctx context.Context, dst p2p.PeerID, r io.Reader) error
 }
 
 type swarm struct {
@@ -50,14 +50,14 @@ func newSwarm(s p2p.SecureSwarm, addrSource AddrSource) *swarm {
 	}
 }
 
-func (ps *swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
-	return ps.TellPeer(ctx, addr.(p2p.PeerID), data)
+func (ps *swarm) Tell(ctx context.Context, addr p2p.Addr, r io.Reader) error {
+	return ps.TellPeer(ctx, addr.(p2p.PeerID), r)
 }
 
-func (ps *swarm) TellPeer(ctx context.Context, dst p2p.PeerID, data []byte) error {
+func (ps *swarm) TellPeer(ctx context.Context, dst p2p.PeerID, r io.Reader) error {
 	var err error
 	for _, addr := range ps.possibleAddrs(dst) {
-		err = ps.s.Tell(ctx, addr, data)
+		err = ps.s.Tell(ctx, addr, r)
 		if err != nil {
 			log.Errorf("error telling, marking offline %v", err)
 			ps.markOffline(dst, addr)
@@ -158,7 +158,7 @@ func (ps *swarm) possibleAddrs(dst p2p.PeerID) []p2p.Addr {
 
 type AskSwarm interface {
 	p2p.SecureAskSwarm
-	AskPeer(ctx context.Context, dst p2p.PeerID, data []byte) ([]byte, error)
+	AskPeer(ctx context.Context, dst p2p.PeerID, r io.Reader) ([]byte, error)
 }
 
 type askSwarm struct {
@@ -177,15 +177,15 @@ func newAskSwarm(s p2p.SecureAskSwarm, addrSource AddrSource) *askSwarm {
 	}
 }
 
-func (ps *askSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
-	return ps.AskPeer(ctx, addr.(p2p.PeerID), data)
+func (ps *askSwarm) Ask(ctx context.Context, addr p2p.Addr, r io.Reader) ([]byte, error) {
+	return ps.AskPeer(ctx, addr.(p2p.PeerID), r)
 }
 
-func (ps *askSwarm) AskPeer(ctx context.Context, dst p2p.PeerID, data []byte) ([]byte, error) {
+func (ps *askSwarm) AskPeer(ctx context.Context, dst p2p.PeerID, r io.Reader) ([]byte, error) {
 	var err error
 	var res []byte
 	for _, addr := range ps.possibleAddrs(dst) {
-		res, err = ps.s.Ask(ctx, addr, data)
+		res, err = ps.s.Ask(ctx, addr, r)
 		if err != nil {
 			log.Error(err)
 			ps.markOffline(dst, addr)

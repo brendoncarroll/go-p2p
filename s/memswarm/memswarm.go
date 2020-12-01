@@ -107,8 +107,12 @@ type Swarm struct {
 	handleAsk  p2p.AskHandler
 }
 
-func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, r io.Reader) ([]byte, error) {
 	a := addr.(Addr)
+	data, err := ioutil.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
 	msg := &p2p.Message{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
@@ -126,8 +130,12 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 	return buf.Bytes(), nil
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, r io.Reader) error {
 	a := addr.(Addr)
+	data, err := ioutil.ReadAll(r)
+	if err != nil {
+		return err
+	}
 	msg := &p2p.Message{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
@@ -185,4 +193,9 @@ func genPrivateKey(i int) ed25519.PrivateKey {
 	seed := make([]byte, ed25519.SeedSize)
 	binary.BigEndian.PutUint64(seed[len(seed)-8:], uint64(i))
 	return ed25519.NewKeyFromSeed(seed)
+}
+
+type message struct {
+	Src, Dst p2p.Addr
+	R        io.Reader
 }

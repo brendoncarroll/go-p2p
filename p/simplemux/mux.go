@@ -1,6 +1,7 @@
 package simplemux
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -91,7 +92,7 @@ func (m *muxer) handleTell(msg *p2p.Message) {
 		m.mu.RUnlock()
 
 		resMsg := newMuxRes(m.sessionID, req.Name, i)
-		m.s.Tell(ctx, msg.Src, []byte(resMsg))
+		m.s.Tell(ctx, msg.Src, bytes.NewReader([]byte(resMsg)))
 
 	case 1:
 		data := msg2.GetData()
@@ -224,7 +225,7 @@ func (m *muxer) lookup(ctx context.Context, addr p2p.Addr, name string) (uint32,
 
 	if !exists {
 		msg := newMuxReq(name)
-		if err := m.s.Tell(ctx, addr, msg); err != nil {
+		if err := m.s.Tell(ctx, addr, bytes.NewReader(msg)); err != nil {
 			return 0, nil
 		}
 	}

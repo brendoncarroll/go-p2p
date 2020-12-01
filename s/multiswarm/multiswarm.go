@@ -45,13 +45,13 @@ func NewSecureAsk(m map[string]p2p.SecureAskSwarm) p2p.SecureAskSwarm {
 
 type multiSwarm map[string]p2p.Swarm
 
-func (mt multiSwarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (mt multiSwarm) Tell(ctx context.Context, addr p2p.Addr, r io.Reader) error {
 	dst := addr.(Addr)
 	t, ok := mt[dst.Transport]
 	if !ok {
 		return ErrTransportNotExist
 	}
-	return t.Tell(ctx, dst.Addr, data)
+	return t.Tell(ctx, dst.Addr, r)
 }
 
 func (mt multiSwarm) OnTell(fn p2p.TellHandler) {
@@ -107,13 +107,13 @@ func (mt multiSwarm) Close() error {
 
 type multiAsker map[string]p2p.Asker
 
-func (ma multiAsker) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+func (ma multiAsker) Ask(ctx context.Context, addr p2p.Addr, r io.Reader) ([]byte, error) {
 	dst := addr.(Addr)
 	t, ok := ma[dst.Transport]
 	if !ok {
 		return nil, ErrTransportNotExist
 	}
-	return t.Ask(ctx, dst.Addr, data)
+	return t.Ask(ctx, dst.Addr, r)
 }
 
 func (ma multiAsker) OnAsk(fn p2p.AskHandler) {

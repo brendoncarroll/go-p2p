@@ -31,9 +31,9 @@ func WrapSecure(x p2p.SecureSwarm, af AllowFunc) p2p.SecureSwarm {
 	}
 }
 
-func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, r io.Reader) error {
 	if checkAddr(s, s.af, addr, true) {
-		return s.SecureSwarm.Tell(ctx, addr, data)
+		return s.SecureSwarm.Tell(ctx, addr, r)
 	}
 	return errors.New("address unreachable")
 }
@@ -51,9 +51,9 @@ type asker struct {
 	af AllowFunc
 }
 
-func (s *asker) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+func (s *asker) Ask(ctx context.Context, addr p2p.Addr, r io.Reader) ([]byte, error) {
 	if checkAddr(s, s.af, addr, true) {
-		return s.SecureAskSwarm.Ask(ctx, addr, data)
+		return s.SecureAskSwarm.Ask(ctx, addr, r)
 	}
 	return nil, errors.New("address unreachable")
 }

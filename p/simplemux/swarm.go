@@ -1,7 +1,10 @@
 package simplemux
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
+	"io"
 
 	"github.com/brendoncarroll/go-p2p"
 )
@@ -32,27 +35,33 @@ func (s *baseSwarm) OnAsk(fn p2p.AskHandler) {
 	s.handleAsk = fn
 }
 
-func (s *baseSwarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *baseSwarm) Tell(ctx context.Context, addr p2p.Addr, r io.Reader) error {
 	i, err := s.m.lookup(ctx, addr, s.name)
 	if err != nil {
 		return err
 	}
-	msg := Message{}
-	msg.SetChannel(i)
-	msg.SetData(data)
-	return s.m.s.Tell(ctx, addr, msg)
+	ibuf := [4]byte{}
+	binary.BigEndian.PutUint32(ibuf[:], i)
+	r = io.MultiReader(
+		bytes.NewBuffer(ibuf[:]),
+		r,
+	)
+	return s.m.s.Tell(ctx, addr, r)
 }
 
-func (s *baseSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+func (s *baseSwarm) Ask(ctx context.Context, addr p2p.Addr, r io.Reader) ([]byte, error) {
 	innerSwarm := s.m.s.(p2p.AskSwarm)
 	i, err := s.m.lookup(ctx, addr, s.name)
 	if err != nil {
 		return nil, err
 	}
-	msg := Message{}
-	msg.SetChannel(i)
-	msg.SetData(data)
-	return innerSwarm.Ask(ctx, addr, msg)
+	ibuf := [4]byte{}
+	binary.BigEndian.PutUint32(ibuf[:], i)
+	r = io.MultiReader(
+		bytes.NewBuffer(ibuf[:]),
+		r,
+	)
+	return innerSwarm.Ask(ctx, addr, r)
 }
 
 func (s *baseSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
