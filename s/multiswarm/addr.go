@@ -20,6 +20,13 @@ func (a Addr) Unwrap() p2p.Addr {
 	return a.Addr
 }
 
+func (a Addr) Map(f func(p2p.Addr) p2p.Addr) p2p.Addr {
+	return Addr{
+		Transport: a.Transport,
+		Addr:      f(a.Addr),
+	}
+}
+
 func (a Addr) String() string {
 	data, _ := a.MarshalText()
 	return string(data)

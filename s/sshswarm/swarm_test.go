@@ -10,6 +10,7 @@ import (
 )
 
 func TestSwarm(t *testing.T) {
+	t.Parallel()
 	swarmtest.TestSuiteSwarm(t, func(t testing.TB, n int) []p2p.Swarm {
 		xs := make([]p2p.Swarm, n)
 		for i := range xs {

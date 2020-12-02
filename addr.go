@@ -7,4 +7,5 @@ type Addr interface {
 
 type UnwrapAddr interface {
 	Unwrap() Addr
+	Map(func(Addr) Addr) Addr
 }
