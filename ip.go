@@ -4,9 +4,6 @@ import "net"
 
 type HasIP interface {
 	GetIP() net.IP
-}
-
-type MapIP interface {
 	MapIP(net.IP) Addr
 }
 
@@ -40,12 +37,8 @@ func FilterIPs(xs []Addr, preds ...func(net.IP) bool) (ys []Addr) {
 }
 
 func ExpandUnspecifiedIPs(xs []Addr) (ys []Addr) {
-	type HasMapIP interface {
-		HasIP
-		MapIP
-	}
 	for _, x := range xs {
-		hasIP, ok := x.(HasMapIP)
+		hasIP, ok := x.(HasIP)
 		if !ok {
 			ys = append(ys, x)
 			continue

@@ -13,6 +13,8 @@ var log = p2p.Logger
 
 type AllowFunc = func(p2p.PeerID) bool
 
+var _ p2p.SecureSwarm = &swarm{}
+
 type swarm struct {
 	p2p.SecureSwarm
 	af AllowFunc
@@ -45,6 +47,8 @@ func (s *swarm) OnTell(fn p2p.TellHandler) {
 		}
 	})
 }
+
+var _ p2p.Asker = &asker{}
 
 type asker struct {
 	p2p.SecureAskSwarm

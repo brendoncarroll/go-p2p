@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	mrand "math/rand"
-	"sync"
 	"testing"
 	"time"
 
@@ -91,22 +90,19 @@ func TestTell(t *testing.T, src, dst p2p.Swarm) {
 }
 
 func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
-	amu, bmu := sync.Mutex{}, sync.Mutex{}
-	aInbox := []p2p.Message{}
-	bInbox := []p2p.Message{}
+	const N = 50
+	ctx, cf := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cf()
+
+	aInbox := make(chan []byte, N)
+	bInbox := make(chan []byte, N)
 	a.OnTell(func(msg *p2p.Message) {
-		amu.Lock()
-		defer amu.Unlock()
-		aInbox = append(aInbox, *msg)
+		aInbox <- append([]byte{}, msg.Payload...)
 	})
 	b.OnTell(func(msg *p2p.Message) {
-		bmu.Lock()
-		defer bmu.Unlock()
-		bInbox = append(bInbox, *msg)
+		bInbox <- append([]byte{}, msg.Payload...)
 	})
-	const N = 20
 	eg := errgroup.Group{}
-	ctx := context.Background()
 	sleepRandom := func() {
 		dur := time.Millisecond * time.Duration(1+rand.Intn(10)-5)
 		time.Sleep(dur)
@@ -132,11 +128,26 @@ func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
 		return nil
 	})
 	require.Nil(t, eg.Wait())
-	time.Sleep(time.Second / 10)
-	amu.Lock()
-	bmu.Lock()
-	assert.Greater(t, len(aInbox), N*3/4)
-	assert.Greater(t, len(bInbox), N*3/4)
+	time.Sleep(time.Second)
+	passN := N * 3 / 4
+	aSlice := collectChan(ctx, passN, aInbox)
+	bSlice := collectChan(ctx, passN, bInbox)
+	t.Log("a inbox: ", len(aSlice))
+	t.Log("b inbox: ", len(bSlice))
+	assert.GreaterOrEqual(t, len(aSlice), passN)
+	assert.GreaterOrEqual(t, len(bSlice), passN)
+}
+
+func collectChan(ctx context.Context, N int, ch chan []byte) (ret [][]byte) {
+	for i := 0; i < N; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		case x := <-ch:
+			ret = append(ret, x)
+		}
+	}
+	return ret
 }
 
 func genPayload() []byte {

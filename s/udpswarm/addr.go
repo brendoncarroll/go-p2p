@@ -41,7 +41,7 @@ func (s *Swarm) ParseAddr(x []byte) (p2p.Addr, error) {
 	return a, nil
 }
 
-func (a *Addr) MarshalText() ([]byte, error) {
+func (a Addr) MarshalText() ([]byte, error) {
 	return []byte(a.String()), nil
 }
 
@@ -49,21 +49,21 @@ func (a Addr) Key() string {
 	return a.String()
 }
 
-func (a *Addr) GetIP() net.IP {
+func (a Addr) GetIP() net.IP {
 	return a.IP
 }
 
-func (a *Addr) MapIP(x net.IP) p2p.Addr {
-	a2 := *a
+func (a Addr) MapIP(x net.IP) p2p.Addr {
+	a2 := a
 	a2.IP = x
 	return &a2
 }
 
-func (a *Addr) GetUDP() net.UDPAddr {
-	return *(*net.UDPAddr)(a)
+func (a Addr) GetUDP() net.UDPAddr {
+	return (net.UDPAddr)(a)
 }
 
-func (a *Addr) MapUDP(x net.UDPAddr) p2p.Addr {
+func (a Addr) MapUDP(x net.UDPAddr) p2p.Addr {
 	a2 := (Addr)(x)
 	return &a2
 }
