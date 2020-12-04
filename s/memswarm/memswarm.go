@@ -12,9 +12,8 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
-
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/jonboulle/clockwork"
 )
 
@@ -98,6 +97,8 @@ func (r *Realm) NewSwarmWithKey(privateKey p2p.PrivateKey) *Swarm {
 	return s
 }
 
+var _ p2p.SecureAskSwarm = &Swarm{}
+
 type Swarm struct {
 	r          *Realm
 	n          int
@@ -175,10 +176,10 @@ func (s *Swarm) PublicKey() p2p.PublicKey {
 	return s.privateKey.Public()
 }
 
-func (s *Swarm) LookupPublicKey(addr p2p.Addr) p2p.PublicKey {
+func (s *Swarm) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.PublicKey, error) {
 	a := addr.(Addr)
 	other := s.r.swarms[a.N]
-	return other.privateKey.Public()
+	return other.privateKey.Public(), nil
 }
 
 func genPrivateKey(i int) ed25519.PrivateKey {

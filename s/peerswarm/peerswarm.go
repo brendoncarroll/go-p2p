@@ -75,7 +75,7 @@ func (ps *swarm) TellPeer(ctx context.Context, dst p2p.PeerID, data []byte) erro
 
 func (ps *swarm) OnTell(fn p2p.TellHandler) {
 	ps.s.OnTell(func(m *p2p.Message) {
-		peerID := p2p.NewPeerID(ps.s.LookupPublicKey(m.Src))
+		peerID := p2p.NewPeerID(p2p.LookupPublicKeyInHandler(ps.s, m.Src))
 		ps.markOnline(peerID, m.Src)
 		m.Src = peerID
 		m.Dst = ps.localID
@@ -95,13 +95,13 @@ func (ps *swarm) PublicKey() p2p.PublicKey {
 	return ps.s.PublicKey()
 }
 
-func (ps *swarm) LookupPublicKey(addr p2p.Addr) p2p.PublicKey {
+func (ps *swarm) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.PublicKey, error) {
 	id := addr.(p2p.PeerID)
 	addrs := ps.getAddrs(id)
 	if len(addrs) < 1 {
-		return nil
+		return nil, p2p.ErrPublicKeyNotFound
 	}
-	return ps.s.LookupPublicKey(addrs[0])
+	return ps.s.LookupPublicKey(ctx, addrs[0])
 }
 
 func (ps *swarm) LocalAddrs() []p2p.Addr {
@@ -203,7 +203,7 @@ func (ps *askSwarm) AskPeer(ctx context.Context, dst p2p.PeerID, data []byte) ([
 
 func (ps *askSwarm) OnAsk(fn p2p.AskHandler) {
 	ps.s.OnAsk(func(ctx context.Context, m *p2p.Message, w io.Writer) {
-		peerID := p2p.NewPeerID(ps.s.LookupPublicKey(m.Src))
+		peerID := p2p.NewPeerID(p2p.LookupPublicKeyInHandler(ps.s, m.Src))
 		ps.markOnline(peerID, m.Src)
 		m.Src = peerID
 		m.Dst = ps.localID

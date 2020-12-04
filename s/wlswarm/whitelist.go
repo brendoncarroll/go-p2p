@@ -70,9 +70,11 @@ func (s *asker) OnAsk(fn p2p.AskHandler) {
 	})
 }
 
+// checkAddr is called inside TellHandler
 func checkAddr(sec p2p.Secure, af AllowFunc, addr p2p.Addr, isSend bool) bool {
-	peerID := p2p.LookupPeerID(sec, addr)
-	if peerID == nil || !af(*peerID) {
+	pubKey := p2p.LookupPublicKeyInHandler(sec, addr)
+	peerID := p2p.NewPeerID(pubKey)
+	if !af(peerID) {
 		if isSend {
 			logAttemptSend(peerID, addr)
 		} else {
@@ -83,7 +85,7 @@ func checkAddr(sec p2p.Secure, af AllowFunc, addr p2p.Addr, isSend bool) bool {
 	return true
 }
 
-func logAttemptSend(id *p2p.PeerID, addr p2p.Addr) {
+func logAttemptSend(id p2p.PeerID, addr p2p.Addr) {
 	data, _ := addr.MarshalText()
 	log.WithFields(logrus.Fields{
 		"peer_id": id,
@@ -91,7 +93,7 @@ func logAttemptSend(id *p2p.PeerID, addr p2p.Addr) {
 	}).Warn("tried to send message to peer not in whitelist")
 }
 
-func logRecv(id *p2p.PeerID, addr p2p.Addr) {
+func logRecv(id p2p.PeerID, addr p2p.Addr) {
 	data, _ := addr.MarshalText()
 	log.WithFields(logrus.Fields{
 		"peer_id": id,

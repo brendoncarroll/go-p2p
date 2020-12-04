@@ -2,10 +2,10 @@ package multiswarm
 
 import (
 	"context"
-	"errors"
 	"io"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/pkg/errors"
 )
 
 var (
@@ -141,11 +141,11 @@ func (ms multiSecure) PublicKey() p2p.PublicKey {
 	return nil
 }
 
-func (ms multiSecure) LookupPublicKey(addr p2p.Addr) p2p.PublicKey {
+func (ms multiSecure) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.PublicKey, error) {
 	a := addr.(Addr)
 	t, ok := ms[a.Transport]
 	if !ok {
-		return nil
+		return nil, errors.Errorf("invalid transport: %s", a.Transport)
 	}
-	return t.LookupPublicKey(a.Addr)
+	return t.LookupPublicKey(ctx, a.Addr)
 }

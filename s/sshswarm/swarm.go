@@ -93,16 +93,16 @@ func (s *Swarm) PublicKey() p2p.PublicKey {
 	return s.pubKey
 }
 
-func (s *Swarm) LookupPublicKey(x p2p.Addr) p2p.PublicKey {
+func (s *Swarm) LookupPublicKey(ctx context.Context, x p2p.Addr) (p2p.PublicKey, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	x2 := x.(*Addr)
 	c := s.conns[x2.Key()]
 	if c == nil {
-		return nil
+		return nil, p2p.ErrPublicKeyNotFound
 	}
-	return c.pubKey.(p2p.PublicKey)
+	return c.pubKey.(p2p.PublicKey), nil
 }
 
 func (s *Swarm) OnAsk(fn p2p.AskHandler) {

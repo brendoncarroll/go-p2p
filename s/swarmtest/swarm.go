@@ -91,7 +91,7 @@ func TestTell(t *testing.T, src, dst p2p.Swarm) {
 
 func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
 	const N = 50
-	ctx, cf := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cf := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cf()
 
 	aInbox := make(chan []byte, N)
@@ -128,10 +128,9 @@ func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
 		return nil
 	})
 	require.Nil(t, eg.Wait())
-	time.Sleep(time.Second)
 	passN := N * 3 / 4
-	aSlice := collectChan(ctx, passN, aInbox)
-	bSlice := collectChan(ctx, passN, bInbox)
+	aSlice := collectChan(ctx, N, aInbox)
+	bSlice := collectChan(ctx, N, bInbox)
 	t.Log("a inbox: ", len(aSlice))
 	t.Log("b inbox: ", len(bSlice))
 	assert.GreaterOrEqual(t, len(aSlice), passN)
@@ -142,7 +141,7 @@ func collectChan(ctx context.Context, N int, ch chan []byte) (ret [][]byte) {
 	for i := 0; i < N; i++ {
 		select {
 		case <-ctx.Done():
-			return
+			return ret
 		case x := <-ch:
 			ret = append(ret, x)
 		}
@@ -162,6 +161,12 @@ func CloseSwarms(t testing.TB, xs []p2p.Swarm) {
 }
 
 func CloseAskSwarms(t testing.TB, xs []p2p.AskSwarm) {
+	for i := range xs {
+		require.Nil(t, xs[i].Close())
+	}
+}
+
+func CloseSecureSwarms(t testing.TB, xs []p2p.SecureSwarm) {
 	for i := range xs {
 		require.Nil(t, xs[i].Close())
 	}

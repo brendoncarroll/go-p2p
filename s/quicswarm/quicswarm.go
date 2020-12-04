@@ -30,9 +30,10 @@ type Swarm struct {
 	privKey p2p.PrivateKey
 	udpConn *net.UDPConn
 	l       quic.Listener
+	cf      context.CancelFunc
 
 	mu        sync.Mutex
-	sessCache map[string]quic.Session
+	sessCache map[sessionKey]quic.Session
 
 	onAsk  p2p.AskHandler
 	onTell p2p.TellHandler
@@ -52,26 +53,34 @@ func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx, cf := context.WithCancel(context.Background())
 	s := &Swarm{
 		mtu:     DefaultMTU,
 		udpConn: udpConn,
 		l:       l,
 		privKey: privKey,
+		cf:      cf,
 
-		sessCache: map[string]quic.Session{},
+		sessCache: map[sessionKey]quic.Session{},
 
 		onAsk:  p2p.NoOpAskHandler,
 		onTell: p2p.NoOpTellHandler,
 	}
-	go s.serve(context.Background())
+	go s.serve(ctx)
 	return s, nil
 }
 
 func (s *Swarm) OnTell(fn p2p.TellHandler) {
+	if fn == nil {
+		fn = p2p.NoOpTellHandler
+	}
 	swarmutil.AtomicSetTH(&s.onTell, fn)
 }
 
 func (s *Swarm) OnAsk(fn p2p.AskHandler) {
+	if fn == nil {
+		fn = p2p.NoOpAskHandler
+	}
 	swarmutil.AtomicSetAH(&s.onAsk, fn)
 }
 
@@ -87,8 +96,7 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 			return err
 		}
 		defer stream.Close()
-		deadline, yes := ctx.Deadline()
-		if yes {
+		if deadline, yes := ctx.Deadline(); yes {
 			if err := stream.SetWriteDeadline(deadline); err != nil {
 				return err
 			}
@@ -121,8 +129,7 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 
 		log.Debugf("opened bidi-stream %d", stream.StreamID())
 		// deadlines
-		deadline, yes := ctx.Deadline()
-		if yes {
+		if deadline, yes := ctx.Deadline(); yes {
 			if err := stream.SetWriteDeadline(deadline); err != nil {
 				return err
 			}
@@ -150,12 +157,13 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 func (s *Swarm) Close() (retErr error) {
 	s.OnAsk(nil)
 	s.OnTell(nil)
-	// if err := s.l.Close(); retErr == nil {
-	// 	retErr = err
-	// }
-	// if err := s.udpConn.Close(); retErr == nil {
-	// 	retErr = err
-	// }
+	s.cf()
+	if err := s.l.Close(); retErr == nil {
+		retErr = err
+	}
+	if err := s.udpConn.Close(); retErr == nil {
+		retErr = err
+	}
 	return retErr
 }
 
@@ -172,24 +180,28 @@ func (s *Swarm) PublicKey() p2p.PublicKey {
 	return s.privKey.Public()
 }
 
-func (s *Swarm) LookupPublicKey(x p2p.Addr) p2p.PublicKey {
+func (s *Swarm) LookupPublicKey(ctx context.Context, x p2p.Addr) (p2p.PublicKey, error) {
 	a := x.(*Addr)
-	s.mu.Lock()
-	sess := s.sessCache[a.Key()]
-	s.mu.Unlock()
-	if sess == nil {
+	var pubKey p2p.PublicKey
+	if err := s.withSession(ctx, a, func(sess quic.Session) error {
+		tlsState := sess.ConnectionState()
+		// ok to panic here on OOB, it is a bug to have a session with
+		// no certificates in the cache.
+		cert := tlsState.PeerCertificates[0]
+		pubKey = cert.PublicKey
 		return nil
+	}); err != nil {
+		return nil, err
 	}
-	tlsState := sess.ConnectionState()
-	// ok to panic here on OOB, it is a bug to have a session with
-	// no certificates in the cache.
-	cert := tlsState.PeerCertificates[0]
-	return cert.PublicKey
+	return pubKey, nil
 }
 
 func (s *Swarm) withSession(ctx context.Context, dst *Addr, fn func(sess quic.Session) error) error {
 	s.mu.Lock()
-	sess, exists := s.sessCache[dst.Key()]
+	sess, exists := s.sessCache[sessionKey{addr: dst.Key(), outbound: false}]
+	if !exists {
+		sess, exists = s.sessCache[sessionKey{addr: dst.Key(), outbound: true}]
+	}
 	s.mu.Unlock()
 	if exists {
 		return fn(sess)
@@ -210,11 +222,11 @@ func (s *Swarm) withSession(ctx context.Context, dst *Addr, fn func(sess quic.Se
 	if !peerAddr.Equals(dst) {
 		return errors.New("wrong peer")
 	}
-	sess = s.putSession(peerAddr, sess)
+	s.putSession(peerAddr, sess, true)
 	log.WithFields(logrus.Fields{
 		"remote_addr": peerAddr,
 	}).Debug("session established via dial")
-	go s.handleSession(context.Background(), sess, peerAddr)
+	go s.handleSession(context.Background(), sess, peerAddr, true)
 	return fn(sess)
 }
 
@@ -222,7 +234,9 @@ func (s *Swarm) serve(ctx context.Context) {
 	for {
 		sess, err := s.l.Accept(ctx)
 		if err != nil {
-			log.Error(err)
+			if err != context.Canceled {
+				log.Error(err)
+			}
 			return
 		}
 		addr, err := addrFromSession(sess)
@@ -230,18 +244,18 @@ func (s *Swarm) serve(ctx context.Context) {
 			log.Warn(err)
 			continue
 		}
-		s.putSession(addr, sess)
+		s.putSession(addr, sess, false)
 		log.WithFields(logrus.Fields{
 			"remote_addr": addr,
 		}).Debug("session established via listen")
-		go s.handleSession(ctx, sess, addr)
+		go s.handleSession(ctx, sess, addr, false)
 	}
 }
 
-func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, addr *Addr) {
+func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, addr *Addr, isClient bool) {
 	defer func() {
 		s.mu.Lock()
-		delete(s.sessCache, addr.Key())
+		delete(s.sessCache, sessionKey{addr: addr.Key(), outbound: isClient})
 		s.mu.Unlock()
 	}()
 	group := errgroup.Group{}
@@ -251,8 +265,7 @@ func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, addr *Addr
 	group.Go(func() error {
 		return s.handleTells(ctx, sess, addr)
 	})
-	if err := group.Wait(); quicErr(err) != nil {
-		logrus.Error("closing session with error: ", err)
+	if err := group.Wait(); quicErr(err) != nil && err != context.Canceled {
 		if err := sess.CloseWithError(1, err.Error()); err != nil {
 			logrus.Error(err)
 		}
@@ -322,28 +335,10 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Add
 	}
 }
 
-func (s *Swarm) putSession(addr *Addr, newSess quic.Session) quic.Session {
+func (s *Swarm) putSession(addr *Addr, newSess quic.Session, isClient bool) {
 	s.mu.Lock()
-	var kill, keep quic.Session
-	if oldSess, exists := s.sessCache[addr.Key()]; exists {
-		if addr.ID.Key() < s.makeLocalAddr(s.l.Addr()).Key() {
-			keep = oldSess
-			kill = newSess
-		} else {
-			keep = newSess
-			kill = oldSess
-		}
-	} else {
-		keep = newSess
-	}
-	s.sessCache[addr.Key()] = keep
+	s.sessCache[sessionKey{addr: addr.Key(), outbound: isClient}] = newSess
 	s.mu.Unlock()
-	if kill != nil {
-		if err := kill.CloseWithError(0, "session replaced"); err != nil {
-			log.Error(err)
-		}
-	}
-	return keep
 }
 
 func (s *Swarm) makeLocalAddr(x net.Addr) *Addr {
@@ -430,4 +425,9 @@ func isSessionReplaced(err error) bool {
 		return true
 	}
 	return false
+}
+
+type sessionKey struct {
+	addr     string
+	outbound bool
 }

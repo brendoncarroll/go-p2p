@@ -1,10 +1,10 @@
 package sshswarm
 
 import (
-	"crypto/ed25519"
 	"testing"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/p2ptest"
 	"github.com/brendoncarroll/go-p2p/s/swarmtest"
 	"github.com/stretchr/testify/require"
 )
@@ -14,7 +14,7 @@ func TestSwarm(t *testing.T) {
 	swarmtest.TestSuiteSwarm(t, func(t testing.TB, n int) []p2p.Swarm {
 		xs := make([]p2p.Swarm, n)
 		for i := range xs {
-			privKey := getPrivateKey(0)
+			privKey := p2ptest.NewTestKey(t, i)
 			s, err := New("127.0.0.1:", privKey, nil)
 			require.Nil(t, err)
 			xs[i] = s
@@ -24,10 +24,30 @@ func TestSwarm(t *testing.T) {
 		})
 		return xs
 	})
-}
-
-func getPrivateKey(i uint8) ed25519.PrivateKey {
-	seed := make([]byte, ed25519.SeedSize)
-	seed[0] = i
-	return ed25519.NewKeyFromSeed(seed)
+	swarmtest.TestSuiteAskSwarm(t, func(t testing.TB, n int) []p2p.AskSwarm {
+		xs := make([]p2p.AskSwarm, n)
+		for i := range xs {
+			privKey := p2ptest.NewTestKey(t, i)
+			s, err := New("127.0.0.1:", privKey, nil)
+			require.Nil(t, err)
+			xs[i] = s
+		}
+		t.Cleanup(func() {
+			swarmtest.CloseAskSwarms(t, xs)
+		})
+		return xs
+	})
+	swarmtest.TestSuiteSecureSwarm(t, func(t testing.TB, n int) []p2p.SecureSwarm {
+		xs := make([]p2p.SecureSwarm, n)
+		for i := range xs {
+			privKey := p2ptest.NewTestKey(t, i)
+			s, err := New("127.0.0.1:", privKey, nil)
+			require.Nil(t, err)
+			xs[i] = s
+		}
+		t.Cleanup(func() {
+			swarmtest.CloseSecureSwarms(t, xs)
+		})
+		return xs
+	})
 }

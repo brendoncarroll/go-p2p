@@ -102,8 +102,8 @@ type SecureAskSwarm struct {
 	secure p2p.Secure
 }
 
-func (s *SecureAskSwarm) LookupPublicKey(addr p2p.Addr) p2p.PublicKey {
-	return s.secure.LookupPublicKey(addr)
+func (s *SecureAskSwarm) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.PublicKey, error) {
+	return s.secure.LookupPublicKey(ctx, addr)
 }
 
 func (s *SecureAskSwarm) PublicKey() p2p.PublicKey {

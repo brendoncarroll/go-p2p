@@ -34,4 +34,17 @@ func TestSwarm(t *testing.T) {
 		})
 		return xs
 	})
+	swarmtest.TestSuiteSecureSwarm(t, func(t testing.TB, n int) []p2p.SecureSwarm {
+		xs := make([]p2p.SecureSwarm, n)
+		r := NewRealm()
+		for i := range xs {
+			xs[i] = r.NewSwarm()
+		}
+		t.Cleanup(func() {
+			for i := range xs {
+				require.Nil(t, xs[i].Close())
+			}
+		})
+		return xs
+	})
 }

@@ -7,19 +7,19 @@ type HasIP interface {
 	MapIP(net.IP) Addr
 }
 
-func getIP(x Addr) net.IP {
+func ExtractIP(x Addr) net.IP {
 	if hasIP, ok := x.(HasIP); ok {
 		return hasIP.GetIP()
 	}
 	if unwrap, ok := x.(UnwrapAddr); ok {
-		return getIP(unwrap.Unwrap())
+		return ExtractIP(unwrap.Unwrap())
 	}
 	return nil
 }
 
 func FilterIPs(xs []Addr, preds ...func(net.IP) bool) (ys []Addr) {
 	for _, x := range xs {
-		ip := getIP(x)
+		ip := ExtractIP(x)
 		keep := true
 		if ip != nil {
 			for _, pred := range preds {

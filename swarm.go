@@ -3,6 +3,8 @@ package p2p
 import (
 	"context"
 	"io"
+
+	"github.com/pkg/errors"
 )
 
 type Message struct {
@@ -41,9 +43,13 @@ type AskSwarm interface {
 	Asker
 }
 
+var (
+	ErrPublicKeyNotFound = errors.Errorf("public key not found")
+)
+
 type Secure interface {
 	PublicKey() PublicKey
-	LookupPublicKey(addr Addr) PublicKey
+	LookupPublicKey(ctx context.Context, addr Addr) (PublicKey, error)
 }
 
 type SecureSwarm interface {
@@ -55,42 +61,4 @@ type SecureAskSwarm interface {
 	Swarm
 	Asker
 	Secure
-}
-
-type composedSecureSwarm struct {
-	Swarm
-	Secure
-}
-
-type composedAskSwarm struct {
-	Swarm
-	Asker
-}
-
-type composedSecureAskSwarm struct {
-	Swarm
-	Asker
-	Secure
-}
-
-func ComposeAskSwarm(swarm Swarm, ask Asker) AskSwarm {
-	return composedAskSwarm{
-		Swarm: swarm,
-		Asker: ask,
-	}
-}
-
-func ComposeSecureAskSwarm(swarm Swarm, ask Asker, sec Secure) SecureAskSwarm {
-	return composedSecureAskSwarm{
-		Swarm:  swarm,
-		Asker:  ask,
-		Secure: sec,
-	}
-}
-
-func ComposeSecureSwarm(swarm Swarm, sec Secure) SecureSwarm {
-	return composedSecureSwarm{
-		Swarm:  swarm,
-		Secure: sec,
-	}
 }
