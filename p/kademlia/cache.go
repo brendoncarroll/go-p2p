@@ -29,8 +29,8 @@ func NewCache(locus []byte, max, minPerBucket int) *Cache {
 	return kc
 }
 
-// Lookup returns the value at key
-func (kc *Cache) Lookup(key []byte) interface{} {
+// Get returns the value at key
+func (kc *Cache) Get(key []byte) interface{} {
 	dist := make([]byte, len(kc.locus))
 	XORBytes(dist, key, kc.locus)
 	lz := Leading0s(dist)
@@ -146,6 +146,23 @@ func (kc *Cache) Count() int {
 	return kc.count
 }
 
+// ForEachMatching calls fn with every entry where the key matches prefix
+// for the leading nbits.  If nbits < len(prefix/8) it panics
+func (kc *Cache) ForEachMatching(prefix []byte, nbits int, fn func(Entry)) {
+	dist := make([]byte, len(kc.locus))
+	XORBytes(dist, kc.locus, prefix)
+	lz := Leading0s(dist)
+	for i, b := range kc.entries {
+		if lz <= i {
+			for _, e := range b {
+				if HasPrefix(e.Key, prefix, nbits) {
+					fn(e)
+				}
+			}
+		}
+	}
+}
+
 func (kc *Cache) evict() *Entry {
 	n := -1
 	for i, b := range kc.entries {
@@ -193,4 +210,26 @@ func getOne(m map[string]Entry) string {
 		return k
 	}
 	panic("getOne called on empty map")
+}
+
+func HasPrefix(x []byte, prefix []byte, nbits int) bool {
+	if nbits > len(prefix)*8 {
+		panic("nbits longer than prefix")
+	}
+	if len(x) < len(prefix) {
+		return false
+	}
+	xor := make([]byte, len(x))
+	for i := range prefix {
+		xor[i] = x[i] ^ prefix[i]
+	}
+	lz := 0
+	for i := range xor {
+		lzi := bits.LeadingZeros8(xor[i])
+		lz += lzi
+		if lzi < 8 {
+			break
+		}
+	}
+	return lz == nbits
 }

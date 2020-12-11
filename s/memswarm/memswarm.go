@@ -17,44 +17,26 @@ import (
 	"github.com/jonboulle/clockwork"
 )
 
-const MTU = 1 << 20
-
 type Realm struct {
 	clock    clockwork.Clock
 	latency  time.Duration
 	dropRate float64
 	logw     io.Writer
+	mtu      int
 
 	swarms []*Swarm
 }
 
-func NewRealm() *Realm {
-	return &Realm{
-		logw: ioutil.Discard,
+func NewRealm(opts ...Option) *Realm {
+	r := &Realm{
+		clock: clockwork.NewRealClock(),
+		logw:  ioutil.Discard,
+		mtu:   1 << 20,
 	}
-}
-
-func (r Realm) WithLogging(w io.Writer) *Realm {
-	r.logw = w
-	return &r
-}
-
-func (r Realm) WithLatency(t time.Duration) *Realm {
-	if r.clock == nil {
-		r.clock = clockwork.NewFakeClock()
+	for _, opt := range opts {
+		opt(r)
 	}
-	r.latency = t
-	return &r
-}
-
-func (r Realm) WithClock(clock clockwork.Clock) *Realm {
-	r.clock = clock
-	return &r
-}
-
-func (r Realm) WithDropRate(dr float64) *Realm {
-	r.dropRate = dr
-	return &r
+	return r
 }
 
 func (r *Realm) log(isAsk bool, msg *p2p.Message) {
@@ -115,12 +97,15 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 		Dst:     addr,
 		Payload: data,
 	}
+	if len(data) > s.r.mtu {
+		return nil, p2p.ErrMTUExceeded
+	}
 	if !s.r.block() {
 		return nil, errors.New("message dropped")
 	}
 	s.r.log(true, msg)
 	buf := bytes.Buffer{}
-	lw := &swarmutil.LimitWriter{W: &buf, N: MTU}
+	lw := &swarmutil.LimitWriter{W: &buf, N: s.r.mtu}
 	s2 := s.r.swarms[a.N]
 	handleAsk := swarmutil.AtomicGetAH(&s2.handleAsk)
 	handleAsk(ctx, msg, lw)
@@ -133,6 +118,9 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
 		Payload: data,
+	}
+	if len(data) > s.r.mtu {
+		return p2p.ErrMTUExceeded
 	}
 	if !s.r.block() {
 		return nil
@@ -163,7 +151,7 @@ func (s *Swarm) LocalAddrs() []p2p.Addr {
 }
 
 func (s *Swarm) MTU(context.Context, p2p.Addr) int {
-	return MTU
+	return s.r.mtu
 }
 
 func (s *Swarm) Close() error {
