@@ -58,13 +58,13 @@ func (l *leaser) run(ctx context.Context) {
 
 func (l *leaser) renew(ctx context.Context, reqPort int) error {
 	ttl := 2 * l.period
-	externalPort, err := l.nat.AddPortMapping(
+	externalPort, err := l.nat.AddPortMapping(ctx,
 		l.protocol, l.localPort, reqPort, "go-p2p", ttl)
 
 	if err != nil {
 		return err
 	}
-	externalIP, err := l.nat.GetExternalIPAddress()
+	externalIP, err := l.nat.GetExternalIPAddress(ctx)
 	if err != nil {
 		return err
 	}

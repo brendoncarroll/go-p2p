@@ -43,11 +43,11 @@ var upnpCmd = &cobra.Command{
 		log.Println("discovering nat devices...")
 		natDevs := upnp.Discover(ctx, timeout/2, timeout)
 		for _, natDev := range natDevs {
-			localIP, err := natDev.GetExternalIPAddress()
+			localIP, err := natDev.GetExternalIPAddress(ctx)
 			if err != nil {
 				log.Error(err)
 			}
-			externalIP, err := natDev.GetExternalIPAddress()
+			externalIP, err := natDev.GetExternalIPAddress(ctx)
 			if err != nil {
 				log.Error(err)
 			}
