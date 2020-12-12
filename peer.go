@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 
 	"github.com/pkg/errors"
@@ -47,23 +46,4 @@ func (pid *PeerID) UnmarshalText(data []byte) error {
 	}
 	enc.Decode(pid[:], data)
 	return nil
-}
-
-// LookupPublicKeyInHandler calls LookupPublicKey with
-// an expired context, and panics on an error.  SecureSwarms must
-// be able to return a PublicKey retrieved from memory, during the
-// execution of an AskHandler or TellHandler.
-// to lookup a public key outside a handler, use the swarms LookupPublicKey method
-func LookupPublicKeyInHandler(s Secure, target Addr) PublicKey {
-	ctx, cf := context.WithCancel(context.Background())
-	cf()
-	pubKey, err := s.LookupPublicKey(ctx, target)
-	if err != nil {
-		err = errors.Wrapf(err, "swarms must provide public key during callback")
-		panic(err)
-	}
-	if pubKey == nil {
-		panic("swarms must provide public key during callback. got nil")
-	}
-	return pubKey
 }

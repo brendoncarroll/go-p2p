@@ -2,15 +2,18 @@ package noiseswarm
 
 import (
 	"context"
-	"log"
+	mrand "math/rand"
 	"sync"
+	"time"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/sirupsen/logrus"
+	"github.com/pkg/errors"
 )
 
 var _ p2p.SecureSwarm = &Swarm{}
 
+// Overhead is the per message overhead.
+// MTU will be smaller than for the underlying swarm's MTU by Overhead
 const Overhead = 4 + 16
 
 type Swarm struct {
@@ -18,36 +21,46 @@ type Swarm struct {
 	privateKey p2p.PrivateKey
 	localID    p2p.PeerID
 
+	cf context.CancelFunc
+
 	mu             sync.RWMutex
 	lowerToSession map[string]*session
 }
 
 func New(x p2p.Swarm, privateKey p2p.PrivateKey) *Swarm {
+	ctx, cf := context.WithCancel(context.Background())
 	s := &Swarm{
 		swarm:      x,
 		privateKey: privateKey,
 		localID:    p2p.NewPeerID(privateKey.Public()),
 
+		cf: cf,
+
 		lowerToSession: make(map[string]*session),
 	}
-
+	s.OnTell(nil)
+	go s.cleanupLoop(ctx)
 	return s
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	dst := addr.(Addr)
-	return s.withSession(ctx, dst, func(sess *session) error {
+	return s.withDialedSession(ctx, dst, func(sess *session) error {
 		return sess.tell(ctx, data)
 	})
 }
 
 func (s *Swarm) OnTell(fn p2p.TellHandler) {
+	if fn == nil {
+		fn = p2p.NoOpTellHandler
+	}
 	s.swarm.OnTell(func(msg *p2p.Message) {
 		s.fromBelow(msg, fn)
 	})
 }
 
 func (s *Swarm) Close() error {
+	s.cf()
 	return s.swarm.Close()
 }
 
@@ -63,12 +76,16 @@ func (s *Swarm) LocalAddrs() (addrs []p2p.Addr) {
 
 func (s *Swarm) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.PublicKey, error) {
 	target := addr.(Addr)
-
 	s.mu.RLock()
 	sess, exists := s.lowerToSession[target.Addr.Key()]
 	s.mu.RUnlock()
-	if exists && sess.remotePeerID() == target.ID {
-		return sess.remotePublicKey(), nil
+	if exists {
+		if err := sess.waitHandshake(ctx); err != nil {
+			return nil, p2p.ErrPublicKeyNotFound
+		}
+		if sess.getRemotePeerID() == target.ID {
+			return sess.getRemotePublicKey(), nil
+		}
 	}
 	return nil, p2p.ErrPublicKeyNotFound
 }
@@ -83,26 +100,22 @@ func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
 }
 
 func (s *Swarm) fromBelow(msg *p2p.Message, next p2p.TellHandler) {
-	src := msg.Src
-	log.Println("recv", src)
-	s.mu.Lock()
-	sess, exists := s.lowerToSession[src.Key()]
-	if !exists {
-		sess = newSession(false, s.privateKey, func(ctx context.Context, data []byte) error {
-			return s.swarm.Tell(ctx, src, data)
+	sess, _ := s.getOrCreateSession(msg.Src, func() *session {
+		return newSession(false, s.privateKey, func(ctx context.Context, data []byte) error {
+			return s.swarm.Tell(ctx, msg.Src, data)
 		})
-		s.lowerToSession[src.Key()] = sess
-	}
-	s.mu.Unlock()
+	})
 	up, err := sess.handle(msg.Payload)
 	if err != nil {
-		logrus.Error(err)
+		if shouldClearSession(err) {
+			s.deleteSession(msg.Src, sess)
+		}
 		return
 	}
 	if up != nil {
 		next(&p2p.Message{
 			Src: Addr{
-				ID:   sess.remotePeerID(),
+				ID:   sess.getRemotePeerID(),
 				Addr: msg.Src,
 			},
 			Dst: Addr{
@@ -114,28 +127,95 @@ func (s *Swarm) fromBelow(msg *p2p.Message, next p2p.TellHandler) {
 	}
 }
 
-func (s *Swarm) withSession(ctx context.Context, raddr Addr, fn func(s *session) error) error {
-	s.mu.RLock()
-	sess, exists := s.lowerToSession[raddr.Addr.Key()]
-	s.mu.RUnlock()
-	if exists {
-		return fn(sess)
+// withDialedSession calls dialSession until it doesn't error, retrying if necessary.
+// then it calls fn with the session.  fn will only be called once, although dialSession may be
+// called multiple times.
+func (s *Swarm) withDialedSession(ctx context.Context, raddr Addr, fn func(s *session) error) error {
+	var err error
+	for i := 0; i < 5; i++ {
+		sess, err := s.dialSession(ctx, raddr.Addr)
+		if err == nil {
+			actualPeerID := sess.getRemotePeerID()
+			if actualPeerID != raddr.ID {
+				s.deleteSession(raddr.Addr, sess)
+				return errors.Errorf("wrong peer HAVE: %v WANT: %v", actualPeerID, raddr.ID)
+			}
+			return fn(sess)
+		}
+		jitter := mrand.Intn(10)
+		time.Sleep(time.Duration(10+jitter) * time.Millisecond)
 	}
-	s.mu.Lock()
-	sess, exists = s.lowerToSession[raddr.Addr.Key()]
-	if exists {
-		return fn(sess)
-	}
-	sess = newSession(true, s.privateKey, func(ctx context.Context, data []byte) error {
-		return s.swarm.Tell(ctx, raddr.Addr, data)
+	return err
+}
+
+// dialSession get's a session from the cache, or creates a new one.
+// if a new session is created dialSession iniates a handshake and waits for it to complete or error.
+func (s *Swarm) dialSession(ctx context.Context, lowerRaddr p2p.Addr) (*session, error) {
+	sess, created := s.getOrCreateSession(lowerRaddr, func() *session {
+		return newSession(true, s.privateKey, func(ctx context.Context, data []byte) error {
+			return s.swarm.Tell(ctx, lowerRaddr, data)
+		})
 	})
-	s.lowerToSession[raddr.Addr.Key()] = sess
-	s.mu.Unlock()
-	if err := sess.startHandshake(ctx); err != nil {
-		return err
+	if created {
+		if err := sess.startHandshake(ctx); err != nil {
+			s.deleteSession(lowerRaddr, sess)
+			return nil, err
+		}
 	}
 	if err := sess.waitHandshake(ctx); err != nil {
-		return err
+		s.deleteSession(lowerRaddr, sess)
+		return nil, err
 	}
-	return fn(sess)
+	return sess, nil
+}
+
+// getOrCreate session returns an existing session or calls newSession to create one.
+// if newSession is called it will return the session, and true otherwise false.
+func (s *Swarm) getOrCreateSession(lowerRaddr p2p.Addr, newSession func() *session) (sess *session, created bool) {
+	s.mu.RLock()
+	sess, exists := s.lowerToSession[lowerRaddr.Key()]
+	s.mu.RUnlock()
+	if exists {
+		return sess, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, exists = s.lowerToSession[lowerRaddr.Key()]
+	if exists {
+		return sess, false
+	}
+	sess = newSession()
+	s.lowerToSession[lowerRaddr.Key()] = sess
+	return sess, true
+}
+
+// delete session deletes the session at lowerRaddr if it exists
+// if a different session than x, or no session is found deleteSession is a noop
+func (s *Swarm) deleteSession(lowerRaddr p2p.Addr, x *session) {
+	s.mu.Lock()
+	y := s.lowerToSession[lowerRaddr.Key()]
+	if x == y {
+		delete(s.lowerToSession, lowerRaddr.Key())
+	}
+	s.mu.Unlock()
+}
+
+func (s *Swarm) cleanupLoop(ctx context.Context) {
+	ticker := time.NewTicker(MaxSessionLife)
+	defer ticker.Stop()
+	for {
+		now := time.Now()
+		s.mu.Lock()
+		for k, sess := range s.lowerToSession {
+			if sess.isExpired(now) {
+				delete(s.lowerToSession, k)
+			}
+		}
+		s.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
