@@ -17,6 +17,8 @@ const (
 	MaxSessionLife     = time.Minute
 	MaxSessionMessages = (1 << 32) - 1
 
+	HandshakeTimeout = 3 * time.Second
+
 	// SigPurpose is the purpose passed to p2p.Sign when signing
 	// channel bindings.
 	// Your application should not reuse this purpose with the privateKey used for the swarm.
@@ -99,7 +101,10 @@ func (s *session) handle(in []byte) (up []byte, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if isChanOpen(s.handshakeDone) {
-		return nil, errors.Errorf("transport message before handshake is complete")
+		return nil, &ErrTransport{
+			Message: "transport message before handshake is complete",
+			Num:     count,
+		}
 	}
 	ctext := in[4:]
 	ptext, err := s.decryptMessage(count, ctext)
@@ -107,38 +112,49 @@ func (s *session) handle(in []byte) (up []byte, err error) {
 		return nil, err
 	}
 	if !s.inFilter.ValidateCounter(uint64(count), MaxSessionMessages) {
-		return nil, errors.Errorf("replayed counter %d", count)
+		return nil, &ErrTransport{
+			Message: "replayed counter",
+			Num:     count,
+		}
 	}
 	return ptext, nil
 }
 
 func (s *session) handleHandshake(counter uint32, in []byte) error {
 	var resps [][]byte
-	if err := func() error {
+	if err := func() *ErrHandshake {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		switch {
 		case !s.initiator && counter == countInit:
 			_, _, _, err := s.hsstate.ReadMessage(nil, in)
 			if err != nil {
-				return err
+				return &ErrHandshake{
+					Message: "noise errored",
+					Cause:   err,
+				}
 			}
 			counterBytes := [4]byte{}
 			binary.BigEndian.PutUint32(counterBytes[:], countResp)
 			out, cs1, cs2, err := s.hsstate.WriteMessage(counterBytes[:], nil)
 			if err != nil {
-				return err
+				return &ErrHandshake{
+					Message: "noise errored",
+					Cause:   err,
+				}
 			}
 			if cs1 == nil || cs2 == nil {
 				panic("no error and no cipherstates")
 			}
 			resps = append(resps, out)
 			s.completeNoiseHandshake(cs1, cs2)
-
 			// also send intro
 			introBytes, err := signChannelBinding(s.privateKey, s.hsstate.ChannelBinding())
 			if err != nil {
-				return err
+				return &ErrHandshake{
+					Message: "could not sign the channel binding",
+					Cause:   err,
+				}
 			}
 			out = s.encryptMessage(countSigChannelBinding, introBytes)
 			resps = append(resps, out)
@@ -147,7 +163,10 @@ func (s *session) handleHandshake(counter uint32, in []byte) error {
 		case s.initiator && counter == countResp:
 			_, cs1, cs2, err := s.hsstate.ReadMessage(nil, in)
 			if err != nil {
-				return err
+				return &ErrHandshake{
+					Message: "noise errored",
+					Cause:   err,
+				}
 			}
 			if cs1 == nil || cs2 == nil {
 				panic("no error and no cipherstates")
@@ -156,7 +175,10 @@ func (s *session) handleHandshake(counter uint32, in []byte) error {
 			// send intro
 			introBytes, err := signChannelBinding(s.privateKey, s.hsstate.ChannelBinding())
 			if err != nil {
-				return err
+				return &ErrHandshake{
+					Message: "invalid intro signature",
+					Cause:   err,
+				}
 			}
 			out := s.encryptMessage(countSigChannelBinding, introBytes)
 			resps = append(resps, out)
@@ -167,20 +189,30 @@ func (s *session) handleHandshake(counter uint32, in []byte) error {
 				return nil
 			}
 			if s.inCS == nil {
-				return errors.Errorf("noise handshake not complete")
+				return &ErrHandshake{
+					Message: "intro before noise handshake completed",
+				}
 			}
 			ptext, err := s.decryptMessage(countSigChannelBinding, in)
 			if err != nil {
-				return err
+				return &ErrHandshake{
+					Message: "could not decrypt intro",
+					Cause:   err,
+				}
 			}
 			remotePubKey, err := verifyIntro(s.hsstate.ChannelBinding(), ptext)
 			if err != nil {
-				return err
+				return &ErrHandshake{
+					Message: "intro was invalid",
+					Cause:   err,
+				}
 			}
 			s.completeHandshake(remotePubKey)
 			return nil
 		default:
-			return errors.Errorf("concurrent handshake")
+			return &ErrHandshake{
+				Message: "concurrent handshake",
+			}
 		}
 	}(); err != nil {
 		s.failHandshake(err)
@@ -212,7 +244,7 @@ func (s *session) tell(ctx context.Context, ptext []byte) error {
 }
 
 // failHandshake must be called with mu
-func (s *session) failHandshake(err error) {
+func (s *session) failHandshake(err *ErrHandshake) {
 	if isChanOpen(s.handshakeDone) {
 		s.handshakeErr = err
 		close(s.handshakeDone)
@@ -245,11 +277,14 @@ func (s *session) waitHandshake(ctx context.Context) error {
 	if !isChanOpen(s.handshakeDone) {
 		return s.handshakeErr
 	}
-	ctx, cf := context.WithTimeout(ctx, time.Second)
+	ctx, cf := context.WithTimeout(ctx, HandshakeTimeout)
 	defer cf()
 	select {
 	case <-ctx.Done():
-		return errors.Wrapf(ctx.Err(), "timeout during handshake")
+		return &ErrHandshake{
+			Message: "timed out waiting for handshake to complete",
+			Cause:   ctx.Err(),
+		}
 	case <-s.handshakeDone:
 		return s.handshakeErr
 	}
@@ -302,10 +337,6 @@ func isChanOpen(x chan struct{}) bool {
 	default:
 		return true
 	}
-}
-
-func shouldClearSession(err error) bool {
-	return true
 }
 
 func signChannelBinding(privateKey p2p.PrivateKey, cb []byte) ([]byte, error) {
