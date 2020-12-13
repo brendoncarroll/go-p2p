@@ -17,6 +17,7 @@ import (
 const (
 	MaxSessionLife     = time.Minute
 	MaxSessionMessages = (1 << 32) - 1
+	SessionIdleTimeout = 10 * time.Second
 
 	HandshakeTimeout = 3 * time.Second
 
@@ -37,6 +38,7 @@ const (
 
 type session struct {
 	createdAt  time.Time
+	lastRecv   time.Time
 	initiator  bool
 	privateKey p2p.PrivateKey
 	send       func(context.Context, []byte) error
@@ -63,8 +65,10 @@ func newSession(initiator bool, privateKey p2p.PrivateKey, send func(context.Con
 	if err != nil {
 		panic(err)
 	}
+	now := time.Now()
 	return &session{
-		createdAt:  time.Now(),
+		createdAt:  now,
+		lastRecv:   now,
 		privateKey: privateKey,
 		initiator:  initiator,
 		send:       send,
@@ -118,6 +122,7 @@ func (s *session) handle(in []byte) (up []byte, err error) {
 			Num:     count,
 		}
 	}
+	s.lastRecv = time.Now()
 	return ptext, nil
 }
 
@@ -129,8 +134,13 @@ func (s *session) handleHandshake(counter uint32, in []byte) error {
 		// this is to prevent DOS via replaying a handshake message.
 		// only an init with a different ephemeral key will return an error.
 		if !isChanOpen(s.handshakeDone) {
-			if counter == countResp || counter == countSigChannelBinding {
+			if counter == countSigChannelBinding {
 				return nil
+			}
+			if counter == countResp {
+				if bytes.Contains(in, s.hsstate.PeerEphemeral()) {
+					return nil
+				}
 			}
 			if counter == countInit {
 				if bytes.HasPrefix(in, s.hsstate.PeerEphemeral()) {
@@ -269,6 +279,7 @@ func (s *session) completeNoiseHandshake(cs1, cs2 *noise.CipherState) {
 	s.outCS = cs1
 	s.inCS = cs2
 	s.outCount = countPostHandshake
+	s.lastRecv = time.Now()
 }
 
 // completeHandshake must be called with mu
@@ -278,6 +289,7 @@ func (s *session) completeHandshake(remotePublicKey p2p.PublicKey) {
 	}
 	s.remotePublicKey = remotePublicKey
 	s.outCount = countPostHandshake
+	s.lastRecv = time.Now()
 	close(s.handshakeDone)
 }
 
@@ -296,13 +308,19 @@ func (s *session) waitHandshake(ctx context.Context) error {
 			Cause:   ctx.Err(),
 		}
 	case <-s.handshakeDone:
+		if s.isExpired(time.Now()) {
+			return ErrSessionExpired
+		}
 		return s.handshakeErr
 	}
 }
 
 func (s *session) isExpired(now time.Time) bool {
-	age := now.Sub(s.createdAt)
-	return age < MaxSessionLife
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sessionAge := now.Sub(s.createdAt)
+	recvAge := now.Sub(s.lastRecv)
+	return sessionAge > MaxSessionLife || recvAge > SessionIdleTimeout
 }
 
 func (s *session) getRemotePeerID() p2p.PeerID {

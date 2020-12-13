@@ -178,17 +178,22 @@ func (s *Swarm) dialSession(ctx context.Context, lowerRaddr p2p.Addr) (*session,
 // getOrCreate session returns an existing session or calls newSession to create one.
 // if newSession is called it will return the session, and true otherwise false.
 func (s *Swarm) getOrCreateSession(lowerRaddr p2p.Addr, newSession func() *session) (sess *session, created bool) {
+	now := time.Now()
 	s.mu.RLock()
 	sess, exists := s.lowerToSession[lowerRaddr.Key()]
 	s.mu.RUnlock()
 	if exists {
-		return sess, false
+		if !sess.isExpired(now) {
+			return sess, false
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sess, exists = s.lowerToSession[lowerRaddr.Key()]
 	if exists {
-		return sess, false
+		if !sess.isExpired(now) {
+			return sess, false
+		}
 	}
 	sess = newSession()
 	s.lowerToSession[lowerRaddr.Key()] = sess
