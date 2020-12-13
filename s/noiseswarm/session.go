@@ -126,7 +126,7 @@ func (s *session) handleHandshake(counter uint32, in []byte) error {
 	if err := func() *ErrHandshake {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		// this is to prevent DOS via someone resending a handshake message.
+		// this is to prevent DOS via replaying a handshake message.
 		// only an init with a different ephemeral key will return an error.
 		if !isChanOpen(s.handshakeDone) {
 			if counter == countResp || counter == countSigChannelBinding {
