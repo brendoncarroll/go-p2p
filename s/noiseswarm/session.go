@@ -1,6 +1,7 @@
 package noiseswarm
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"sync"
@@ -125,6 +126,18 @@ func (s *session) handleHandshake(counter uint32, in []byte) error {
 	if err := func() *ErrHandshake {
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		// this is to prevent DOS via someone resending a handshake message.
+		// only an init with a different ephemeral key will return an error.
+		if !isChanOpen(s.handshakeDone) {
+			if counter == countResp || counter == countSigChannelBinding {
+				return nil
+			}
+			if counter == countInit {
+				if bytes.HasPrefix(in, s.hsstate.PeerEphemeral()) {
+					return nil
+				}
+			}
+		}
 		switch {
 		case !s.initiator && counter == countInit:
 			_, _, _, err := s.hsstate.ReadMessage(nil, in)
@@ -185,9 +198,6 @@ func (s *session) handleHandshake(counter uint32, in []byte) error {
 			return nil
 
 		case counter == countSigChannelBinding:
-			if !isChanOpen(s.handshakeDone) {
-				return nil
-			}
 			if s.inCS == nil {
 				return &ErrHandshake{
 					Message: "intro before noise handshake completed",

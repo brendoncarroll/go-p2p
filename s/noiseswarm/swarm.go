@@ -100,30 +100,38 @@ func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
 }
 
 func (s *Swarm) fromBelow(msg *p2p.Message, next p2p.TellHandler) {
-	sess, _ := s.getOrCreateSession(msg.Src, func() *session {
+	newSession := func() *session {
 		return newSession(false, s.privateKey, func(ctx context.Context, data []byte) error {
 			return s.swarm.Tell(ctx, msg.Src, data)
 		})
-	})
-	up, err := sess.handle(msg.Payload)
-	if err != nil {
-		if shouldClearSession(err) {
-			s.deleteSession(msg.Src, sess)
-		}
-		return
 	}
-	if up != nil {
-		next(&p2p.Message{
-			Src: Addr{
-				ID:   sess.getRemotePeerID(),
-				Addr: msg.Src,
-			},
-			Dst: Addr{
-				ID:   s.localID,
-				Addr: msg.Dst,
-			},
-			Payload: up,
-		})
+	// if we get an error that requires clearing the session, see if feeding the message to a new session works
+	for i := 0; i < 2; i++ {
+		sess, _ := s.getOrCreateSession(msg.Src, newSession)
+		up, err := sess.handle(msg.Payload)
+		if err != nil {
+			if shouldClearSession(err) {
+				s.deleteSession(msg.Src, sess)
+				continue
+			} else {
+				return
+			}
+		} else {
+			if up != nil {
+				next(&p2p.Message{
+					Src: Addr{
+						ID:   sess.getRemotePeerID(),
+						Addr: msg.Src,
+					},
+					Dst: Addr{
+						ID:   s.localID,
+						Addr: msg.Dst,
+					},
+					Payload: up,
+				})
+			}
+			return
+		}
 	}
 }
 
@@ -132,7 +140,7 @@ func (s *Swarm) fromBelow(msg *p2p.Message, next p2p.TellHandler) {
 // called multiple times.
 func (s *Swarm) withDialedSession(ctx context.Context, raddr Addr, fn func(s *session) error) error {
 	var err error
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 10; i++ {
 		sess, err := s.dialSession(ctx, raddr.Addr)
 		if err == nil {
 			actualPeerID := sess.getRemotePeerID()
@@ -142,8 +150,7 @@ func (s *Swarm) withDialedSession(ctx context.Context, raddr Addr, fn func(s *se
 			}
 			return fn(sess)
 		}
-		jitter := mrand.Intn(10)
-		time.Sleep(time.Duration(10+jitter) * time.Millisecond)
+		time.Sleep(backoffTime(i, time.Second))
 	}
 	return err
 }
@@ -163,7 +170,6 @@ func (s *Swarm) dialSession(ctx context.Context, lowerRaddr p2p.Addr) (*session,
 		}
 	}
 	if err := sess.waitHandshake(ctx); err != nil {
-		s.deleteSession(lowerRaddr, sess)
 		return nil, err
 	}
 	return sess, nil
@@ -218,4 +224,14 @@ func (s *Swarm) cleanupLoop(ctx context.Context) {
 		case <-ticker.C:
 		}
 	}
+}
+
+func backoffTime(n int, max time.Duration) time.Duration {
+	d := time.Millisecond * time.Duration(1<<n)
+	if d > max {
+		d = max
+	}
+	jitter := time.Duration(mrand.Intn(100))
+	d = (d * jitter / 100) + d
+	return d
 }
