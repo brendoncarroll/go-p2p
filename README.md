@@ -103,9 +103,9 @@ Applies the mappings to values returned from `LocalAddr`
 A swarm that uses PeerIDs as addresses.
 It requires an underlying swarm, and a function that maps PeerIDs to addresses.
 
-- **DTLS Swarm**
+- **Noise Swarm**
 A secure higher order swarm.
-It secures messages using the DTLS protocol.
+It secures messages using the Noise Protocol Framework's NN handshake.
 It can run on top of any other swarm.
 
 Routers for distributed routing protocols like CJDNS, or Yggdrasil would be next on the wishlist.
