@@ -80,7 +80,7 @@ func (s *Swarm) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.PublicK
 	sess, exists := s.lowerToSession[target.Addr.Key()]
 	s.mu.RUnlock()
 	if exists {
-		if err := sess.waitHandshake(ctx); err != nil {
+		if err := sess.waitReady(ctx); err != nil {
 			return nil, p2p.ErrPublicKeyNotFound
 		}
 		if sess.getRemotePeerID() == target.ID {
@@ -100,6 +100,7 @@ func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
 }
 
 func (s *Swarm) fromBelow(msg *p2p.Message, next p2p.TellHandler) {
+	ctx := context.TODO()
 	newSession := func() *session {
 		return newSession(false, s.privateKey, func(ctx context.Context, data []byte) error {
 			return s.swarm.Tell(ctx, msg.Src, data)
@@ -108,7 +109,7 @@ func (s *Swarm) fromBelow(msg *p2p.Message, next p2p.TellHandler) {
 	// if we get an error that requires clearing the session, see if feeding the message to a new session works
 	for i := 0; i < 2; i++ {
 		sess, _ := s.getOrCreateSession(msg.Src, newSession)
-		up, err := sess.handle(msg.Payload)
+		up, err := sess.handle(ctx, msg.Payload)
 		if err != nil {
 			if shouldClearSession(err) {
 				s.deleteSession(msg.Src, sess)
@@ -169,7 +170,7 @@ func (s *Swarm) dialSession(ctx context.Context, lowerRaddr p2p.Addr) (*session,
 			return nil, err
 		}
 	}
-	if err := sess.waitHandshake(ctx); err != nil {
+	if err := sess.waitReady(ctx); err != nil {
 		return nil, err
 	}
 	return sess, nil

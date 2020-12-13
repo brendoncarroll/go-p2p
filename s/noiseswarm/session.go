@@ -93,24 +93,27 @@ func (s *session) startHandshake(ctx context.Context) error {
 	return s.send(ctx, out)
 }
 
-func (s *session) handle(in []byte) (up []byte, err error) {
+func (s *session) handle(ctx context.Context, in []byte) (up []byte, err error) {
 	if err := checkMessageLen(in); err != nil {
 		return nil, err
 	}
 	countBytes := in[:4]
 	count := binary.BigEndian.Uint32(countBytes)
+	if count == countLastMessage {
+		return nil, ErrSessionExpired
+	}
 	if count < countPostHandshake {
-		err := s.handleHandshake(count, in[4:])
+		err := s.handleHandshake(ctx, count, in[4:])
 		return nil, err
+	}
+	if isChanOpen(s.handshakeDone) {
+		s.sendNACK(ctx)
+		return nil, &ErrHandshake{
+			Message: "transport message before handshake is complete",
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if isChanOpen(s.handshakeDone) {
-		return nil, &ErrTransport{
-			Message: "transport message before handshake is complete",
-			Num:     count,
-		}
-	}
 	ctext := in[4:]
 	ptext, err := s.decryptMessage(count, ctext)
 	if err != nil {
@@ -126,12 +129,12 @@ func (s *session) handle(in []byte) (up []byte, err error) {
 	return ptext, nil
 }
 
-func (s *session) handleHandshake(counter uint32, in []byte) error {
+func (s *session) handleHandshake(ctx context.Context, counter uint32, in []byte) error {
 	var resps [][]byte
 	if err := func() *ErrHandshake {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		// this is to prevent DOS via replaying a handshake message.
+		// this is to prevent disconnects from repreated messages.
 		// only an init with a different ephemeral key will return an error.
 		if !isChanOpen(s.handshakeDone) {
 			if counter == countSigChannelBinding {
@@ -238,7 +241,6 @@ func (s *session) handleHandshake(counter uint32, in []byte) error {
 		s.failHandshake(err)
 		return err
 	}
-	ctx := context.Background()
 	for _, resp := range resps {
 		if err := s.send(ctx, resp); err != nil {
 			return err
@@ -249,7 +251,7 @@ func (s *session) handleHandshake(counter uint32, in []byte) error {
 
 // tell waits for the handshake to complete if it hasn't and then sends data over fn
 func (s *session) tell(ctx context.Context, ptext []byte) error {
-	if err := s.waitHandshake(ctx); err != nil {
+	if err := s.waitReady(ctx); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -293,7 +295,7 @@ func (s *session) completeHandshake(remotePublicKey p2p.PublicKey) {
 	close(s.handshakeDone)
 }
 
-func (s *session) waitHandshake(ctx context.Context) error {
+func (s *session) waitReady(ctx context.Context) error {
 	// this is necessary to ensure we can return a public key from memory
 	// when a cancelled context is passed in, as is required by p2p.LookupPublicKeyInHandler
 	if !isChanOpen(s.handshakeDone) {
@@ -313,6 +315,15 @@ func (s *session) waitHandshake(ctx context.Context) error {
 		}
 		return s.handshakeErr
 	}
+}
+
+// sendNACK sends a message with countLastMessage
+// signaling that there is a failure and the session should be cleared and recreated.
+// TODO: this could be abused for denial of service.
+func (s *session) sendNACK(ctx context.Context) error {
+	counterBytes := [4]byte{}
+	binary.BigEndian.PutUint32(counterBytes[:], countLastMessage)
+	return s.send(ctx, counterBytes[:])
 }
 
 func (s *session) isExpired(now time.Time) bool {
