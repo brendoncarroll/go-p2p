@@ -109,7 +109,7 @@ func (s *Swarm) fromBelow(msg *p2p.Message, next p2p.TellHandler) {
 	// if we get an error that requires clearing the session, see if feeding the message to a new session works
 	for i := 0; i < 2; i++ {
 		sess, _ := s.getOrCreateSession(msg.Src, newSession)
-		up, err := sess.handle(ctx, msg.Payload)
+		up, err := sess.upward(ctx, msg.Payload)
 		if err != nil {
 			if shouldClearSession(err) {
 				s.deleteSession(msg.Src, sess)
