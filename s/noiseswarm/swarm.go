@@ -83,7 +83,7 @@ func (s *Swarm) LocalAddrs() (addrs []p2p.Addr) {
 
 func (s *Swarm) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.PublicKey, error) {
 	target := addr.(Addr)
-	sess := s.getAnySession(target.Addr)
+	sess := s.getAnySession(target)
 	if sess != nil {
 		if err := sess.waitReady(ctx); err != nil {
 			return nil, p2p.ErrPublicKeyNotFound
@@ -140,10 +140,15 @@ func (s *Swarm) fromBelow(msg *p2p.Message, next p2p.TellHandler) {
 // fn will only be called once, although dialSession may be called multiple times.
 func (s *Swarm) withAnySession(ctx context.Context, raddr Addr, fn func(s *session) error) error {
 	// check the cache
-	sess := s.getAnySession(raddr.Addr)
+	sess := s.getAnySession(raddr)
 	if sess != nil {
 		if err := sess.waitReady(ctx); err != nil {
 			return err
+		}
+		actualPeerID := sess.getRemotePeerID()
+		if actualPeerID != raddr.ID {
+			s.deleteSession(raddr.Addr, sess)
+			return errors.Errorf("wrong peer HAVE: %v WANT: %v", actualPeerID, raddr.ID)
 		}
 		return fn(sess)
 	}
@@ -200,9 +205,9 @@ func (s *Swarm) getOrCreateSession(lowerRaddr p2p.Addr, initiator bool) (sess *s
 	return sess, true
 }
 
-// getAnySession gets either an inbound or outbound session for lowerRaddr
-func (s *Swarm) getAnySession(lowerRaddr p2p.Addr) *session {
-	key1, key2 := makeSessionKeys(lowerRaddr)
+// getAnySession gets either an inbound or outbound session for an Addr
+func (s *Swarm) getAnySession(raddr Addr) *session {
+	key1, key2 := makeSessionKeys(raddr.Addr)
 	now := time.Now()
 	s.mu.RLock()
 	sess, exists := s.lowerToSession[key1]
@@ -268,9 +273,18 @@ type sessionKey struct {
 	initiator bool
 }
 
+// makeSessionKeys returns the 2 possible session keys for an address.
+// they are returned in random order.
 func makeSessionKeys(raddr p2p.Addr) (sessionKey, sessionKey) {
 	key1 := sessionKey{raddr: raddr.Key()}
 	key2 := key1
 	key2.initiator = true
+	switch mrand.Intn(2) {
+	case 0:
+	case 1:
+		key1, key2 = key2, key1
+	default:
+		panic("bad coin flip")
+	}
 	return key1, key2
 }

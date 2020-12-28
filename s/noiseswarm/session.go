@@ -84,9 +84,6 @@ func (s *session) upward(ctx context.Context, in []byte) (up []byte, err error) 
 	s.changeState(res.Next)
 	s.lastRecv = time.Now()
 	s.mu.Unlock()
-	if s.state == nil {
-		panic("nil state")
-	}
 	for _, resp := range res.Resps {
 		resp.setDirection(s.outDirection())
 		if err := s.send(ctx, resp); err != nil {
@@ -104,9 +101,6 @@ func (s *session) downward(ctx context.Context, in []byte) error {
 	res := s.state.downward(in)
 	s.changeState(res.Next)
 	s.mu.Unlock()
-	if s.state == nil {
-		panic("nil state")
-	}
 	if res.Err != nil {
 		return res.Err
 	}
@@ -115,6 +109,9 @@ func (s *session) downward(ctx context.Context, in []byte) error {
 }
 
 func (s *session) changeState(next state) {
+	if next == nil {
+		panic("nil state")
+	}
 	prev := s.state
 	if prev != next && isChanOpen(s.handshakeDone) {
 		switch x := next.(type) {
