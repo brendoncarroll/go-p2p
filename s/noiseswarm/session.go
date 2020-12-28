@@ -118,7 +118,7 @@ func (s *session) changeState(next state) {
 		case *readyState:
 			s.completeHandshake(x.remotePublicKey)
 		case *endState:
-			s.completeHandshake(nil)
+			s.failHandshake()
 		}
 	}
 	s.state = next
@@ -142,6 +142,10 @@ func (s *session) completeHandshake(remotePublicKey p2p.PublicKey) {
 	close(s.handshakeDone)
 }
 
+func (s *session) failHandshake() {
+	close(s.handshakeDone)
+}
+
 func (s *session) waitReady(ctx context.Context) error {
 	// this is necessary to ensure we can return a public key from memory
 	// when a cancelled context is passed in, as is required by p2p.LookupPublicKeyInHandler
@@ -157,8 +161,12 @@ func (s *session) waitReady(ctx context.Context) error {
 			Cause:   ctx.Err(),
 		}
 	case <-s.handshakeDone:
-		return s.waitReady(ctx)
+		return s.error()
 	}
+}
+
+func (s *session) isReady() bool {
+	return !isChanOpen(s.handshakeDone) && !s.isErrored()
 }
 
 func (s *session) error() error {

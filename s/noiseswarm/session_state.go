@@ -107,7 +107,11 @@ func (cur *awaitInitState) upward(msg message) upwardRes {
 		return nil
 	}()
 	if err != nil {
-		return upwardRes{Err: err, Next: newEndState(err)}
+		return upwardRes{
+			Err:   err,
+			Resps: []message{makeNACK()},
+			Next:  newEndState(err),
+		}
 	}
 	return upwardRes{
 		Resps: resps,
@@ -139,12 +143,13 @@ func (cur *awaitRespState) upward(msg message) upwardRes {
 	in := msg.getBody()
 	var resps []message
 	var outCS, inCS *noise.CipherState
-	err := func() error {
-		if count != countResp {
-			return &ErrHandshake{
-				Message: fmt.Sprintf("awaiting resp but got non-resp %d", count),
-			}
+	if count != countResp {
+		return upwardRes{
+			Next: cur,
+			Err:  errors.Errorf("awaiting resp but got non-resp %d", count),
 		}
+	}
+	err := func() error {
 		_, cs1, cs2, err := cur.hsstate.ReadMessage(nil, in)
 		if err != nil {
 			return &ErrHandshake{
@@ -170,9 +175,8 @@ func (cur *awaitRespState) upward(msg message) upwardRes {
 	}()
 	if err != nil {
 		return upwardRes{
-			Next:  newEndState(err),
-			Resps: []message{makeNACK()},
-			Err:   err,
+			Next: newEndState(err),
+			Err:  err,
 		}
 	}
 	return upwardRes{
@@ -212,12 +216,6 @@ func (cur *awaitSigState) upward(msg message) upwardRes {
 		case count != countSigInitToResp && count != countSigRespToInit:
 			return &ErrHandshake{
 				Message: "awaiting sig, but got non-sig",
-			}
-		case cur.initiator && count == countSigInitToResp:
-			fallthrough
-		case !cur.initiator && count == countSigRespToInit:
-			return &ErrHandshake{
-				Message: "concurrent handshake",
 			}
 		}
 		ptext, err := decryptMessage(cur.inCS, count, in)
@@ -404,7 +402,5 @@ func verifyIntro(cb []byte, introBytes []byte) (p2p.PublicKey, error) {
 }
 
 func makeNACK() message {
-	countBytes := [4]byte{}
-	binary.BigEndian.PutUint32(countBytes[:], countLastMessage)
-	return countBytes[:]
+	return newMessage(0, countLastMessage)
 }

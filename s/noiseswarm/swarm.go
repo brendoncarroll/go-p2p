@@ -2,7 +2,6 @@ package noiseswarm
 
 import (
 	"context"
-	"log"
 	mrand "math/rand"
 	"sync"
 	"time"
@@ -52,7 +51,7 @@ func New(x p2p.Swarm, privateKey p2p.PrivateKey) *Swarm {
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	dst := addr.(Addr)
-	return s.withAnySession(ctx, dst, func(sess *session) error {
+	return s.withAnyReadySession(ctx, dst, func(sess *session) error {
 		return sess.tell(ctx, data)
 	})
 }
@@ -83,11 +82,8 @@ func (s *Swarm) LocalAddrs() (addrs []p2p.Addr) {
 
 func (s *Swarm) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.PublicKey, error) {
 	target := addr.(Addr)
-	sess := s.getAnySession(target)
+	sess := s.getAnyReadySession(target)
 	if sess != nil {
-		if err := sess.waitReady(ctx); err != nil {
-			return nil, p2p.ErrPublicKeyNotFound
-		}
 		if sess.getRemotePeerID() == target.ID {
 			return sess.getRemotePublicKey(), nil
 		}
@@ -112,39 +108,41 @@ func (s *Swarm) fromBelow(msg *p2p.Message, next p2p.TellHandler) {
 		return
 	}
 	initiator := msg2.getDirection() == directionRespToInit
-	sess, _ := s.getOrCreateSession(msg.Src, initiator)
-	up, err := sess.upward(ctx, msg2)
-	if err != nil {
-		log.Println(err, sess.isErrored())
-		if sess.isErrored() {
-			s.deleteSession(msg.Src, sess)
+	var up []byte
+	for i := 0; i < 2; i++ {
+		sess, _ := s.getOrCreateSession(msg.Src, initiator)
+		up, err = sess.upward(ctx, msg2)
+		if err != nil {
+			if sess.isErrored() {
+				s.deleteSession(msg.Src, sess)
+				continue
+			}
+			return
 		}
-		return
-	}
-	if up != nil {
-		next(&p2p.Message{
-			Src: Addr{
-				ID:   sess.getRemotePeerID(),
-				Addr: msg.Src,
-			},
-			Dst: Addr{
-				ID:   s.localID,
-				Addr: msg.Dst,
-			},
-			Payload: up,
-		})
+		if up != nil {
+			next(&p2p.Message{
+				Src: Addr{
+					ID:   sess.getRemotePeerID(),
+					Addr: msg.Src,
+				},
+				Dst: Addr{
+					ID:   s.localID,
+					Addr: msg.Dst,
+				},
+				Payload: up,
+			})
+		}
+		break
 	}
 }
 
-// withAnySession calls fn with a non expired session, dialing a new one if necessary
+// withAnyReadySession calls fn with a non expired session, dialing a new one if necessary
 // fn will only be called once, although dialSession may be called multiple times.
-func (s *Swarm) withAnySession(ctx context.Context, raddr Addr, fn func(s *session) error) error {
+// fn will not be called until after the session is ready.
+func (s *Swarm) withAnyReadySession(ctx context.Context, raddr Addr, fn func(s *session) error) error {
 	// check the cache
-	sess := s.getAnySession(raddr)
+	sess := s.getAnyReadySession(raddr)
 	if sess != nil {
-		if err := sess.waitReady(ctx); err != nil {
-			return err
-		}
 		actualPeerID := sess.getRemotePeerID()
 		if actualPeerID != raddr.ID {
 			s.deleteSession(raddr.Addr, sess)
@@ -194,7 +192,7 @@ func (s *Swarm) getOrCreateSession(lowerRaddr p2p.Addr, initiator bool) (sess *s
 	key := sessionKey{raddr: lowerRaddr.Key(), initiator: initiator}
 	sess, exists := s.lowerToSession[key]
 	if exists {
-		if !sess.isExpired(now) {
+		if !sess.isExpired(now) && !sess.isErrored() {
 			return sess, false
 		}
 	}
@@ -205,22 +203,30 @@ func (s *Swarm) getOrCreateSession(lowerRaddr p2p.Addr, initiator bool) (sess *s
 	return sess, true
 }
 
-// getAnySession gets either an inbound or outbound session for an Addr
-func (s *Swarm) getAnySession(raddr Addr) *session {
-	key1, key2 := makeSessionKeys(raddr.Addr)
+// getAnyReadySession gets either an inbound or outbound session for an Addr
+// it biases the outbound session if either handshake's handshake is not done.
+func (s *Swarm) getAnyReadySession(raddr Addr) (ret *session) {
+	outKey, inKey := makeSessionKeys(raddr.Addr)
 	now := time.Now()
 	s.mu.RLock()
-	sess, exists := s.lowerToSession[key1]
-	if !exists {
-		sess, exists = s.lowerToSession[key2]
-	}
-	s.mu.RUnlock()
-	if exists {
-		if sess.isExpired(now) || sess.isErrored() {
-			return nil
+	defer s.mu.RUnlock()
+	outSess := s.lowerToSession[outKey]
+	inSess := s.lowerToSession[inKey]
+	sessions := []*session{outSess, inSess}
+	for i, sess := range sessions {
+		if sess == nil || sess.isExpired(now) || !sess.isReady() {
+			sessions[i] = nil
 		}
 	}
-	return sess
+	mrand.Shuffle(2, func(i, j int) {
+		sessions[i], sessions[j] = sessions[j], sessions[i]
+	})
+	for _, sess := range sessions {
+		if sess != nil {
+			return sess
+		}
+	}
+	return nil
 }
 
 // delete session deletes the session at lowerRaddr if it exists
@@ -274,17 +280,12 @@ type sessionKey struct {
 }
 
 // makeSessionKeys returns the 2 possible session keys for an address.
-// they are returned in random order.
-func makeSessionKeys(raddr p2p.Addr) (sessionKey, sessionKey) {
-	key1 := sessionKey{raddr: raddr.Key()}
-	key2 := key1
-	key2.initiator = true
-	switch mrand.Intn(2) {
-	case 0:
-	case 1:
-		key1, key2 = key2, key1
-	default:
-		panic("bad coin flip")
+func makeSessionKeys(raddr p2p.Addr) (outbound, inbound sessionKey) {
+	outbound = sessionKey{
+		raddr:     raddr.Key(),
+		initiator: true,
 	}
-	return key1, key2
+	inbound = outbound
+	inbound.initiator = false
+	return outbound, inbound
 }
