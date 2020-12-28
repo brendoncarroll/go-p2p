@@ -17,9 +17,10 @@ const (
 	// Overhead is the per message overhead.
 	// MTU will be smaller than the underlying swarm's MTU by Overhead
 	Overhead = 4 + 16
-
 	// MaxDialAttempts is the maxmimum number of times to retry a handshake.
 	MaxDialAttempts = 10
+	// MaxDialBackoffDuration is the maximum time to wait between dial attempts
+	MaxDialBackoffDuration = time.Second
 )
 
 type Swarm struct {
@@ -162,7 +163,7 @@ func (s *Swarm) withAnyReadySession(ctx context.Context, raddr Addr, fn func(s *
 			}
 			return fn(sess)
 		}
-		time.Sleep(backoffTime(i, time.Second))
+		time.Sleep(backoffTime(i, MaxDialBackoffDuration))
 	}
 	return err
 }
@@ -205,7 +206,7 @@ func (s *Swarm) getOrCreateSession(lowerRaddr p2p.Addr, initiator bool) (sess *s
 
 // getAnyReadySession gets either an inbound or outbound session for an Addr
 // it biases the outbound session if either handshake's handshake is not done.
-func (s *Swarm) getAnyReadySession(raddr Addr) (ret *session) {
+func (s *Swarm) getAnyReadySession(raddr Addr) *session {
 	outKey, inKey := makeSessionKeys(raddr.Addr)
 	now := time.Now()
 	s.mu.RLock()
