@@ -13,7 +13,7 @@ func TestSwarm(t *testing.T) {
 	t.Parallel()
 	swarmtest.TestSuiteSwarm(t, func(t testing.TB, n int) []p2p.Swarm {
 		opts := []memswarm.Option{}
-		//opts = append(opts, memswarm.WithLogging(os.Stderr))
+		// opts = append(opts, memswarm.WithLogging(os.Stderr))
 		r := memswarm.NewRealm(opts...)
 		xs := make([]p2p.Swarm, n)
 		for i := range xs {
