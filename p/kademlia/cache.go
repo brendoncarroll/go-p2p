@@ -31,14 +31,10 @@ func NewCache(locus []byte, max, minPerBucket int) *Cache {
 
 // Get returns the value at key
 func (kc *Cache) Get(key []byte) interface{} {
-	dist := make([]byte, len(kc.locus))
-	XORBytes(dist, key, kc.locus)
-	lz := Leading0s(dist)
-
-	if len(kc.entries) <= lz {
+	b := kc.bucket(key)
+	if b == nil {
 		return nil
 	}
-	b := kc.entries[lz]
 	e, ok := b[string(key)]
 	if !ok {
 		return nil
@@ -49,10 +45,8 @@ func (kc *Cache) Get(key []byte) interface{} {
 // Put puts an entry in the cache, replacing the entry at that key.
 func (kc *Cache) Put(key []byte, v interface{}) (evicted *Entry) {
 	e := Entry{Key: key, Value: v}
-	dist := make([]byte, len(kc.locus))
-	XORBytes(dist, kc.locus, e.Key)
-	lz := Leading0s(dist)
-
+	lz := kc.bucketIndex(key)
+	// create buckets up to lz
 	for len(kc.entries) <= lz {
 		kc.entries = append(kc.entries, map[string]Entry{})
 	}
@@ -69,16 +63,41 @@ func (kc *Cache) Put(key []byte, v interface{}) (evicted *Entry) {
 	return nil
 }
 
+// WouldAdd returns true if the key would add a new entry
+func (kc *Cache) WouldAdd(key []byte) bool {
+	if kc.Contains(key) {
+		return false
+	}
+	return kc.WouldPut(key)
+}
+
+// WouldPut returns true if a call to Put with key would add or overwrite an entry.
+func (kc *Cache) WouldPut(key []byte) bool {
+	i := kc.bucketIndex(key)
+	// if we are below the max or we would create a bucket.
+	if kc.count+1 <= kc.max || i >= len(kc.entries) {
+		return true
+	}
+	// i will be a valid bucket
+	i--
+	for ; i >= 0; i-- {
+		b := kc.entries[i]
+		// if there is something to evict, return true
+		if len(b) < kc.minPerBucket {
+			return true
+		}
+	}
+	return false
+}
+
+// Contains returns true if the key is in the cache
+func (kc *Cache) Contains(key []byte) bool {
+	return kc.Get(key) != nil
+}
+
 // Delete removes the entry at the given key
 func (kc *Cache) Delete(key []byte) *Entry {
-	dist := make([]byte, len(kc.locus))
-	XORBytes(dist, kc.locus, key)
-	lz := Leading0s(dist)
-
-	if len(kc.entries) < lz {
-		return nil
-	}
-	b := kc.entries[lz]
+	b := kc.bucket(key)
 	e, exists := b[string(key)]
 	if !exists {
 		return nil
@@ -92,8 +111,7 @@ func (kc *Cache) ForEach(fn func(e Entry) bool) {
 	for i := len(kc.entries) - 1; i >= 0; i-- {
 		b := kc.entries[i]
 		for _, e := range b {
-			cont := fn(e)
-			if !cont {
+			if cont := fn(e); !cont {
 				return
 			}
 		}
@@ -102,17 +120,10 @@ func (kc *Cache) ForEach(fn func(e Entry) bool) {
 
 // Closest returns the Entry in the cache where e.Key is closest to key.
 func (kc *Cache) Closest(key []byte) *Entry {
-	dist := make([]byte, len(kc.locus))
-	XORBytes(dist, kc.locus, key)
-	lz := Leading0s(dist)
-
-	if len(kc.entries) < lz {
-		return nil
-	}
-	b := kc.entries[lz]
-
+	b := kc.bucket(key)
 	var minDist []byte
 	var closestEntry *Entry
+	dist := make([]byte, len(kc.locus))
 	for _, e := range b {
 		XORBytes(dist, e.Key, key)
 		if minDist == nil || bytes.Compare(dist, minDist) < 0 {
@@ -120,7 +131,6 @@ func (kc *Cache) Closest(key []byte) *Entry {
 			closestEntry = &e
 		}
 	}
-
 	return closestEntry
 }
 
@@ -130,20 +140,25 @@ func (kc *Cache) IsFull() bool {
 	return kc.count >= kc.max
 }
 
-// WouldAccept returns the number of matching bits that would cause an
-// entry to make it into the cache.
-func (kc *Cache) WouldAccept() int {
+// Count returns the number of entries in the cache.
+func (kc *Cache) Count() int {
+	return kc.count
+}
+
+func (kc *Cache) AcceptingPrefixLen() int {
+	if kc.count+1 < kc.max {
+		return 0
+	}
 	for i, b := range kc.entries {
-		if len(b) < kc.minPerBucket {
-			return i
+		if len(b) > kc.minPerBucket {
+			return i + 1
 		}
 	}
 	return len(kc.entries)
 }
 
-// Count returns the number of entries in the cache.
-func (kc *Cache) Count() int {
-	return kc.count
+func (kc *Cache) Locus() []byte {
+	return kc.locus
 }
 
 // ForEachMatching calls fn with every entry where the key matches prefix
@@ -161,6 +176,20 @@ func (kc *Cache) ForEachMatching(prefix []byte, nbits int, fn func(Entry)) {
 			}
 		}
 	}
+}
+
+func (kc *Cache) bucket(key []byte) map[string]Entry {
+	i := kc.bucketIndex(key)
+	if i < len(kc.entries) {
+		return kc.entries[i]
+	}
+	return nil
+}
+
+func (kc *Cache) bucketIndex(key []byte) int {
+	dist := make([]byte, len(kc.locus))
+	XORBytes(dist, kc.locus, key)
+	return Leading0s(dist)
 }
 
 func (kc *Cache) evict() *Entry {
