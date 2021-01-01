@@ -2,7 +2,6 @@ package kademlia
 
 import (
 	"bytes"
-	"math/bits"
 )
 
 type Entry struct {
@@ -14,7 +13,7 @@ type Cache struct {
 	locus        []byte
 	minPerBucket int
 	count, max   int
-	entries      []map[string]Entry
+	buckets      []map[string]Entry
 }
 
 func NewCache(locus []byte, max, minPerBucket int) *Cache {
@@ -47,10 +46,10 @@ func (kc *Cache) Put(key []byte, v interface{}) (evicted *Entry) {
 	e := Entry{Key: key, Value: v}
 	lz := kc.bucketIndex(key)
 	// create buckets up to lz
-	for len(kc.entries) <= lz {
-		kc.entries = append(kc.entries, map[string]Entry{})
+	for len(kc.buckets) <= lz {
+		kc.buckets = append(kc.buckets, map[string]Entry{})
 	}
-	b := kc.entries[lz]
+	b := kc.buckets[lz]
 	if _, exists := b[string(e.Key)]; !exists {
 		kc.count++
 	}
@@ -75,13 +74,13 @@ func (kc *Cache) WouldAdd(key []byte) bool {
 func (kc *Cache) WouldPut(key []byte) bool {
 	i := kc.bucketIndex(key)
 	// if we are below the max or we would create a bucket.
-	if kc.count+1 <= kc.max || i >= len(kc.entries) {
+	if kc.count+1 <= kc.max || i >= len(kc.buckets) {
 		return true
 	}
 	// i will be a valid bucket
 	i--
 	for ; i >= 0; i-- {
-		b := kc.entries[i]
+		b := kc.buckets[i]
 		// if there is something to evict, return true
 		if len(b) < kc.minPerBucket {
 			return true
@@ -108,8 +107,9 @@ func (kc *Cache) Delete(key []byte) *Entry {
 }
 
 func (kc *Cache) ForEach(fn func(e Entry) bool) {
-	for i := len(kc.entries) - 1; i >= 0; i-- {
-		b := kc.entries[i]
+	// reverse iteration so the closest keys are first
+	for i := len(kc.buckets) - 1; i >= 0; i-- {
+		b := kc.buckets[i]
 		for _, e := range b {
 			if cont := fn(e); !cont {
 				return
@@ -149,12 +149,12 @@ func (kc *Cache) AcceptingPrefixLen() int {
 	if kc.count+1 < kc.max {
 		return 0
 	}
-	for i, b := range kc.entries {
+	for i, b := range kc.buckets {
 		if len(b) > kc.minPerBucket {
 			return i + 1
 		}
 	}
-	return len(kc.entries)
+	return len(kc.buckets)
 }
 
 func (kc *Cache) Locus() []byte {
@@ -164,10 +164,8 @@ func (kc *Cache) Locus() []byte {
 // ForEachMatching calls fn with every entry where the key matches prefix
 // for the leading nbits.  If nbits < len(prefix/8) it panics
 func (kc *Cache) ForEachMatching(prefix []byte, nbits int, fn func(Entry)) {
-	dist := make([]byte, len(kc.locus))
-	XORBytes(dist, kc.locus, prefix)
-	lz := Leading0s(dist)
-	for i, b := range kc.entries {
+	lz := kc.bucketIndex(prefix)
+	for i, b := range kc.buckets {
 		if lz <= i {
 			for _, e := range b {
 				if HasPrefix(e.Key, prefix, nbits) {
@@ -180,8 +178,8 @@ func (kc *Cache) ForEachMatching(prefix []byte, nbits int, fn func(Entry)) {
 
 func (kc *Cache) bucket(key []byte) map[string]Entry {
 	i := kc.bucketIndex(key)
-	if i < len(kc.entries) {
-		return kc.entries[i]
+	if i < len(kc.buckets) {
+		return kc.buckets[i]
 	}
 	return nil
 }
@@ -194,8 +192,8 @@ func (kc *Cache) bucketIndex(key []byte) int {
 
 func (kc *Cache) evict() *Entry {
 	n := -1
-	for i, b := range kc.entries {
-		if len(b) > kc.minPerBucket {
+	for i, b := range kc.buckets {
+		if len(b) > kc.minPerBucket && len(b) != 0 {
 			n = i
 			break
 		}
@@ -204,7 +202,7 @@ func (kc *Cache) evict() *Entry {
 		return nil
 	}
 
-	b := kc.entries[n]
+	b := kc.buckets[n]
 	k := getOne(b)
 	ent := b[k]
 	delete(b, k)
@@ -212,53 +210,9 @@ func (kc *Cache) evict() *Entry {
 	return &ent
 }
 
-func Leading0s(x []byte) int {
-	total := 0
-	for i := range x {
-		lz := bits.LeadingZeros8(x[i])
-		total += lz
-		if lz < 8 {
-			break
-		}
-	}
-	return total
-}
-
-func XORBytes(dst, a, b []byte) {
-	l := len(a)
-	if len(b) < len(a) {
-		l = len(b)
-	}
-	for i := 0; i < l; i++ {
-		dst[i] = a[i] ^ b[i]
-	}
-}
-
 func getOne(m map[string]Entry) string {
 	for k := range m {
 		return k
 	}
 	panic("getOne called on empty map")
-}
-
-func HasPrefix(x []byte, prefix []byte, nbits int) bool {
-	if nbits > len(prefix)*8 {
-		panic("nbits longer than prefix")
-	}
-	if len(x) < len(prefix) {
-		return false
-	}
-	xor := make([]byte, len(x))
-	for i := range prefix {
-		xor[i] = x[i] ^ prefix[i]
-	}
-	lz := 0
-	for i := range xor {
-		lzi := bits.LeadingZeros8(xor[i])
-		lz += lzi
-		if lzi < 8 {
-			break
-		}
-	}
-	return lz == nbits
 }
