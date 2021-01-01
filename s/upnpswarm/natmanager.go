@@ -1,4 +1,4 @@
-package natswarm
+package upnpswarm
 
 import (
 	"context"

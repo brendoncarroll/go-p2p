@@ -12,6 +12,11 @@ import (
 	"github.com/brendoncarroll/go-p2p/s/udpswarm"
 )
 
+var _ interface {
+	p2p.Addr
+	p2p.UnwrapAddr
+} = &Addr{}
+
 type Addr struct {
 	ID   p2p.PeerID
 	IP   net.IP

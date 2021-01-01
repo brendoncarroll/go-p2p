@@ -9,8 +9,8 @@ import (
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/multiswarm"
-	"github.com/brendoncarroll/go-p2p/s/natswarm"
 	"github.com/brendoncarroll/go-p2p/s/sshswarm"
+	"github.com/brendoncarroll/go-p2p/s/upnpswarm"
 	"github.com/spf13/cobra"
 	"github.com/syncthing/syncthing/lib/upnp"
 )
@@ -69,7 +69,7 @@ var testConnectCmd = &cobra.Command{
 			return err
 		}
 
-		s21 := natswarm.WrapSecureAsk(s11)
+		s21 := upnpswarm.WrapSecureAsk(s11)
 		s3 := multiswarm.NewSecureAsk(map[string]p2p.SecureAskSwarm{
 			"ssh": s21,
 		})

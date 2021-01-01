@@ -4,7 +4,7 @@ import "net"
 
 type HasIP interface {
 	GetIP() net.IP
-	MapIP(net.IP) Addr
+	MapIP(func(net.IP) net.IP) Addr
 }
 
 func ExtractIP(x Addr) net.IP {
@@ -15,6 +15,18 @@ func ExtractIP(x Addr) net.IP {
 		return ExtractIP(unwrap.Unwrap())
 	}
 	return nil
+}
+
+func MapIP(x Addr, fn func(net.IP) net.IP) Addr {
+	if x, ok := x.(HasIP); ok {
+		return x.MapIP(fn)
+	}
+	if x, ok := x.(UnwrapAddr); ok {
+		return x.Map(func(inner Addr) Addr {
+			return MapIP(inner, fn)
+		})
+	}
+	return x
 }
 
 func FilterIPs(xs []Addr, preds ...func(net.IP) bool) (ys []Addr) {
@@ -58,7 +70,9 @@ func ExpandUnspecifiedIPs(xs []Addr) (ys []Addr) {
 				// case ipNet.IP.IsLinkLocalMulticast():
 				// 	continue
 				default:
-					y := hasIP.MapIP(ipNet.IP)
+					y := hasIP.MapIP(func(net.IP) net.IP {
+						return ipNet.IP
+					})
 					ys = append(ys, y)
 				}
 			}

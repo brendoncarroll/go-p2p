@@ -16,6 +16,7 @@ import (
 var _ interface {
 	p2p.Addr
 	p2p.HasIP
+	p2p.HasTCP
 } = &Addr{}
 
 type Addr struct {
@@ -84,10 +85,12 @@ func (a Addr) GetIP() net.IP {
 	return a.IP
 }
 
-func (a *Addr) MapIP(x net.IP) p2p.Addr {
-	a2 := *a
-	a2.IP = x
-	return &a2
+func (a *Addr) MapIP(fn func(net.IP) net.IP) p2p.Addr {
+	return &Addr{
+		Fingerprint: a.Fingerprint,
+		IP:          fn(a.IP),
+		Port:        a.Port,
+	}
 }
 
 func (a Addr) GetTCP() net.TCPAddr {
@@ -97,9 +100,11 @@ func (a Addr) GetTCP() net.TCPAddr {
 	}
 }
 
-func (a *Addr) MapTCP(x net.TCPAddr) p2p.Addr {
-	a2 := *a
-	a2.IP = x.IP
-	a2.Port = x.Port
-	return &a2
+func (a *Addr) MapTCP(fn func(net.TCPAddr) net.TCPAddr) p2p.Addr {
+	newTCP := fn(a.GetTCP())
+	return &Addr{
+		Fingerprint: a.Fingerprint,
+		IP:          newTCP.IP,
+		Port:        newTCP.Port,
+	}
 }

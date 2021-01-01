@@ -1,4 +1,4 @@
-package simplemux
+package dynmux
 
 import (
 	"context"
