@@ -1,4 +1,4 @@
-package natswarm
+package upnpswarm
 
 import (
 	"context"
@@ -135,33 +135,37 @@ func (s *service) putUDP(local, external net.UDPAddr) {
 
 func (s *service) mapAddr(x p2p.Addr) p2p.Addr {
 	s.mu.RLock()
-	s.mu.RUnlock()
-	switch x := x.(type) {
-	case HasTCP:
-		tcpAddr := x.GetTCP()
-		mapped, exists := s.tcpMap[tcpAddr.String()]
+	defer s.mu.RUnlock()
+	// only one of these should do anything
+	var count int
+	x = MapTCP(x, func(tcpa net.TCPAddr) net.TCPAddr {
+		count++
+		mapped, exists := s.tcpMap[tcpa.String()]
 		if !exists {
-			return x.(p2p.Addr)
+			return tcpa
 		}
-		return x.MapTCP(mapped)
-	case HasUDP:
-		udpAddr := x.GetUDP()
-		mapped, exists := s.udpMap[udpAddr.String()]
+		return mapped
+	})
+	x = MapUDP(x, func(udpa net.UDPAddr) net.UDPAddr {
+		count++
+		mapped, exists := s.udpMap[udpa.String()]
 		if !exists {
-			return x.(p2p.Addr)
+			return udpa
 		}
-		return x.MapUDP(mapped)
-	default:
-		return x
+		return mapped
+	})
+	if count > 1 {
+		panic(count)
 	}
+	return x
 }
 
 func (s *service) mapAddrs(xs []p2p.Addr) []p2p.Addr {
-	ys := []p2p.Addr{}
+	ys := make([]p2p.Addr, 0, 2*len(xs))
 	for _, x := range xs {
 		ys = append(ys, x)
 		y := s.mapAddr(x)
-		if y != x {
+		if p2p.CompareAddrs(x, y) != 0 {
 			ys = append(ys, y)
 		}
 	}

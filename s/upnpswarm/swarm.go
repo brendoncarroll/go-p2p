@@ -1,4 +1,4 @@
-package natswarm
+package upnpswarm
 
 import (
 	"context"
@@ -18,6 +18,13 @@ func WrapAsk(x p2p.AskSwarm) p2p.AskSwarm {
 		inner: x,
 		s:     newService(x),
 	}
+}
+
+func WrapSecure(x p2p.SecureSwarm) p2p.SecureSwarm {
+	return p2p.ComposeSecureSwarm(
+		WrapSwarm(x),
+		x,
+	)
 }
 
 func WrapSecureAsk(x p2p.SecureAskSwarm) p2p.SecureAskSwarm {

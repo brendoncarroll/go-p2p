@@ -32,12 +32,13 @@ not implement p2p.SecureSwarm.
 It is included as a transport for secure swarms to be built on.
 */
 type Swarm struct {
-	conn *net.UDPConn
+	conn       *net.UDPConn
+	numWorkers int
 
 	handleTell p2p.TellHandler
 }
 
-func New(laddr string) (*Swarm, error) {
+func New(laddr string, opts ...Option) (*Swarm, error) {
 	udpAddr, err := net.ResolveUDPAddr("", laddr)
 	if err != nil {
 		return nil, err
@@ -46,13 +47,17 @@ func New(laddr string) (*Swarm, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	s := &Swarm{
 		conn:       conn,
 		handleTell: p2p.NoOpTellHandler,
+		numWorkers: defaultNumWorkers,
 	}
-	go s.loop()
-
+	for _, opt := range opts {
+		opt(s)
+	}
+	for i := 0; i < s.numWorkers; i++ {
+		go s.loop()
+	}
 	return s, nil
 }
 
@@ -61,28 +66,32 @@ func (s *Swarm) OnTell(fn p2p.TellHandler) {
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
-	a := addr.(*Addr)	
-	udpAddr, err := net.ResolveUDPAddr("", a.String())
-	if err != nil {
-		return err
-	}
-	_, err = s.conn.WriteTo(data, udpAddr)
+	a := addr.(Addr)
+	a2 := (net.UDPAddr)(a)
+	_, err := s.conn.WriteToUDP(data, &a2)
 	return err
 }
 
 func (s *Swarm) LocalAddrs() []p2p.Addr {
 	laddr := s.conn.LocalAddr().(*net.UDPAddr)
 	a := (*Addr)(laddr)
-	return p2p.ExpandUnspecifiedIPs([]p2p.Addr{a})
+	return p2p.ExpandUnspecifiedIPs([]p2p.Addr{*a})
 }
 
 func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
 	laddr := s.conn.LocalAddr().(*net.UDPAddr)
 	if laddr.IP.To16() != nil {
 		return IPv6MTU
-	} else {
-		return IPv4MTU
 	}
+	return IPv4MTU
+}
+
+func (s *Swarm) ParseAddr(x []byte) (p2p.Addr, error) {
+	a := Addr{}
+	if err := a.UnmarshalText(x); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 func (s *Swarm) Close() error {
@@ -93,7 +102,7 @@ func (s *Swarm) Close() error {
 func (s *Swarm) loop() {
 	buf := make([]byte, TheoreticalMTU)
 	for {
-		n, addr, err := s.conn.ReadFromUDP(buf)
+		n, udpAddr, err := s.conn.ReadFromUDP(buf)
 		if err != nil {
 			if strings.Contains(err.Error(), "use of closed network connection") {
 				return
@@ -102,7 +111,7 @@ func (s *Swarm) loop() {
 			return
 		}
 		msg := &p2p.Message{
-			Src:     (*Addr)(addr),
+			Src:     (Addr)(*udpAddr),
 			Dst:     s.LocalAddrs()[0],
 			Payload: buf[:n],
 		}

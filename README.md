@@ -78,37 +78,39 @@ Works on top of any cell.
 A default client and server implementation are provided.
 
 ### S is for Swarm
-- **UDP Swarm**
-An insecure swarm, included mainly as a building block.
 
-- **SSH Swarm**
-A secure swarm supporting `Asks` built on the SSH protocol (TCP based).
-
-- **QUIC Swarm**
-A secure swarm supporting `Asks` built on the QUIC protocol (UDP based).
-
-- **Multi Swarm**
-Aggregates messages from multiple transport swarms.
-Creates a multiplexed addressed space using names given to each subswarm.
-Applications can use this to "future-proof" their transport layer.
+- **Aggregating Swarm**
+A higher order swarm which increases the MTU of an underlying swarm by breaking apart messages,
+and aggregating them on the other side.
 
 - **In-Memory Swarm**
 A swarm which transfers data to other swarms in memory. Useful for testing.
 
-- **NAT Swarm**
-Creates and manages NAT mappings for addresses behind a IPv4 router using NAT.
-Applies the mappings to values returned from `LocalAddr`
-
-- **Peer Swarm**
-A swarm that uses PeerIDs as addresses.
-It requires an underlying swarm, and a function that maps PeerIDs to addresses.
+- **Multi Swarm**
+Creates a multiplexed addressed space using names given to each subswarm.
+Applications can use this to "future-proof" their transport layer.
 
 - **Noise Swarm**
 A secure higher order swarm.
 It secures messages using the Noise Protocol Framework's NN handshake.
 It can run on top of any other swarm.
 
-Routers for distributed routing protocols like CJDNS, or Yggdrasil would be next on the wishlist.
+- **Peer Swarm**
+A swarm that uses PeerIDs as addresses.
+It requires an underlying swarm, and a function that maps PeerIDs to addresses.
+
+- **QUIC Swarm**
+A secure swarm supporting `Asks` built on the QUIC protocol (UDP based).
+
+- **SSH Swarm**
+A secure swarm supporting `Asks` built on the SSH protocol (TCP based).
+
+- **UDP Swarm**
+An insecure swarm, included mainly as a building block.
+
+- **UPnP Swarm**
+Creates and manages NAT mappings for addresses behind a IPv4 with a NAT table, using UPnP.
+Applies the mappings to values returned from `LocalAddr`
 
 The `swarmutil` package contains utilities for writing `Swarms` and a test suite to make sure it exhibits all the behaviors expected.
 
@@ -119,13 +121,19 @@ The utility of this library is determined entirely by how easily well-known p2p 
 - **Kademlia**
 A package with a DHT, overlay network, and cache is in the works.  Right now a cache that evicts keys distant in XOR space is available.
 
-- **Simple Multiplexing**
-A service which multiplexes multiple logical swarms, over the same underlying transport swarm.
+- **Integer Multiplexing**
+This is the simplest possible multiplexing scheme, it does not support asking, and prepends an integer, encoded as a varint to the message.
 
+- **Dynamic Multiplexing**
+A service which multiplexes multiple logical swarms, over the same underlying transport swarm.
+Each multiplexed swarm is identified by a string, and a registry of multiplexed swarms is used to map each to an integer.
+This makes for a good application platform, as it is possible to add and remove services.  Only services with the same name will be able to send messages to one another.
 
 ## PKI
 A `PeerID` type is provided to be used as the hash of public keys, for identifying peers.
 Canonical serialization functions are provided for public keys (just `x509.MarshalPKIXPublicKey`).
+
+The `Sign` and `Verify` methods provided allow for keys to sign in multiple protocols without the risk of signature collisions.
 
 ## Test Utilities
 The `p2ptest` packages contains utilities for testing, such as generating adjacency matricies for networks of various connectivities.

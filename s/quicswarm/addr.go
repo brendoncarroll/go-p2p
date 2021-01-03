@@ -12,6 +12,11 @@ import (
 	"github.com/brendoncarroll/go-p2p/s/udpswarm"
 )
 
+var _ interface {
+	p2p.Addr
+	p2p.UnwrapAddr
+} = &Addr{}
+
 type Addr struct {
 	ID   p2p.PeerID
 	IP   net.IP
@@ -67,7 +72,7 @@ func (a *Addr) GetPeerID() p2p.PeerID {
 }
 
 func (a *Addr) Unwrap() p2p.Addr {
-	return &udpswarm.Addr{IP: a.IP, Port: a.Port}
+	return udpswarm.Addr{IP: a.IP, Port: a.Port}
 }
 
 func (a *Addr) Map(fn func(p2p.Addr) p2p.Addr) p2p.Addr {
