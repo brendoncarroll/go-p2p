@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/brendoncarroll/go-p2p"
 	"github.com/sirupsen/logrus"
 	"github.com/syncthing/syncthing/lib/nat"
 )
@@ -52,7 +53,7 @@ func (nm *natManager) spawnLeasers(ctx context.Context) error {
 
 	for _, addr := range swarm.LocalAddrs() {
 		switch addr := addr.(type) {
-		case HasTCP:
+		case p2p.HasTCP:
 			tcpAddr := addr.GetTCP()
 			if !sameNetwork(nm.natIP, tcpAddr.IP) {
 				continue
@@ -74,7 +75,7 @@ func (nm *natManager) spawnLeasers(ctx context.Context) error {
 				go l.run(ctx)
 			}
 
-		case HasUDP:
+		case p2p.HasUDP:
 			udpAddr := addr.GetUDP()
 			if !sameNetwork(nm.natIP, udpAddr.IP) {
 				continue

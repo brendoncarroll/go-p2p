@@ -138,7 +138,7 @@ func (s *service) mapAddr(x p2p.Addr) p2p.Addr {
 	defer s.mu.RUnlock()
 	// only one of these should do anything
 	var count int
-	x = MapTCP(x, func(tcpa net.TCPAddr) net.TCPAddr {
+	x = p2p.MapTCP(x, func(tcpa net.TCPAddr) net.TCPAddr {
 		count++
 		mapped, exists := s.tcpMap[tcpa.String()]
 		if !exists {
@@ -146,7 +146,7 @@ func (s *service) mapAddr(x p2p.Addr) p2p.Addr {
 		}
 		return mapped
 	})
-	x = MapUDP(x, func(udpa net.UDPAddr) net.UDPAddr {
+	x = p2p.MapUDP(x, func(udpa net.UDPAddr) net.UDPAddr {
 		count++
 		mapped, exists := s.udpMap[udpa.String()]
 		if !exists {
