@@ -5,7 +5,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
+	"io"
 
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/sha3"
@@ -40,6 +42,8 @@ func Sign(key PrivateKey, purpose string, data []byte) ([]byte, error) {
 		return key.Sign(rand.Reader, digest, crypto.Hash(0))
 	case *ecdsa.PrivateKey:
 		return key.Sign(rand.Reader, digest, crypto.Hash(0))
+	case *rsa.PrivateKey:
+		return key.Sign(rand.Reader, digest, crypto.Hash(0))
 	default:
 		return nil, errors.Errorf("unsupported key %T", key)
 	}
@@ -55,6 +59,8 @@ func Verify(key PublicKey, purpose string, data, sig []byte) error {
 		valid = ed25519.Verify(key, digest, sig)
 	case *ecdsa.PublicKey:
 		valid = ecdsa.VerifyASN1(key, digest, sig)
+	case *rsa.PublicKey:
+		return rsa.VerifyPKCS1v15(key, crypto.Hash(0), digest, sig)
 	}
 	if valid {
 		return nil
@@ -63,15 +69,13 @@ func Verify(key PublicKey, purpose string, data, sig []byte) error {
 }
 
 func sigDigest(purpose string, data []byte) []byte {
-	var x []byte
-	x = append(x, []byte(purpose)...)
-	x = append(x, hash(data)...)
-	digest := hash(x)
-	return digest
-}
-
-func hash(data []byte) []byte {
-	h := sha3.New256()
-	h.Write(data)
-	return h.Sum(nil)
+	sh := sha3.NewCShake256(nil, []byte(purpose))
+	if _, err := sh.Write([]byte(data)); err != nil {
+		panic(err)
+	}
+	digest := [64]byte{}
+	if _, err := io.ReadFull(sh, digest[:]); err != nil {
+		panic(err)
+	}
+	return digest[:]
 }
