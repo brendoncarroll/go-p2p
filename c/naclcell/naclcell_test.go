@@ -11,18 +11,20 @@ import (
 
 func TestEncryptDecrypt(t *testing.T) {
 	seed := make([]byte, 32)
+	secret := [32]byte{}
+	copy(secret[:], seed)
 	privKey := ed25519.NewKeyFromSeed(seed)
 
 	ptext := []byte("hello world")
-	ctext := encrypt(ptext, privKey)
+	ctext := encrypt(ptext, &secret, privKey)
 	t.Log(hex.Dump(ctext))
 
-	ptext2, err := decrypt(ctext, privKey)
+	ptext2, err := decrypt(ctext, &secret, privKey)
 	require.Nil(t, err)
 	t.Log(string(ptext2))
 
 	ctextTamper := append([]byte{}, ctext...)
 	ctextTamper[0] ^= 1
-	_, err = decrypt(ctextTamper, privKey)
+	_, err = decrypt(ctextTamper, &secret, privKey)
 	assert.NotNil(t, err)
 }

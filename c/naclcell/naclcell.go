@@ -6,23 +6,29 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"io"
 
 	"github.com/brendoncarroll/go-p2p"
+	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/nacl/sign"
+	"golang.org/x/crypto/sha3"
 )
 
 var _ p2p.Cell = &NaClCell{}
 
 type NaClCell struct {
-	cell       p2p.Cell
-	privateKey ed25519.PrivateKey
+	cell   p2p.Cell
+	secret []byte
+
+	cacheSymmetricKey *[32]byte
+	cachePrivateKey   *ed25519.PrivateKey
 }
 
-func New(cell p2p.Cell, privKey ed25519.PrivateKey) *NaClCell {
+func New(cell p2p.Cell, secret []byte) *NaClCell {
 	return &NaClCell{
-		cell:       cell,
-		privateKey: privKey,
+		cell:   cell,
+		secret: secret,
 	}
 }
 
@@ -39,7 +45,7 @@ func (c *NaClCell) get(ctx context.Context) (data []byte, ctext []byte, err erro
 	if len(ctext) == 0 {
 		return nil, nil, nil
 	}
-	ptext, err := decrypt(ctext, c.privateKey)
+	ptext, err := decrypt(ctext, c.getSymmetricKey(), c.getPrivateKey())
 	if err != nil {
 		return nil, ctext, err
 	}
@@ -54,30 +60,59 @@ func (c *NaClCell) CAS(ctx context.Context, current, next []byte) (bool, []byte,
 	if bytes.Compare(data, current) != 0 {
 		return false, data, nil
 	}
-
-	nextCtext := encrypt(next, c.privateKey)
+	nextCtext := encrypt(next, c.getSymmetricKey(), c.getPrivateKey())
 	return c.cell.CAS(ctx, ctext, nextCtext)
 }
 
-func encrypt(ptext []byte, privKey ed25519.PrivateKey) []byte {
+func (c *NaClCell) PublicKey() p2p.PublicKey {
+	return c.getPrivateKey().Public()
+}
+
+func (c *NaClCell) expand(purpose string, n int) []byte {
+	r := hkdf.Expand(sha3.New256, c.secret, []byte(purpose))
+	seed := make([]byte, n)
+	if _, err := io.ReadFull(r, seed); err != nil {
+		panic(err)
+	}
+	return seed
+}
+
+func (c *NaClCell) getSymmetricKey() *[32]byte {
+	if c.cacheSymmetricKey != nil {
+		return c.cacheSymmetricKey
+	}
+	key := [32]byte{}
+	copy(key[:], c.expand("secretbox_shared_key", 32))
+	c.cacheSymmetricKey = &key
+	return &key
+}
+
+func (c *NaClCell) getPrivateKey() ed25519.PrivateKey {
+	if c.cachePrivateKey != nil {
+		return *c.cachePrivateKey
+	}
+	seed := c.expand("ed25519_seed", 32)
+	key := ed25519.NewKeyFromSeed(seed)
+	c.cachePrivateKey = &key
+	return key
+}
+
+func encrypt(ptext []byte, secret *[32]byte, privKey ed25519.PrivateKey) []byte {
 	nonce := [24]byte{}
 	if _, err := rand.Read(nonce[:]); err != nil {
 		panic(err)
 	}
 
-	secret := [32]byte{}
-	copy(secret[:], privKey)
-
 	signer := [64]byte{}
 	copy(signer[:], privKey)
 
-	ctext := secretbox.Seal(nonce[:], ptext, &nonce, &secret)
+	ctext := secretbox.Seal(nonce[:], ptext, &nonce, secret)
 	signedCtext := sign.Sign([]byte{}, ctext, &signer)
 
 	return signedCtext
 }
 
-func decrypt(ctext []byte, privKey ed25519.PrivateKey) ([]byte, error) {
+func decrypt(ctext []byte, secret *[32]byte, privKey ed25519.PrivateKey) ([]byte, error) {
 	pubKey := [32]byte{}
 	copy(pubKey[:], privKey.Public().(ed25519.PublicKey))
 
@@ -94,10 +129,7 @@ func decrypt(ctext []byte, privKey ed25519.PrivateKey) ([]byte, error) {
 	nonce := [24]byte{}
 	copy(nonce[:], signedCtext[:24])
 
-	secret := [32]byte{}
-	copy(secret[:], privKey)
-
-	ptext, success := secretbox.Open([]byte{}, signedCtext[24:], &nonce, &secret)
+	ptext, success := secretbox.Open([]byte{}, signedCtext[24:], &nonce, secret)
 	if !success {
 		return nil, errors.New("secret box was invalid")
 	}
