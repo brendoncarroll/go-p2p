@@ -32,18 +32,18 @@ func (s *baseSwarm) OnAsk(fn p2p.AskHandler) {
 	s.handleAsk = fn
 }
 
-func (s *baseSwarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *baseSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	i, err := s.m.lookup(ctx, addr, s.name)
 	if err != nil {
 		return err
 	}
 	msg := Message{}
 	msg.SetChannel(i)
-	msg.SetData(data)
-	return s.m.s.Tell(ctx, addr, msg)
+	msg.SetData(p2p.VecBytes(data))
+	return s.m.s.Tell(ctx, addr, p2p.IOVec{msg})
 }
 
-func (s *baseSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+func (s *baseSwarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
 	innerSwarm := s.m.s.(p2p.AskSwarm)
 	i, err := s.m.lookup(ctx, addr, s.name)
 	if err != nil {
@@ -51,8 +51,8 @@ func (s *baseSwarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte
 	}
 	msg := Message{}
 	msg.SetChannel(i)
-	msg.SetData(data)
-	return innerSwarm.Ask(ctx, addr, msg)
+	msg.SetData(p2p.VecBytes(data))
+	return innerSwarm.Ask(ctx, addr, p2p.IOVec{msg})
 }
 
 func (s *baseSwarm) MTU(ctx context.Context, addr p2p.Addr) int {

@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"io"
+	"net"
 
 	"github.com/pkg/errors"
 )
@@ -28,13 +29,40 @@ type Swarm interface {
 	ParseAddr(data []byte) (Addr, error)
 }
 
+type IOVec = net.Buffers
+
+// VecSize returns the total size of the vector in bytes if it were contiguous.
+// It is the sum of len(v[i]) for all i
+func VecSize(v IOVec) int {
+	var total int
+	for i := range v {
+		total += len(v[i])
+	}
+	return total
+}
+
+func VecBytes(v IOVec) []byte {
+	if len(v) == 0 {
+		return nil
+	}
+	if len(v) == 1 {
+		return v[0]
+	}
+	total := VecSize(v)
+	ret := make([]byte, 0, total)
+	for i := range v {
+		ret = append(ret, v[i]...)
+	}
+	return ret
+}
+
 type Teller interface {
-	Tell(ctx context.Context, addr Addr, data []byte) error
+	Tell(ctx context.Context, addr Addr, data IOVec) error
 	OnTell(TellHandler)
 }
 
 type Asker interface {
-	Ask(ctx context.Context, addr Addr, data []byte) ([]byte, error)
+	Ask(ctx context.Context, addr Addr, data IOVec) ([]byte, error)
 	OnAsk(AskHandler)
 }
 

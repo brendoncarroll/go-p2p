@@ -48,7 +48,7 @@ func newSwarm(x p2p.Swarm, mtu int) *swarm {
 	return s
 }
 
-func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	underMTU := s.Swarm.MTU(ctx, addr) - Overhead
 	s.mu.Lock()
 	id := s.msgIDs[addr.Key()]
@@ -202,8 +202,8 @@ func (a *aggregator) assemble() []byte {
 	return buf
 }
 
-func newMessage(id uint32, part uint8, total uint8, data []byte) []byte {
-	var msg []byte
+func newMessage(id uint32, part uint8, total uint8, data p2p.IOVec) p2p.IOVec {
+	var msg [][]byte
 	msg = appendUvarint(msg, uint64(id))
 	msg = appendUvarint(msg, uint64(part))
 	msg = appendUvarint(msg, uint64(total))
@@ -236,8 +236,8 @@ func parseMessage(x []byte) (id uint32, part uint8, total uint8, data []byte, er
 	return id, part, total, x[n:], nil
 }
 
-func appendUvarint(b []byte, x uint64) []byte {
+func appendUvarint(b p2p.IOVec, x uint64) p2p.IOVec {
 	buf := [binary.MaxVarintLen64]byte{}
 	n := binary.PutUvarint(buf[:], x)
-	return append(b, buf[:n]...)
+	return append(b, buf[:n])
 }

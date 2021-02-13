@@ -119,26 +119,26 @@ func (s *Swarm) OnTell(fn p2p.TellHandler) {
 	s.handleTell = fn
 }
 
-func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
 	a2 := addr.(*Addr)
 	c, err := s.getConn(ctx, a2)
 	if err != nil {
 		return nil, err
 	}
-	reply, err := c.Send(true, data)
+	reply, err := c.Send(true, p2p.VecBytes(data))
 	if err != nil {
 		return nil, err
 	}
 	return reply, nil
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	a2 := addr.(*Addr)
 	c, err := s.getConn(ctx, a2)
 	if err != nil {
 		return err
 	}
-	_, err = c.Send(false, data)
+	_, err = c.Send(false, p2p.VecBytes(data))
 	if err != nil {
 		return err
 	}

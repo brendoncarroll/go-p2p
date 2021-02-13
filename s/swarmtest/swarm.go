@@ -75,7 +75,7 @@ func TestTell(t *testing.T, src, dst p2p.Swarm) {
 	dstAddr := dst.LocalAddrs()[0]
 	payload := genPayload()
 
-	err := src.Tell(context.TODO(), dstAddr, payload)
+	err := src.Tell(context.TODO(), dstAddr, p2p.IOVec{payload})
 	require.Nil(t, err)
 
 	select {
@@ -110,7 +110,7 @@ func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
 	eg.Go(func() error {
 		for i := 0; i < N; i++ {
 			x := fmt.Sprintf("test %d", i)
-			if err := a.Tell(ctx, b.LocalAddrs()[0], []byte(x)); err != nil {
+			if err := a.Tell(ctx, b.LocalAddrs()[0], p2p.IOVec{[]byte(x)}); err != nil {
 				return err
 			}
 			sleepRandom()
@@ -120,7 +120,7 @@ func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
 	eg.Go(func() error {
 		for i := 0; i < N; i++ {
 			x := fmt.Sprintf("test %d", i)
-			if err := b.Tell(ctx, a.LocalAddrs()[0], []byte(x)); err != nil {
+			if err := b.Tell(ctx, a.LocalAddrs()[0], p2p.IOVec{[]byte(x)}); err != nil {
 				return err
 			}
 			sleepRandom()

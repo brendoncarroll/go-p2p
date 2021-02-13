@@ -48,7 +48,7 @@ func TestAsk(t *testing.T, xs []p2p.AskSwarm) {
 						gotAsk = true
 						mu.Unlock()
 					})
-					reply, err := xs[i].Ask(ctx, xs[j].LocalAddrs()[0], []byte("ping"))
+					reply, err := xs[i].Ask(ctx, xs[j].LocalAddrs()[0], p2p.IOVec{[]byte("ping")})
 					require.Nil(t, err, "error in Ask %v -> %v", srcAddr, dstAddr)
 					require.Equal(t, "pong", string(reply))
 					mu.Lock()

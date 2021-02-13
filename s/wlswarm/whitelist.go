@@ -33,7 +33,7 @@ func WrapSecure(x p2p.SecureSwarm, af AllowFunc) p2p.SecureSwarm {
 	}
 }
 
-func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	if checkAddr(s, s.af, addr, true) {
 		return s.SecureSwarm.Tell(ctx, addr, data)
 	}
@@ -55,7 +55,7 @@ type asker struct {
 	af AllowFunc
 }
 
-func (s *asker) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+func (s *asker) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
 	if checkAddr(s, s.af, addr, true) {
 		return s.SecureAskSwarm.Ask(ctx, addr, data)
 	}

@@ -45,7 +45,7 @@ func NewSecureAsk(m map[string]p2p.SecureAskSwarm) p2p.SecureAskSwarm {
 
 type multiSwarm map[string]p2p.Swarm
 
-func (mt multiSwarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (mt multiSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	dst := addr.(Addr)
 	t, ok := mt[dst.Transport]
 	if !ok {
@@ -110,7 +110,7 @@ func (mt multiSwarm) Close() error {
 
 type multiAsker map[string]p2p.Asker
 
-func (ma multiAsker) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+func (ma multiAsker) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
 	dst := addr.(Addr)
 	t, ok := ma[dst.Transport]
 	if !ok {

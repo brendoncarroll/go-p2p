@@ -64,10 +64,10 @@ func (s *Swarm) OnTell(fn p2p.TellHandler) {
 	s.thCell.Set(fn)
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	a := addr.(Addr)
 	a2 := (net.UDPAddr)(a)
-	_, err := s.conn.WriteToUDP(data, &a2)
+	_, err := s.conn.WriteToUDP(p2p.VecBytes(data), &a2)
 	return err
 }
 
