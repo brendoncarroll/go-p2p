@@ -1,7 +1,7 @@
 package p2p
 
 import (
-	"bytes"
+	"crypto/hmac"
 	"encoding/base64"
 
 	"github.com/pkg/errors"
@@ -16,11 +16,13 @@ func ZeroPeerID() PeerID {
 
 func NewPeerID(pubKey PublicKey) PeerID {
 	data := MarshalPublicKey(pubKey)
-	return sha3.Sum256(data)
+	id := PeerID{}
+	sha3.ShakeSum256(id[:], data)
+	return id
 }
 
 func (a PeerID) Equals(b PeerID) bool {
-	return bytes.Compare(a[:], b[:]) == 0
+	return hmac.Equal(a[:], b[:])
 }
 
 func (pid PeerID) String() string {
