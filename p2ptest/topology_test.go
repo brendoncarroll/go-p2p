@@ -39,6 +39,9 @@ func testAdjList(t *testing.T, n int, x AdjList) {
 
 			// not self reference
 			require.NotEqual(t, i, j)
+
+			// reflexive
+			require.Contains(t, x[j], i)
 		}
 	}
 }
