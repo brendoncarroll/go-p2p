@@ -62,6 +62,10 @@ func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	if total == 0 {
 		total = 1
 	}
+	if total == 1 {
+		msg := newMessage(id, 0, 1, data)
+		return s.Swarm.Tell(ctx, addr, msg)
+	}
 
 	eg := errgroup.Group{}
 	for part := 0; part < total; part++ {

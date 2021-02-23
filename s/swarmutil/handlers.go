@@ -1,45 +1,57 @@
 package swarmutil
 
 import (
+	"context"
+	"io"
 	"sync"
 
 	"github.com/brendoncarroll/go-p2p"
 )
 
-// TODO: not sure how do this with atomics
-var thlocks = sync.Map{}
-var ahlocks = sync.Map{}
-
-func AtomicSetTH(dst *p2p.TellHandler, x p2p.TellHandler) {
-	v, _ := thlocks.LoadOrStore(dst, &sync.RWMutex{})
-	mu := v.(*sync.RWMutex)
-	mu.Lock()
-	*dst = x
-	mu.Unlock()
+type THCell struct {
+	mu     sync.RWMutex
+	onTell p2p.TellHandler
 }
 
-func AtomicGetTH(src *p2p.TellHandler) p2p.TellHandler {
-	v, _ := thlocks.LoadOrStore(src, &sync.RWMutex{})
-	mu := v.(*sync.RWMutex)
-	mu.RLock()
-	x := *src
-	mu.RUnlock()
-	return x
+func (c *THCell) Handle(msg *p2p.Message) {
+	c.mu.RLock()
+	onTell := c.onTell
+	c.mu.RUnlock()
+	if onTell == nil {
+		onTell = p2p.NoOpTellHandler
+	}
+	onTell(msg)
 }
 
-func AtomicSetAH(dst *p2p.AskHandler, x p2p.AskHandler) {
-	v, _ := ahlocks.LoadOrStore(dst, &sync.RWMutex{})
-	mu := v.(*sync.RWMutex)
-	mu.Lock()
-	*dst = x
-	mu.Unlock()
+func (c *THCell) Set(fn p2p.TellHandler) {
+	if fn == nil {
+		fn = p2p.NoOpTellHandler
+	}
+	c.mu.Lock()
+	c.onTell = fn
+	c.mu.Unlock()
 }
 
-func AtomicGetAH(src *p2p.AskHandler) p2p.AskHandler {
-	v, _ := ahlocks.LoadOrStore(src, &sync.RWMutex{})
-	mu := v.(*sync.RWMutex)
-	mu.RLock()
-	x := *src
-	mu.RUnlock()
-	return x
+type AHCell struct {
+	mu    sync.RWMutex
+	onAsk p2p.AskHandler
+}
+
+func (c *AHCell) Handle(ctx context.Context, msg *p2p.Message, w io.Writer) {
+	c.mu.RLock()
+	onAsk := c.onAsk
+	c.mu.RUnlock()
+	if onAsk == nil {
+		onAsk = p2p.NoOpAskHandler
+	}
+	onAsk(ctx, msg, w)
+}
+
+func (c *AHCell) Set(fn p2p.AskHandler) {
+	if fn == nil {
+		fn = p2p.NoOpAskHandler
+	}
+	c.mu.Lock()
+	c.onAsk = fn
+	c.mu.Unlock()
 }

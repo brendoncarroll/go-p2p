@@ -32,11 +32,11 @@ type Swarm struct {
 	l       quic.Listener
 	cf      context.CancelFunc
 
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	sessCache map[sessionKey]quic.Session
 
-	onAsk  p2p.AskHandler
-	onTell p2p.TellHandler
+	thCell swarmutil.THCell
+	ahCell swarmutil.AHCell
 }
 
 func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
@@ -62,26 +62,17 @@ func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
 		cf:      cf,
 
 		sessCache: map[sessionKey]quic.Session{},
-
-		onAsk:  p2p.NoOpAskHandler,
-		onTell: p2p.NoOpTellHandler,
 	}
 	go s.serve(ctx)
 	return s, nil
 }
 
 func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	if fn == nil {
-		fn = p2p.NoOpTellHandler
-	}
-	swarmutil.AtomicSetTH(&s.onTell, fn)
+	s.thCell.Set(fn)
 }
 
 func (s *Swarm) OnAsk(fn p2p.AskHandler) {
-	if fn == nil {
-		fn = p2p.NoOpAskHandler
-	}
-	swarmutil.AtomicSetAH(&s.onAsk, fn)
+	s.ahCell.Set(fn)
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
@@ -303,8 +294,7 @@ func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstA
 	}
 	respBuf := &bytes.Buffer{}
 	w := &swarmutil.LimitWriter{W: respBuf, N: s.mtu}
-	onAsk := swarmutil.AtomicGetAH(&s.onAsk)
-	onAsk(ctx, m, w)
+	s.ahCell.Handle(ctx, m, w)
 	if err := writeFrame(stream, respBuf.Bytes()); err != nil {
 		return err
 	}
@@ -329,8 +319,7 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Add
 				Src:     srcAddr,
 				Payload: data,
 			}
-			onTell := swarmutil.AtomicGetTH(&s.onTell)
-			onTell(m)
+			s.thCell.Handle(m)
 		}()
 	}
 }

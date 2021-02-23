@@ -118,11 +118,16 @@ func (mc *muxCore) handleTell(m *p2p.Message) {
 	c, data, err := readMessage(m.Payload)
 	if err != nil {
 		log.Error(err)
+		return
 	}
 	mc.mu.RLock()
-	th := swarmutil.AtomicGetTH(&mc.swarms[c].onTell)
-	mc.mu.RUnlock()
-	th(&p2p.Message{
+	defer mc.mu.RUnlock()
+	s, exists := mc.swarms[c]
+	if !exists {
+		log.Errorf("intmux: got message for non-existing channel %v", c)
+		return
+	}
+	s.thCell.Handle(&p2p.Message{
 		Dst:     m.Dst,
 		Src:     m.Src,
 		Payload: data,
@@ -133,11 +138,16 @@ func (mc *muxCore) handleAsk(ctx context.Context, m *p2p.Message, w io.Writer) {
 	c, data, err := readMessage(m.Payload)
 	if err != nil {
 		log.Error(err)
+		return
 	}
 	mc.mu.RLock()
-	ah := swarmutil.AtomicGetAH(&mc.swarms[c].onAsk)
-	mc.mu.RUnlock()
-	ah(ctx, &p2p.Message{
+	defer mc.mu.RUnlock()
+	s, exists := mc.swarms[c]
+	if !exists {
+		log.Errorf("intmux: got message for non-existing channel %v", c)
+		return
+	}
+	s.ahCell.Handle(ctx, &p2p.Message{
 		Src:     m.Src,
 		Dst:     m.Dst,
 		Payload: data,
@@ -161,21 +171,15 @@ func (mc *muxCore) open(c uint64) *muxedSwarm {
 	if exists {
 		panic("channel already exists")
 	}
-	msw := &muxedSwarm{
-		c: c,
-		m: mc,
-
-		onTell: p2p.NoOpTellHandler,
-		onAsk:  p2p.NoOpAskHandler,
-	}
+	msw := newMuxedSwarm(mc, c)
 	mc.swarms[c] = msw
 	return msw
 }
 
 func (mc *muxCore) close(c uint64) error {
 	mc.mu.Lock()
+	defer mc.mu.Unlock()
 	delete(mc.swarms, c)
-	mc.mu.Unlock()
 	return nil
 }
 
@@ -188,8 +192,15 @@ type muxedSwarm struct {
 	c uint64
 	m *muxCore
 
-	onTell p2p.TellHandler
-	onAsk  p2p.AskHandler
+	thCell swarmutil.THCell
+	ahCell swarmutil.AHCell
+}
+
+func newMuxedSwarm(m *muxCore, c uint64) *muxedSwarm {
+	return &muxedSwarm{
+		c: c,
+		m: m,
+	}
 }
 
 func (ms *muxedSwarm) Tell(ctx context.Context, dst p2p.Addr, data []byte) error {
@@ -197,7 +208,7 @@ func (ms *muxedSwarm) Tell(ctx context.Context, dst p2p.Addr, data []byte) error
 }
 
 func (ms *muxedSwarm) OnTell(fn p2p.TellHandler) {
-	swarmutil.AtomicSetTH(&ms.onTell, fn)
+	ms.thCell.Set(fn)
 }
 
 func (ms *muxedSwarm) Ask(ctx context.Context, dst p2p.Addr, data []byte) ([]byte, error) {
@@ -205,7 +216,7 @@ func (ms *muxedSwarm) Ask(ctx context.Context, dst p2p.Addr, data []byte) ([]byt
 }
 
 func (ms *muxedSwarm) OnAsk(fn p2p.AskHandler) {
-	swarmutil.AtomicSetAH(&ms.onAsk, fn)
+	ms.ahCell.Set(fn)
 }
 
 func (ms *muxedSwarm) LocalAddrs() []p2p.Addr {
@@ -221,6 +232,8 @@ func (ms *muxedSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
 }
 
 func (ms *muxedSwarm) Close() error {
+	ms.OnAsk(nil)
+	ms.OnTell(nil)
 	return ms.m.close(ms.c)
 }
 

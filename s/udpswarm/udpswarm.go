@@ -35,7 +35,7 @@ type Swarm struct {
 	conn       *net.UDPConn
 	numWorkers int
 
-	handleTell p2p.TellHandler
+	thCell swarmutil.THCell
 }
 
 func New(laddr string, opts ...Option) (*Swarm, error) {
@@ -49,7 +49,6 @@ func New(laddr string, opts ...Option) (*Swarm, error) {
 	}
 	s := &Swarm{
 		conn:       conn,
-		handleTell: p2p.NoOpTellHandler,
 		numWorkers: defaultNumWorkers,
 	}
 	for _, opt := range opts {
@@ -62,7 +61,7 @@ func New(laddr string, opts ...Option) (*Swarm, error) {
 }
 
 func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	swarmutil.AtomicSetTH(&s.handleTell, fn)
+	s.thCell.Set(fn)
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
@@ -95,7 +94,7 @@ func (s *Swarm) ParseAddr(x []byte) (p2p.Addr, error) {
 }
 
 func (s *Swarm) Close() error {
-	swarmutil.AtomicSetTH(&s.handleTell, p2p.NoOpTellHandler)
+	s.OnTell(nil)
 	return s.conn.Close()
 }
 
@@ -115,7 +114,6 @@ func (s *Swarm) loop() {
 			Dst:     s.LocalAddrs()[0],
 			Payload: buf[:n],
 		}
-		handleTell := swarmutil.AtomicGetTH(&s.handleTell)
-		handleTell(msg)
+		s.thCell.Handle(msg)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/ioutil"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
@@ -24,6 +25,7 @@ type Realm struct {
 	logw     io.Writer
 	mtu      int
 
+	mu     sync.RWMutex
 	swarms []*Swarm
 }
 
@@ -65,10 +67,10 @@ func (r *Realm) NewSwarm() *Swarm {
 		r:          r,
 		n:          n,
 		privateKey: genPrivateKey(n),
-		handleAsk:  p2p.NoOpAskHandler,
-		handleTell: p2p.NoOpTellHandler,
 	}
+	r.mu.Lock()
 	r.swarms = append(r.swarms, s)
+	r.mu.Unlock()
 
 	return s
 }
@@ -86,8 +88,8 @@ type Swarm struct {
 	n          int
 	privateKey p2p.PrivateKey
 
-	handleTell p2p.TellHandler
-	handleAsk  p2p.AskHandler
+	thCell swarmutil.THCell
+	ahCell swarmutil.AHCell
 }
 
 func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
@@ -106,9 +108,10 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 	s.r.log(true, msg)
 	buf := bytes.Buffer{}
 	lw := &swarmutil.LimitWriter{W: &buf, N: s.r.mtu}
+	s.r.mu.RLock()
 	s2 := s.r.swarms[a.N]
-	handleAsk := swarmutil.AtomicGetAH(&s2.handleAsk)
-	handleAsk(ctx, msg, lw)
+	s.r.mu.RUnlock()
+	s2.ahCell.Handle(ctx, msg, lw)
 	return buf.Bytes(), nil
 }
 
@@ -126,24 +129,19 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 		return nil
 	}
 	s.r.log(false, msg)
+	s.r.mu.RLock()
 	s2 := s.r.swarms[a.N]
-	handleTell := swarmutil.AtomicGetTH(&s2.handleTell)
-	handleTell(msg)
+	s.r.mu.RUnlock()
+	s2.thCell.Handle(msg)
 	return nil
 }
 
 func (s *Swarm) OnAsk(fn p2p.AskHandler) {
-	if fn == nil {
-		fn = p2p.NoOpAskHandler
-	}
-	swarmutil.AtomicSetAH(&s.handleAsk, fn)
+	s.ahCell.Set(fn)
 }
 
 func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	if fn == nil {
-		fn = p2p.NoOpTellHandler
-	}
-	swarmutil.AtomicSetTH(&s.handleTell, fn)
+	s.thCell.Set(fn)
 }
 
 func (s *Swarm) LocalAddrs() []p2p.Addr {
@@ -166,6 +164,11 @@ func (s *Swarm) PublicKey() p2p.PublicKey {
 
 func (s *Swarm) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.PublicKey, error) {
 	a := addr.(Addr)
+	s.r.mu.RLock()
+	defer s.r.mu.RUnlock()
+	if len(s.r.swarms) <= a.N {
+		return nil, p2p.ErrPublicKeyNotFound
+	}
 	other := s.r.swarms[a.N]
 	return other.privateKey.Public(), nil
 }

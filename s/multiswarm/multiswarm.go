@@ -55,6 +55,9 @@ func (mt multiSwarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error
 }
 
 func (mt multiSwarm) OnTell(fn p2p.TellHandler) {
+	if fn == nil {
+		fn = p2p.NoOpTellHandler
+	}
 	for tname, t := range mt {
 		tname := tname
 		t.OnTell(func(msg *p2p.Message) {
