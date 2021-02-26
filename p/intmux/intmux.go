@@ -32,12 +32,12 @@ type SecureAskMux interface {
 }
 
 type mux struct {
-	muxCore
+	*muxCore
 }
 
 func WrapSwarm(x p2p.SecureSwarm) Mux {
 	return &mux{
-		muxCore: *newMuxCore(x),
+		muxCore: newMuxCore(x),
 	}
 }
 
@@ -46,12 +46,12 @@ func (m *mux) Open(c uint64) p2p.Swarm {
 }
 
 type askMux struct {
-	muxCore
+	*muxCore
 }
 
 func WrapAskSwarm(x p2p.AskSwarm) AskMux {
 	return &askMux{
-		muxCore: *newMuxCore(x),
+		muxCore: newMuxCore(x),
 	}
 }
 
@@ -60,12 +60,12 @@ func (m *askMux) Open(c uint64) p2p.AskSwarm {
 }
 
 type secureMux struct {
-	muxCore
+	*muxCore
 }
 
 func WrapSecureSwarm(x p2p.SecureSwarm) SecureMux {
 	return &secureMux{
-		muxCore: *newMuxCore(x),
+		muxCore: newMuxCore(x),
 	}
 }
 
@@ -75,12 +75,12 @@ func (m *secureMux) Open(c uint64) p2p.SecureSwarm {
 }
 
 type secureAskMux struct {
-	muxCore
+	*muxCore
 }
 
 func WrapSecureAskMux(x p2p.SecureSwarm) SecureMux {
 	return &secureMux{
-		muxCore: *newMuxCore(x),
+		muxCore: newMuxCore(x),
 	}
 }
 
@@ -120,11 +120,9 @@ func (mc *muxCore) handleTell(m *p2p.Message) {
 		log.Error(err)
 		return
 	}
-	mc.mu.RLock()
-	defer mc.mu.RUnlock()
-	s, exists := mc.swarms[c]
-	if !exists {
-		log.Errorf("intmux: got message for non-existing channel %v", c)
+	s, err := mc.getSwarm(c)
+	if err != nil {
+		log.Debug(err)
 		return
 	}
 	s.thCell.Handle(&p2p.Message{
@@ -140,11 +138,9 @@ func (mc *muxCore) handleAsk(ctx context.Context, m *p2p.Message, w io.Writer) {
 		log.Error(err)
 		return
 	}
-	mc.mu.RLock()
-	defer mc.mu.RUnlock()
-	s, exists := mc.swarms[c]
-	if !exists {
-		log.Errorf("intmux: got message for non-existing channel %v", c)
+	s, err := mc.getSwarm(c)
+	if err != nil {
+		log.Debug(err)
 		return
 	}
 	s.ahCell.Handle(ctx, &p2p.Message{
@@ -181,6 +177,16 @@ func (mc *muxCore) close(c uint64) error {
 	defer mc.mu.Unlock()
 	delete(mc.swarms, c)
 	return nil
+}
+
+func (mc *muxCore) getSwarm(c uint64) (*muxedSwarm, error) {
+	mc.mu.RLock()
+	defer mc.mu.RUnlock()
+	s, exists := mc.swarms[c]
+	if !exists {
+		return nil, errors.Errorf("intmux: got message for non-existing channel %v", c)
+	}
+	return s, nil
 }
 
 var _ interface {

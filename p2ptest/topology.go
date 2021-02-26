@@ -8,10 +8,10 @@ func Chain(n int) (adjList AdjList) {
 		prev := i - 1
 		next := i + 1
 		if prev >= 0 {
-			connect(adjList, i, prev)
+			connectUni(adjList, i, prev)
 		}
 		if next < n {
-			connect(adjList, i, next)
+			connectUni(adjList, i, next)
 		}
 	}
 	return adjList
@@ -23,10 +23,10 @@ func Ring(n int) (adjList AdjList) {
 		next := (i + 1) % n
 		prev := (i + n - 1) % n
 		if next != i {
-			connect(adjList, i, next)
+			connectUni(adjList, i, next)
 		}
-		if prev != i {
-			connect(adjList, i, prev)
+		if prev != i && prev != next {
+			connectUni(adjList, i, prev)
 		}
 	}
 	return adjList
@@ -47,12 +47,16 @@ func Cluster(n int) (adjList AdjList) {
 func HubAndSpoke(n int) (adjList AdjList) {
 	adjList = make(AdjList, n)
 	for i := 1; i < n; i++ {
-		connect(adjList, 0, i)
+		connectBiDi(adjList, 0, i)
 	}
 	return adjList
 }
 
-func connect(adjList AdjList, i, j int) {
+func connectUni(adjList AdjList, i, j int) {
 	adjList[i] = append(adjList[i], j)
-	adjList[j] = append(adjList[j], i)
+}
+
+func connectBiDi(adjList AdjList, i, j int) {
+	connectUni(adjList, i, j)
+	connectUni(adjList, j, i)
 }

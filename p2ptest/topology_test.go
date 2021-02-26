@@ -30,8 +30,10 @@ func TestTopology(t *testing.T) {
 }
 
 func testAdjList(t *testing.T, n int, x AdjList) {
+	t.Log(x)
 	require.Len(t, x, n)
 	for i := range x {
+		require.True(t, noDuplicates(x[i]))
 		for _, j := range x[i] {
 			// not out of bounds
 			require.Less(t, j, n)
@@ -44,4 +46,15 @@ func testAdjList(t *testing.T, n int, x AdjList) {
 			require.Contains(t, x[j], i)
 		}
 	}
+}
+
+func noDuplicates(xs []int) bool {
+	seen := make(map[int]struct{}, len(xs))
+	for _, x := range xs {
+		if _, exists := seen[x]; exists {
+			return false
+		}
+		seen[x] = struct{}{}
+	}
+	return true
 }
