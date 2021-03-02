@@ -92,12 +92,12 @@ type Swarm struct {
 	ahCell swarmutil.AHCell
 }
 
-func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
 	a := addr.(Addr)
 	msg := &p2p.Message{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
-		Payload: data,
+		Payload: p2p.VecBytes(data),
 	}
 	if len(data) > s.r.mtu {
 		return nil, p2p.ErrMTUExceeded
@@ -115,12 +115,12 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, er
 	return buf.Bytes(), nil
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	a := addr.(Addr)
 	msg := &p2p.Message{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
-		Payload: data,
+		Payload: p2p.VecBytes(data),
 	}
 	if len(data) > s.r.mtu {
 		return p2p.ErrMTUExceeded

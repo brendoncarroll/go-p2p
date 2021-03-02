@@ -43,10 +43,7 @@ var upnpCmd = &cobra.Command{
 		log.Println("discovering nat devices...")
 		natDevs := upnp.Discover(ctx, timeout/2, timeout)
 		for _, natDev := range natDevs {
-			localIP, err := natDev.GetExternalIPAddress(ctx)
-			if err != nil {
-				log.Error(err)
-			}
+			localIP := natDev.GetLocalIPAddress()
 			externalIP, err := natDev.GetExternalIPAddress(ctx)
 			if err != nil {
 				log.Error(err)
@@ -76,7 +73,7 @@ var testConnectCmd = &cobra.Command{
 
 		s3.OnTell(func(m *p2p.Message) {
 			ctx := context.TODO()
-			s3.Tell(ctx, m.Src, m.Payload)
+			s3.Tell(ctx, m.Src, p2p.IOVec{m.Payload})
 			log.Println("MSG:", m.Src, "->", m.Dst, " ", m.Payload)
 		})
 

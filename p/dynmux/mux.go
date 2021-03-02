@@ -91,7 +91,7 @@ func (m *muxer) handleTell(msg *p2p.Message) {
 		m.mu.RUnlock()
 
 		resMsg := newMuxRes(m.sessionID, req.Name, i)
-		m.s.Tell(ctx, msg.Src, []byte(resMsg))
+		m.s.Tell(ctx, msg.Src, p2p.IOVec{[]byte(resMsg)})
 
 	case 1:
 		data := msg2.GetData()
@@ -224,7 +224,7 @@ func (m *muxer) lookup(ctx context.Context, addr p2p.Addr, name string) (uint32,
 
 	if !exists {
 		msg := newMuxReq(name)
-		if err := m.s.Tell(ctx, addr, msg); err != nil {
+		if err := m.s.Tell(ctx, addr, p2p.IOVec{msg}); err != nil {
 			return 0, nil
 		}
 	}

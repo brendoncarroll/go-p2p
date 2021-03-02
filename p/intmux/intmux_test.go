@@ -32,9 +32,9 @@ func TestMux(t *testing.T) {
 	})
 
 	var err error
-	err = m2foo.Tell(context.TODO(), m1foo.LocalAddrs()[0], []byte("hello foo"))
+	err = m2foo.Tell(context.TODO(), m1foo.LocalAddrs()[0], p2p.IOVec{[]byte("hello foo")})
 	require.Nil(t, err)
-	err = m2bar.Tell(context.TODO(), m1bar.LocalAddrs()[0], []byte("hello bar"))
+	err = m2bar.Tell(context.TODO(), m1bar.LocalAddrs()[0], p2p.IOVec{[]byte("hello bar")})
 	require.Nil(t, err)
 
 	assert.Equal(t, "hello foo", recvFoo)

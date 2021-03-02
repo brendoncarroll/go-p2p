@@ -75,7 +75,7 @@ func (s *Swarm) OnAsk(fn p2p.AskHandler) {
 	s.ahCell.Set(fn)
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	dst := addr.(*Addr)
 	if len(data) > s.mtu {
 		return p2p.ErrMTUExceeded
@@ -92,7 +92,7 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 				return err
 			}
 		}
-		_, err = stream.Write(data)
+		_, err = data.WriteTo(stream)
 		return err
 	})
 	if isSessionReplaced(err) {
@@ -101,7 +101,7 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
 	return err
 }
 
-func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data []byte) ([]byte, error) {
+func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
 	dst := addr.(*Addr)
 	if len(data) > s.mtu {
 		return nil, p2p.ErrMTUExceeded
@@ -295,7 +295,7 @@ func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstA
 	respBuf := &bytes.Buffer{}
 	w := &swarmutil.LimitWriter{W: respBuf, N: s.mtu}
 	s.ahCell.Handle(ctx, m, w)
-	if err := writeFrame(stream, respBuf.Bytes()); err != nil {
+	if err := writeFrame(stream, p2p.IOVec{respBuf.Bytes()}); err != nil {
 		return err
 	}
 	return stream.Close()
@@ -382,11 +382,11 @@ func generateQUICConfig() *quic.Config {
 	return nil
 }
 
-func writeFrame(w io.Writer, data []byte) error {
-	if err := binary.Write(w, binary.BigEndian, uint32(len(data))); err != nil {
+func writeFrame(w io.Writer, data p2p.IOVec) error {
+	if err := binary.Write(w, binary.BigEndian, uint32(p2p.VecSize(data))); err != nil {
 		return err
 	}
-	_, err := w.Write(data)
+	_, err := data.WriteTo(w)
 	return err
 }
 

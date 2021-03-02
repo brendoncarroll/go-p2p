@@ -150,12 +150,12 @@ func (mc *muxCore) handleAsk(ctx context.Context, m *p2p.Message, w io.Writer) {
 	}, w)
 }
 
-func (mc *muxCore) tell(ctx context.Context, dst p2p.Addr, c uint64, data []byte) error {
+func (mc *muxCore) tell(ctx context.Context, dst p2p.Addr, c uint64, data p2p.IOVec) error {
 	data2 := makeMessage(c, data)
 	return mc.swarm.Tell(ctx, dst, data2)
 }
 
-func (mc *muxCore) ask(ctx context.Context, dst p2p.Addr, c uint64, data []byte) ([]byte, error) {
+func (mc *muxCore) ask(ctx context.Context, dst p2p.Addr, c uint64, data p2p.IOVec) ([]byte, error) {
 	data = makeMessage(c, data)
 	return mc.askSwarm.Ask(ctx, dst, data)
 }
@@ -209,7 +209,7 @@ func newMuxedSwarm(m *muxCore, c uint64) *muxedSwarm {
 	}
 }
 
-func (ms *muxedSwarm) Tell(ctx context.Context, dst p2p.Addr, data []byte) error {
+func (ms *muxedSwarm) Tell(ctx context.Context, dst p2p.Addr, data p2p.IOVec) error {
 	return ms.m.tell(ctx, dst, ms.c, data)
 }
 
@@ -217,7 +217,7 @@ func (ms *muxedSwarm) OnTell(fn p2p.TellHandler) {
 	ms.thCell.Set(fn)
 }
 
-func (ms *muxedSwarm) Ask(ctx context.Context, dst p2p.Addr, data []byte) ([]byte, error) {
+func (ms *muxedSwarm) Ask(ctx context.Context, dst p2p.Addr, data p2p.IOVec) ([]byte, error) {
 	return ms.m.ask(ctx, dst, ms.c, data)
 }
 
@@ -243,12 +243,15 @@ func (ms *muxedSwarm) Close() error {
 	return ms.m.close(ms.c)
 }
 
-func makeMessage(c uint64, data []byte) []byte {
-	data2 := make([]byte, binary.MaxVarintLen64)
-	n := binary.PutUvarint(data2, c)
-	data2 = data2[:n]
-	data2 = append(data2, data...)
-	return data2
+func makeMessage(c uint64, data p2p.IOVec) p2p.IOVec {
+	header := make([]byte, binary.MaxVarintLen64)
+	n := binary.PutUvarint(header, c)
+	header = header[:n]
+
+	ret := p2p.IOVec{}
+	ret = append(ret, header)
+	ret = append(ret, data...)
+	return ret
 }
 
 func readMessage(data []byte) (uint64, []byte, error) {

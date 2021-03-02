@@ -43,7 +43,7 @@ func TestAgg(t *testing.T) {
 	for i := range send {
 		send[i] = 0xff
 	}
-	require.NoError(t, a.Tell(ctx, b.LocalAddrs()[0], send))
+	require.NoError(t, a.Tell(ctx, b.LocalAddrs()[0], p2p.IOVec{send}))
 	<-done
 	require.Equal(t, send, recv)
 }

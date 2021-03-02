@@ -50,10 +50,10 @@ func New(x p2p.Swarm, privateKey p2p.PrivateKey) *Swarm {
 	return s
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data []byte) error {
+func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	dst := addr.(Addr)
 	return s.withAnyReadySession(ctx, dst, func(sess *session) error {
-		return sess.tell(ctx, data)
+		return sess.tell(ctx, p2p.VecBytes(data))
 	})
 }
 
@@ -198,7 +198,7 @@ func (s *Swarm) getOrCreateSession(lowerRaddr p2p.Addr, initiator bool) (sess *s
 		}
 	}
 	sess = newSession(initiator, s.privateKey, func(ctx context.Context, data []byte) error {
-		return s.swarm.Tell(ctx, lowerRaddr, data)
+		return s.swarm.Tell(ctx, lowerRaddr, p2p.IOVec{data})
 	})
 	s.lowerToSession[key] = sess
 	return sess, true

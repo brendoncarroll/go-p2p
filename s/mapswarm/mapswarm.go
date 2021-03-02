@@ -32,7 +32,7 @@ func newSwarm(x p2p.Swarm, downward, upward AddrMapFunc) *swarm {
 	}
 }
 
-func (s *swarm) Tell(ctx context.Context, dst p2p.Addr, data []byte) error {
+func (s *swarm) Tell(ctx context.Context, dst p2p.Addr, data p2p.IOVec) error {
 	return s.Swarm.Tell(ctx, s.downward(dst), data)
 }
 
