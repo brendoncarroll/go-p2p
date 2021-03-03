@@ -10,13 +10,17 @@ import (
 	"io"
 	"io/ioutil"
 	"math/rand"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/jonboulle/clockwork"
+	"golang.org/x/sync/errgroup"
 )
+
+var defaultNumWorkers = runtime.GOMAXPROCS(0)
 
 type Realm struct {
 	clock    clockwork.Clock
@@ -26,14 +30,16 @@ type Realm struct {
 	mtu      int
 
 	mu     sync.RWMutex
-	swarms []*Swarm
+	n      int
+	swarms map[int]*Swarm
 }
 
 func NewRealm(opts ...Option) *Realm {
 	r := &Realm{
-		clock: clockwork.NewRealClock(),
-		logw:  ioutil.Discard,
-		mtu:   1 << 20,
+		clock:  clockwork.NewRealClock(),
+		logw:   ioutil.Discard,
+		mtu:    1 << 20,
+		swarms: make(map[int]*Swarm),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -62,16 +68,19 @@ func (r *Realm) block() bool {
 }
 
 func (r *Realm) NewSwarm() *Swarm {
-	n := len(r.swarms)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := r.n
+	r.n++
 	s := &Swarm{
 		r:          r,
 		n:          n,
 		privateKey: genPrivateKey(n),
-	}
-	r.mu.Lock()
-	r.swarms = append(r.swarms, s)
-	r.mu.Unlock()
 
+		tellQueue: swarmutil.NewTellQueue(),
+		askQueue:  swarmutil.NewAskQueue(),
+	}
+	r.swarms[n] = s
 	return s
 }
 
@@ -81,6 +90,12 @@ func (r *Realm) NewSwarmWithKey(privateKey p2p.PrivateKey) *Swarm {
 	return s
 }
 
+func (r *Realm) removeSwarm(s *Swarm) {
+	r.mu.Lock()
+	delete(r.swarms, s.n)
+	defer r.mu.Unlock()
+}
+
 var _ p2p.SecureAskSwarm = &Swarm{}
 
 type Swarm struct {
@@ -88,8 +103,8 @@ type Swarm struct {
 	n          int
 	privateKey p2p.PrivateKey
 
-	thCell swarmutil.THCell
-	ahCell swarmutil.AHCell
+	tellQueue *swarmutil.TellQueue
+	askQueue  *swarmutil.AskQueue
 }
 
 func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
@@ -111,7 +126,7 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte,
 	s.r.mu.RLock()
 	s2 := s.r.swarms[a.N]
 	s.r.mu.RUnlock()
-	s2.ahCell.Handle(ctx, msg, lw)
+	s2.askQueue.DeliverAsk(ctx, msg, lw)
 	return buf.Bytes(), nil
 }
 
@@ -131,17 +146,42 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	s.r.log(false, msg)
 	s.r.mu.RLock()
 	s2 := s.r.swarms[a.N]
+	if s2 == nil {
+		return nil
+	}
 	s.r.mu.RUnlock()
-	s2.thCell.Handle(msg)
+	s2.tellQueue.DeliverTell(msg)
 	return nil
 }
 
-func (s *Swarm) OnAsk(fn p2p.AskHandler) {
-	s.ahCell.Set(fn)
+func (s *Swarm) ServeAsks(fn p2p.AskHandler) error {
+	ctx := context.Background()
+	eg := errgroup.Group{}
+	for i := 0; i < defaultNumWorkers; i++ {
+		eg.Go(func() error {
+			for {
+				if err := s.askQueue.ServeAsk(ctx, fn); err != nil {
+					return err
+				}
+			}
+		})
+	}
+	return eg.Wait()
 }
 
-func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	s.thCell.Set(fn)
+func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
+	ctx := context.Background()
+	eg := errgroup.Group{}
+	for i := 0; i < defaultNumWorkers; i++ {
+		eg.Go(func() error {
+			for {
+				if err := s.tellQueue.ServeTell(ctx, fn); err != nil {
+					return err
+				}
+			}
+		})
+	}
+	return eg.Wait()
 }
 
 func (s *Swarm) LocalAddrs() []p2p.Addr {
@@ -153,8 +193,10 @@ func (s *Swarm) MTU(context.Context, p2p.Addr) int {
 }
 
 func (s *Swarm) Close() error {
-	s.OnAsk(nil)
-	s.OnTell(nil)
+	s.r.removeSwarm(s)
+	err := p2p.ErrSwarmClosed
+	s.askQueue.CloseWithError(err)
+	s.tellQueue.CloseWithError(err)
 	return nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
@@ -33,7 +34,14 @@ func TestSuiteSwarm(t *testing.T, newSwarms func(testing.TB, int) []p2p.Swarm) {
 	t.Run("TestTellBidirectional", func(t *testing.T) {
 		xs := newSwarms(t, 2)
 		a, b := xs[0], xs[1]
-		TestTellBidirectional(t, a, b)
+		aQueue, bQueue := swarmutil.NewTellQueue(), swarmutil.NewTellQueue()
+		go a.ServeTells(func(msg *p2p.Message) {
+			aQueue.DeliverTell(msg)
+		})
+		go b.ServeTells(func(msg *p2p.Message) {
+			bQueue.DeliverTell(msg)
+		})
+		TestTellBidirectional(t, a, b, aQueue, bQueue)
 	})
 }
 
@@ -52,36 +60,39 @@ func TestMarshalParse(t *testing.T, s p2p.Swarm) {
 }
 
 func TestTellAllPairs(t *testing.T, xs []p2p.Swarm) {
-	for i, x1 := range xs {
-		for j, x2 := range xs {
+	recv := makeChans(xs)
+	for i := range xs {
+		for j := range xs {
 			if j != i {
-				TestTell(t, x1, x2)
+				dst := xs[j].LocalAddrs()[0]
+				testTell(t, xs[i], dst, recv[j])
 			}
 		}
 	}
 }
 
-func TestTell(t *testing.T, src, dst p2p.Swarm) {
-	done := make(chan struct{}, 1)
-	recv := p2p.Message{}
-	dst.OnTell(func(msg *p2p.Message) {
-		if assert.NotNil(t, msg, "p2p message must not be nil") {
-			recv = *msg
-		}
-		close(done)
-	})
-	defer dst.OnTell(p2p.NoOpTellHandler)
+func makeChans(xs []p2p.Swarm) []chan p2p.Message {
+	recv := make([]chan p2p.Message, len(xs))
+	for i := range xs {
+		i := i
+		recv[i] = make(chan p2p.Message, 1)
+		go xs[i].ServeTells(func(msg *p2p.Message) {
+			recv[i] <- copyMessage(msg)
+		})
+	}
+	return recv
+}
 
-	dstAddr := dst.LocalAddrs()[0]
+func testTell(t *testing.T, src p2p.Swarm, dstAddr p2p.Addr, recvChan chan p2p.Message) {
+	ctx := context.Background()
 	payload := genPayload()
+	require.NoError(t, src.Tell(ctx, dstAddr, p2p.IOVec{payload}))
 
-	err := src.Tell(context.TODO(), dstAddr, p2p.IOVec{payload})
-	require.Nil(t, err)
-
+	var recv p2p.Message
 	select {
-	case <-done:
-	case <-time.After(time.Second):
+	case <-ctx.Done():
 		t.Error("timeout waiting for tell")
+	case recv = <-recvChan:
 	}
 
 	assert.Equal(t, string(payload), string(recv.Payload))
@@ -89,19 +100,16 @@ func TestTell(t *testing.T, src, dst p2p.Swarm) {
 	assert.NotNil(t, recv.Src, "SRC addr is nil")
 }
 
-func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
+func TestTellBidirectional(t *testing.T, a, b p2p.Swarm, aQueue, bQueue *swarmutil.TellQueue) {
 	const N = 50
 	ctx, cf := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cf()
 
-	aInbox := make(chan []byte, N)
-	bInbox := make(chan []byte, N)
-	a.OnTell(func(msg *p2p.Message) {
-		aInbox <- append([]byte{}, msg.Payload...)
-	})
-	b.OnTell(func(msg *p2p.Message) {
-		bInbox <- append([]byte{}, msg.Payload...)
-	})
+	aInbox := make(chan p2p.Message, N)
+	bInbox := make(chan p2p.Message, N)
+	go copyTells(ctx, aInbox, aQueue)
+	go copyTells(ctx, bInbox, bQueue)
+
 	eg := errgroup.Group{}
 	sleepRandom := func() {
 		dur := time.Millisecond * time.Duration(1+rand.Intn(10)-5)
@@ -137,7 +145,7 @@ func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
 	assert.GreaterOrEqual(t, len(bSlice), passN)
 }
 
-func collectChan(ctx context.Context, N int, ch chan []byte) (ret [][]byte) {
+func collectChan(ctx context.Context, N int, ch chan p2p.Message) (ret []p2p.Message) {
 	for i := 0; i < N; i++ {
 		select {
 		case <-ctx.Done():
@@ -156,7 +164,7 @@ func genPayload() []byte {
 
 func CloseSwarms(t testing.TB, xs []p2p.Swarm) {
 	for i := range xs {
-		require.Nil(t, xs[i].Close())
+		require.NoError(t, xs[i].Close())
 	}
 }
 
@@ -169,5 +177,23 @@ func CloseAskSwarms(t testing.TB, xs []p2p.AskSwarm) {
 func CloseSecureSwarms(t testing.TB, xs []p2p.SecureSwarm) {
 	for i := range xs {
 		require.Nil(t, xs[i].Close())
+	}
+}
+
+func copyMessage(x *p2p.Message) p2p.Message {
+	return p2p.Message{
+		Dst:     x.Dst,
+		Src:     x.Src,
+		Payload: append([]byte{}, x.Payload...),
+	}
+}
+
+func copyTells(ctx context.Context, ch chan p2p.Message, q *swarmutil.TellQueue) {
+	for {
+		if err := q.ServeTell(ctx, func(m *p2p.Message) {
+			ch <- copyMessage(m)
+		}); err != nil {
+			return
+		}
 	}
 }

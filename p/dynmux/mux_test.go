@@ -27,10 +27,10 @@ func TestMux(t *testing.T) {
 	m2bar, err := m2.Open("bar")
 
 	var recvFoo, recvBar string
-	m1foo.OnTell(func(msg *p2p.Message) {
+	go m1foo.ServeTells(func(msg *p2p.Message) {
 		recvFoo = string(msg.Payload)
 	})
-	m1bar.OnTell(func(msg *p2p.Message) {
+	go m1bar.ServeTells(func(msg *p2p.Message) {
 		recvBar = string(msg.Payload)
 	})
 

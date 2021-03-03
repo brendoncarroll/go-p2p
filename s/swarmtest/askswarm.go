@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,12 +24,20 @@ func TestSuiteAskSwarm(t *testing.T, newSwarms func(testing.TB, int) []p2p.AskSw
 
 func TestMultipleAsks(t *testing.T, xs []p2p.AskSwarm) {
 	const N = 100
+	queues := make([]*swarmutil.AskQueue, len(xs))
+	for i := range xs {
+		i := i
+		queues[i] = swarmutil.NewAskQueue()
+		go xs[i].ServeAsks(func(ctx context.Context, msg *p2p.Message, w io.Writer) {
+			queues[i].DeliverAsk(ctx, msg, w)
+		})
+	}
 	for i := 0; i < N; i++ {
-		TestAsk(t, xs)
+		TestAsk(t, xs, queues)
 	}
 }
 
-func TestAsk(t *testing.T, xs []p2p.AskSwarm) {
+func TestAsk(t *testing.T, xs []p2p.AskSwarm, queues []*swarmutil.AskQueue) {
 	ctx := context.Background()
 	for _, i := range rand.Perm(len(xs)) {
 		for _, j := range rand.Perm(len(xs)) {
@@ -40,7 +49,8 @@ func TestAsk(t *testing.T, xs []p2p.AskSwarm) {
 					defer cf()
 					mu := sync.Mutex{}
 					gotAsk := false
-					xs[j].OnAsk(func(ctx context.Context, msg *p2p.Message, w io.Writer) {
+
+					go queues[j].ServeAsk(ctx, func(ctx context.Context, msg *p2p.Message, w io.Writer) {
 						assert.Equal(t, "ping", string(msg.Payload))
 						_, err := w.Write([]byte("pong"))
 						require.Nil(t, err)

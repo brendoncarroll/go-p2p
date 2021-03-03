@@ -6,6 +6,7 @@ import (
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -54,24 +55,26 @@ func (mt multiSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) er
 	return t.Tell(ctx, dst.Addr, data)
 }
 
-func (mt multiSwarm) OnTell(fn p2p.TellHandler) {
-	if fn == nil {
-		fn = p2p.NoOpTellHandler
-	}
+func (mt multiSwarm) ServeTells(fn p2p.TellHandler) error {
+	eg := errgroup.Group{}
 	for tname, t := range mt {
 		tname := tname
-		t.OnTell(func(msg *p2p.Message) {
-			msg.Src = Addr{
-				Transport: tname,
-				Addr:      msg.Src,
-			}
-			msg.Dst = Addr{
-				Transport: tname,
-				Addr:      msg.Dst,
-			}
-			fn(msg)
+		t := t
+		eg.Go(func() error {
+			return t.ServeTells(func(msg *p2p.Message) {
+				msg.Src = Addr{
+					Transport: tname,
+					Addr:      msg.Src,
+				}
+				msg.Dst = Addr{
+					Transport: tname,
+					Addr:      msg.Dst,
+				}
+				fn(msg)
+			})
 		})
 	}
+	return eg.Wait()
 }
 
 func (mt multiSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
@@ -119,20 +122,26 @@ func (ma multiAsker) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]
 	return t.Ask(ctx, dst.Addr, data)
 }
 
-func (ma multiAsker) OnAsk(fn p2p.AskHandler) {
+func (ma multiAsker) ServeAsks(fn p2p.AskHandler) error {
+	eg := errgroup.Group{}
 	for tname, t := range ma {
-		t.OnAsk(func(ctx context.Context, msg *p2p.Message, w io.Writer) {
-			msg.Src = Addr{
-				Transport: tname,
-				Addr:      msg.Src,
-			}
-			msg.Dst = Addr{
-				Transport: tname,
-				Addr:      msg.Dst,
-			}
-			fn(ctx, msg, w)
+		tname := tname
+		t := t
+		eg.Go(func() error {
+			return t.ServeAsks(func(ctx context.Context, msg *p2p.Message, w io.Writer) {
+				msg.Src = Addr{
+					Transport: tname,
+					Addr:      msg.Src,
+				}
+				msg.Dst = Addr{
+					Transport: tname,
+					Addr:      msg.Dst,
+				}
+				fn(ctx, msg, w)
+			})
 		})
 	}
+	return eg.Wait()
 }
 
 type multiSecure map[string]p2p.Secure

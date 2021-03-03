@@ -4,32 +4,35 @@ import (
 	"context"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 )
 
 type baseSwarm struct {
 	m    *muxer
 	name string
 
-	handleAsk  p2p.AskHandler
-	handleTell p2p.TellHandler
+	tellHub *swarmutil.TellHub
+	askHub  *swarmutil.AskHub
 }
 
 func newSwarm(m *muxer, name string) *baseSwarm {
 	return &baseSwarm{
-		m:    m,
-		name: name,
+		m:       m,
+		name:    name,
+		tellHub: swarmutil.NewTellHub(),
+		askHub:  swarmutil.NewAskHub(),
 	}
 }
 
-func (s *baseSwarm) OnTell(fn p2p.TellHandler) {
-	s.handleTell = fn
+func (s *baseSwarm) ServeTells(fn p2p.TellHandler) error {
+	return s.tellHub.ServeTells(fn)
 }
 
-func (s *baseSwarm) OnAsk(fn p2p.AskHandler) {
+func (s *baseSwarm) ServeAsks(fn p2p.AskHandler) error {
 	if _, ok := s.m.s.(p2p.Asker); !ok {
 		panic("underlying swarm does not support ask")
 	}
-	s.handleAsk = fn
+	return s.askHub.ServeAsks(fn)
 }
 
 func (s *baseSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
@@ -64,8 +67,8 @@ func (s *baseSwarm) LocalAddrs() []p2p.Addr {
 }
 
 func (s *baseSwarm) Close() error {
-	s.handleAsk = p2p.NoOpAskHandler
-	s.handleTell = p2p.NoOpTellHandler
+	s.askHub.CloseWithError(p2p.ErrSwarmClosed)
+	s.tellHub.CloseWithError(p2p.ErrSwarmClosed)
 	return nil
 }
 

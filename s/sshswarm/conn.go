@@ -128,13 +128,13 @@ func (c *Conn) loop() {
 			if req.WantReply {
 				buf := bytes.Buffer{}
 				lw := &swarmutil.LimitWriter{W: &buf, N: MTU}
-				c.swarm.handleAsk(ctx, msg, lw)
+				c.swarm.askHub.DeliverAsk(ctx, msg, lw)
 				resData := buf.Bytes()
 				if err := req.Reply(true, resData); err != nil {
 					log.Println(err)
 				}
 			} else {
-				c.swarm.handleTell(msg)
+				c.swarm.tellHub.DeliverTell(msg)
 			}
 		case ncr := <-c.newChanReqs:
 			if err := ncr.Reject(ssh.Prohibited, "don't do that"); err != nil {

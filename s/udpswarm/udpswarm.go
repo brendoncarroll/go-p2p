@@ -6,14 +6,14 @@ import (
 	"strings"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
 	IPv4MTU = 576
 	IPv6MTU = 1280
 
-	TheoreticalMTU = 1 << 16
+	TheoreticalMTU = (1 << 16) - 1
 )
 
 var log = p2p.Logger
@@ -34,8 +34,6 @@ It is included as a transport for secure swarms to be built on.
 type Swarm struct {
 	conn       *net.UDPConn
 	numWorkers int
-
-	thCell swarmutil.THCell
 }
 
 func New(laddr string, opts ...Option) (*Swarm, error) {
@@ -54,14 +52,21 @@ func New(laddr string, opts ...Option) (*Swarm, error) {
 	for _, opt := range opts {
 		opt(s)
 	}
-	for i := 0; i < s.numWorkers; i++ {
-		go s.loop()
-	}
 	return s, nil
 }
 
-func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	s.thCell.Set(fn)
+func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
+	eg := errgroup.Group{}
+	for i := 0; i < s.numWorkers; i++ {
+		eg.Go(func() error {
+			return s.readLoop(fn)
+		})
+	}
+	err := eg.Wait()
+	if err == nil {
+		err = p2p.ErrSwarmClosed
+	}
+	return err
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
@@ -94,26 +99,24 @@ func (s *Swarm) ParseAddr(x []byte) (p2p.Addr, error) {
 }
 
 func (s *Swarm) Close() error {
-	s.OnTell(nil)
 	return s.conn.Close()
 }
 
-func (s *Swarm) loop() {
+func (s *Swarm) readLoop(fn p2p.TellHandler) error {
 	buf := make([]byte, TheoreticalMTU)
 	for {
 		n, udpAddr, err := s.conn.ReadFromUDP(buf)
 		if err != nil {
 			if strings.Contains(err.Error(), "use of closed network connection") {
-				return
+				err = nil
 			}
-			log.Error(err)
-			return
+			return err
 		}
 		msg := &p2p.Message{
 			Src:     (Addr)(*udpAddr),
 			Dst:     s.LocalAddrs()[0],
 			Payload: buf[:n],
 		}
-		s.thCell.Handle(msg)
+		fn(msg)
 	}
 }

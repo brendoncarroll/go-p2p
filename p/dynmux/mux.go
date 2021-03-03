@@ -57,9 +57,9 @@ func MultiplexSwarm(s p2p.Swarm) Muxer {
 		reqs: map[channelKey]chan struct{}{},
 	}
 
-	s.OnTell(m.handleTell)
+	go s.ServeTells(m.handleTell)
 	if asker, ok := s.(p2p.Asker); ok {
-		asker.OnAsk(m.handleAsk)
+		go asker.ServeAsks(m.handleAsk)
 	}
 
 	return m
@@ -124,7 +124,7 @@ func (m *muxer) handleTell(msg *p2p.Message) {
 			msg.Payload = msg2.GetData()
 			s := m.swarms[c]
 			if s != nil {
-				s.handleTell(msg)
+				s.tellHub.DeliverTell(msg)
 			}
 		}
 	}
@@ -151,7 +151,7 @@ func (m *muxer) handleAsk(ctx context.Context, msg *p2p.Message, w io.Writer) {
 		Dst:     msg.Dst,
 		Payload: msg2.GetData(),
 	}
-	s.handleAsk(ctx, msg, w)
+	s.askHub.DeliverAsk(ctx, msg, w)
 }
 
 func (m *muxer) Open(x string) (p2p.Swarm, error) {

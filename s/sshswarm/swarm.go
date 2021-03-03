@@ -5,9 +5,11 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -31,8 +33,8 @@ type Swarm struct {
 	l      net.Listener
 	af     AllowFunc
 
-	handleAsk  p2p.AskHandler
-	handleTell p2p.TellHandler
+	tellHub *swarmutil.TellHub
+	askHub  *swarmutil.AskHub
 
 	mu    sync.RWMutex
 	conns map[string]*Conn
@@ -57,8 +59,8 @@ func New(laddr string, privateKey p2p.PrivateKey, af AllowFunc) (*Swarm, error) 
 		l:      l,
 		af:     af,
 
-		handleAsk:  p2p.NoOpAskHandler,
-		handleTell: p2p.NoOpTellHandler,
+		tellHub: swarmutil.NewTellHub(),
+		askHub:  swarmutil.NewAskHub(),
 
 		conns: map[string]*Conn{},
 	}
@@ -86,7 +88,9 @@ func (s *Swarm) LocalAddrs() []p2p.Addr {
 }
 
 func (s *Swarm) Close() error {
-	return nil
+	s.tellHub.CloseWithError(p2p.ErrSwarmClosed)
+	s.askHub.CloseWithError(p2p.ErrSwarmClosed)
+	return s.l.Close()
 }
 
 func (s *Swarm) PublicKey() p2p.PublicKey {
@@ -105,18 +109,12 @@ func (s *Swarm) LookupPublicKey(ctx context.Context, x p2p.Addr) (p2p.PublicKey,
 	return c.pubKey.(p2p.PublicKey), nil
 }
 
-func (s *Swarm) OnAsk(fn p2p.AskHandler) {
-	if fn == nil {
-		fn = p2p.NoOpAskHandler
-	}
-	s.handleAsk = fn
+func (s *Swarm) ServeAsks(fn p2p.AskHandler) error {
+	return s.askHub.ServeAsks(fn)
 }
 
-func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	if fn == nil {
-		fn = p2p.NoOpTellHandler
-	}
-	s.handleTell = fn
+func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
+	return s.tellHub.ServeTells(fn)
 }
 
 func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
@@ -181,7 +179,10 @@ func (s *Swarm) serveLoop() {
 	for {
 		conn, err := s.l.Accept()
 		if err != nil {
-			log.Println(err)
+			if strings.Contains(err.Error(), "use of closed network connection") {
+				err = nil
+			}
+			return
 		}
 		go func() {
 			c, err := newServer(s, conn, s.af)

@@ -35,8 +35,8 @@ type Swarm struct {
 	mu        sync.RWMutex
 	sessCache map[sessionKey]quic.Session
 
-	thCell swarmutil.THCell
-	ahCell swarmutil.AHCell
+	tellHub *swarmutil.TellHub
+	askHub  *swarmutil.AskHub
 }
 
 func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
@@ -62,17 +62,19 @@ func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
 		cf:      cf,
 
 		sessCache: map[sessionKey]quic.Session{},
+		tellHub:   swarmutil.NewTellHub(),
+		askHub:    swarmutil.NewAskHub(),
 	}
 	go s.serve(ctx)
 	return s, nil
 }
 
-func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	s.thCell.Set(fn)
+func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
+	return s.tellHub.ServeTells(fn)
 }
 
-func (s *Swarm) OnAsk(fn p2p.AskHandler) {
-	s.ahCell.Set(fn)
+func (s *Swarm) ServeAsks(fn p2p.AskHandler) error {
+	return s.askHub.ServeAsks(fn)
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
@@ -146,8 +148,8 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte,
 }
 
 func (s *Swarm) Close() (retErr error) {
-	s.OnAsk(nil)
-	s.OnTell(nil)
+	s.tellHub.CloseWithError(p2p.ErrSwarmClosed)
+	s.askHub.CloseWithError(p2p.ErrSwarmClosed)
 	s.cf()
 	if err := s.l.Close(); retErr == nil {
 		retErr = err
@@ -294,7 +296,7 @@ func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstA
 	}
 	respBuf := &bytes.Buffer{}
 	w := &swarmutil.LimitWriter{W: respBuf, N: s.mtu}
-	s.ahCell.Handle(ctx, m, w)
+	s.askHub.DeliverAsk(ctx, m, w)
 	if err := writeFrame(stream, p2p.IOVec{respBuf.Bytes()}); err != nil {
 		return err
 	}
@@ -319,7 +321,7 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Add
 				Src:     srcAddr,
 				Payload: data,
 			}
-			s.thCell.Handle(m)
+			s.tellHub.DeliverTell(m)
 		}()
 	}
 }
