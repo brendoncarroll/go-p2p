@@ -9,6 +9,7 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 var log = p2p.Logger
@@ -94,6 +95,7 @@ type muxCore struct {
 	askSwarm p2p.AskSwarm
 	secure   p2p.Secure
 
+	eg     errgroup.Group
 	mu     sync.RWMutex
 	swarms map[uint64]*muxedSwarm
 }
@@ -101,12 +103,17 @@ type muxCore struct {
 func newMuxCore(x p2p.Swarm) *muxCore {
 	mc := &muxCore{
 		swarms: make(map[uint64]*muxedSwarm),
+		eg:     errgroup.Group{},
 	}
 	mc.swarm = x
-	mc.swarm.OnTell(mc.handleTell)
+	mc.eg.Go(func() error {
+		return mc.swarm.ServeTells(mc.handleTell)
+	})
 	if askSwarm, ok := x.(p2p.AskSwarm); ok {
 		mc.askSwarm = askSwarm
-		mc.askSwarm.OnAsk(mc.handleAsk)
+		mc.eg.Go(func() error {
+			return mc.askSwarm.ServeAsks(mc.handleAsk)
+		})
 	}
 	if secure, ok := x.(p2p.Secure); ok {
 		mc.secure = secure
@@ -125,7 +132,7 @@ func (mc *muxCore) handleTell(m *p2p.Message) {
 		log.Debug(err)
 		return
 	}
-	s.thCell.Handle(&p2p.Message{
+	s.tellHub.DeliverTell(&p2p.Message{
 		Dst:     m.Dst,
 		Src:     m.Src,
 		Payload: data,
@@ -143,7 +150,7 @@ func (mc *muxCore) handleAsk(ctx context.Context, m *p2p.Message, w io.Writer) {
 		log.Debug(err)
 		return
 	}
-	s.ahCell.Handle(ctx, &p2p.Message{
+	s.askHub.DeliverAsk(ctx, &p2p.Message{
 		Src:     m.Src,
 		Dst:     m.Dst,
 		Payload: data,
@@ -198,14 +205,16 @@ type muxedSwarm struct {
 	c uint64
 	m *muxCore
 
-	thCell swarmutil.THCell
-	ahCell swarmutil.AHCell
+	tellHub *swarmutil.TellHub
+	askHub  *swarmutil.AskHub
 }
 
 func newMuxedSwarm(m *muxCore, c uint64) *muxedSwarm {
 	return &muxedSwarm{
-		c: c,
-		m: m,
+		c:       c,
+		m:       m,
+		tellHub: swarmutil.NewTellHub(),
+		askHub:  swarmutil.NewAskHub(),
 	}
 }
 
@@ -213,16 +222,16 @@ func (ms *muxedSwarm) Tell(ctx context.Context, dst p2p.Addr, data p2p.IOVec) er
 	return ms.m.tell(ctx, dst, ms.c, data)
 }
 
-func (ms *muxedSwarm) OnTell(fn p2p.TellHandler) {
-	ms.thCell.Set(fn)
+func (ms *muxedSwarm) ServeTells(fn p2p.TellHandler) error {
+	return ms.tellHub.ServeTells(fn)
 }
 
 func (ms *muxedSwarm) Ask(ctx context.Context, dst p2p.Addr, data p2p.IOVec) ([]byte, error) {
 	return ms.m.ask(ctx, dst, ms.c, data)
 }
 
-func (ms *muxedSwarm) OnAsk(fn p2p.AskHandler) {
-	ms.ahCell.Set(fn)
+func (ms *muxedSwarm) ServeAsks(fn p2p.AskHandler) error {
+	return ms.askHub.ServeAsks(fn)
 }
 
 func (ms *muxedSwarm) LocalAddrs() []p2p.Addr {
@@ -238,8 +247,8 @@ func (ms *muxedSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
 }
 
 func (ms *muxedSwarm) Close() error {
-	ms.OnAsk(nil)
-	ms.OnTell(nil)
+	ms.tellHub.CloseWithError(p2p.ErrSwarmClosed)
+	ms.askHub.CloseWithError(p2p.ErrSwarmClosed)
 	return ms.m.close(ms.c)
 }
 

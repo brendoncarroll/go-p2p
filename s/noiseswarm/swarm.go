@@ -45,7 +45,6 @@ func New(x p2p.Swarm, privateKey p2p.PrivateKey) *Swarm {
 
 		lowerToSession: make(map[sessionKey]*session),
 	}
-	s.OnTell(nil)
 	go s.cleanupLoop(ctx)
 	return s
 }
@@ -57,11 +56,8 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	})
 }
 
-func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	if fn == nil {
-		fn = p2p.NoOpTellHandler
-	}
-	s.swarm.OnTell(func(msg *p2p.Message) {
+func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
+	return s.swarm.ServeTells(func(msg *p2p.Message) {
 		s.fromBelow(msg, fn)
 	})
 }

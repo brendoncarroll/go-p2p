@@ -6,6 +6,7 @@ import (
 	"net"
 
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 type Message struct {
@@ -58,12 +59,12 @@ func VecBytes(v IOVec) []byte {
 
 type Teller interface {
 	Tell(ctx context.Context, addr Addr, data IOVec) error
-	OnTell(TellHandler)
+	ServeTells(TellHandler) error
 }
 
 type Asker interface {
 	Ask(ctx context.Context, addr Addr, data IOVec) ([]byte, error)
-	OnAsk(AskHandler)
+	ServeAsks(AskHandler) error
 }
 
 type AskSwarm interface {
@@ -108,4 +109,16 @@ func LookupPublicKeyInHandler(s Secure, target Addr) PublicKey {
 		panic("swarms must provide public key during callback. got nil")
 	}
 	return pubKey
+}
+
+// ServeBoth calls ServeTells and ServeAsks
+func ServeBoth(s AskSwarm, th TellHandler, ah AskHandler) error {
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		return s.ServeTells(th)
+	})
+	eg.Go(func() error {
+		return s.ServeAsks(ah)
+	})
+	return eg.Wait()
 }

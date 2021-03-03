@@ -83,8 +83,8 @@ func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return eg.Wait()
 }
 
-func (s *swarm) OnTell(fn p2p.TellHandler) {
-	s.Swarm.OnTell(func(x *p2p.Message) {
+func (s *swarm) ServeTells(fn p2p.TellHandler) error {
+	return s.Swarm.ServeTells(func(x *p2p.Message) {
 		s.handleTell(x, fn)
 	})
 }

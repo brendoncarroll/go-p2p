@@ -34,7 +34,7 @@ func TestAgg(t *testing.T) {
 
 	var recv []byte
 	done := make(chan struct{})
-	b.OnTell(func(m *p2p.Message) {
+	go b.ServeTells(func(m *p2p.Message) {
 		recv = append([]byte{}, m.Payload...)
 		close(done)
 	})

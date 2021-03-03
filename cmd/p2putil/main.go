@@ -71,7 +71,7 @@ var testConnectCmd = &cobra.Command{
 			"ssh": s21,
 		})
 
-		s3.OnTell(func(m *p2p.Message) {
+		go s3.ServeTells(func(m *p2p.Message) {
 			ctx := context.TODO()
 			s3.Tell(ctx, m.Src, p2p.IOVec{m.Payload})
 			log.Println("MSG:", m.Src, "->", m.Dst, " ", m.Payload)

@@ -73,8 +73,8 @@ func (ps *swarm) TellPeer(ctx context.Context, dst p2p.PeerID, data p2p.IOVec) e
 	return ErrPeerUnreachable
 }
 
-func (ps *swarm) OnTell(fn p2p.TellHandler) {
-	ps.s.OnTell(func(m *p2p.Message) {
+func (ps *swarm) ServeTells(fn p2p.TellHandler) error {
+	return ps.s.ServeTells(func(m *p2p.Message) {
 		peerID := p2p.NewPeerID(p2p.LookupPublicKeyInHandler(ps.s, m.Src))
 		ps.markOnline(peerID, m.Src)
 		m.Src = peerID
@@ -201,8 +201,8 @@ func (ps *askSwarm) AskPeer(ctx context.Context, dst p2p.PeerID, data p2p.IOVec)
 	return nil, ErrPeerUnreachable
 }
 
-func (ps *askSwarm) OnAsk(fn p2p.AskHandler) {
-	ps.s.OnAsk(func(ctx context.Context, m *p2p.Message, w io.Writer) {
+func (ps *askSwarm) ServeAsks(fn p2p.AskHandler) error {
+	return ps.s.ServeAsks(func(ctx context.Context, m *p2p.Message, w io.Writer) {
 		peerID := p2p.NewPeerID(p2p.LookupPublicKeyInHandler(ps.s, m.Src))
 		ps.markOnline(peerID, m.Src)
 		m.Src = peerID

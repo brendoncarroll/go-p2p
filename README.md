@@ -19,20 +19,20 @@ The core abstraction is the `Swarm`. Which represents a group of nodes which can
 ```
 type Swarm interface {
     Tell(addr Addr, data []byte) error
-    OnTell(TellHandler)
+    ServeTells(TellHandler) error
 
+    ParseAddr(data []byte) (Addr, error)
     LocalAddrs() []Addr
     MTU(Addr) int
     Close() error
 }
 ```
 `Addr` is an interface type.
-`p2p.Addr` must marshal/unmarshal to/from a text format.
 
 Swarms each define their own Addr type, and should panic if a caller tries to send a message to an address of another type.
 In other languages Swarms might be defined as a generic type.
 ```
-type Swarm[A] {
+type Swarm[A: Addr] {
     Tell(addr: A, data: []byte) error
     LocalAddrs() []A
     ...
@@ -41,7 +41,7 @@ type Swarm[A] {
 
 Overlay networks are a common pattern in p2p systems.
 Swarms have methods for introspection such as `LocalAddrs` and `MTU`.
-`Addrs` also have a canonical serialization procided by `MarshalText` and `UnmarshalText`.
+`Addrs` also have a canonical serialization provided by `MarshalText` and `ParseAddr`
 These two features make Swarms the building blocks for higher order swarms, which can be overlay networks.
 The underlying swarm is often referred to as the `transport` throughout these packages.
 

@@ -36,8 +36,8 @@ func (s *swarm) Tell(ctx context.Context, dst p2p.Addr, data p2p.IOVec) error {
 	return s.Swarm.Tell(ctx, s.downward(dst), data)
 }
 
-func (s *swarm) OnTell(fn p2p.TellHandler) {
-	s.Swarm.OnTell(func(x *p2p.Message) {
+func (s *swarm) ServeTells(fn p2p.TellHandler) error {
+	return s.Swarm.ServeTells(func(x *p2p.Message) {
 		fn(&p2p.Message{
 			Src:     s.upward(x.Src),
 			Dst:     s.upward(x.Dst),

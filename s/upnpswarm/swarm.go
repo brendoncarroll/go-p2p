@@ -46,8 +46,8 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return s.inner.Tell(ctx, addr, data)
 }
 
-func (s *Swarm) OnTell(fn p2p.TellHandler) {
-	s.inner.OnTell(fn)
+func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
+	return s.inner.ServeTells(fn)
 }
 
 func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
@@ -76,16 +76,16 @@ func (s *AskSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) erro
 	return s.inner.Tell(ctx, addr, data)
 }
 
-func (s *AskSwarm) OnTell(fn p2p.TellHandler) {
-	s.inner.OnTell(fn)
+func (s *AskSwarm) ServeTells(fn p2p.TellHandler) error {
+	return s.inner.ServeTells(fn)
 }
 
 func (s *AskSwarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
 	return s.inner.Ask(ctx, addr, data)
 }
 
-func (s *AskSwarm) OnAsk(fn p2p.AskHandler) {
-	s.inner.OnAsk(fn)
+func (s *AskSwarm) ServeAsks(fn p2p.AskHandler) error {
+	return s.inner.ServeAsks(fn)
 }
 
 func (s *AskSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
