@@ -1,4 +1,4 @@
-package aggswarm
+package fragswarm
 
 import (
 	"context"
@@ -25,7 +25,7 @@ func TestSwarm(t *testing.T) {
 	})
 }
 
-func TestAgg(t *testing.T) {
+func TestFragment(t *testing.T) {
 	ctx := context.Background()
 	r := memswarm.NewRealm(memswarm.WithMTU(100))
 	const mtu = 1024

@@ -79,9 +79,9 @@ A default client and server implementation are provided.
 
 ### S is for Swarm
 
-- **Aggregating Swarm**
+- **Fragmenting Swarm**
 A higher order swarm which increases the MTU of an underlying swarm by breaking apart messages,
-and aggregating them on the other side.
+and assembling them on the other side.
 
 - **In-Memory Swarm**
 A swarm which transfers data to other swarms in memory. Useful for testing.

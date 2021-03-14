@@ -1,4 +1,4 @@
-package aggswarm
+package fragswarm
 
 import (
 	"context"
