@@ -10,17 +10,13 @@ import (
 	"io"
 	"io/ioutil"
 	"math/rand"
-	"runtime"
 	"sync"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/jonboulle/clockwork"
-	"golang.org/x/sync/errgroup"
 )
-
-var defaultNumWorkers = runtime.GOMAXPROCS(0)
 
 type Realm struct {
 	clock    clockwork.Clock
@@ -77,8 +73,8 @@ func (r *Realm) NewSwarm() *Swarm {
 		n:          n,
 		privateKey: genPrivateKey(n),
 
-		tellQueue: swarmutil.NewTellQueue(),
-		askQueue:  swarmutil.NewAskQueue(),
+		tells: swarmutil.NewTellHub(),
+		asks:  swarmutil.NewAskHub(),
 	}
 	r.swarms[n] = s
 	return s
@@ -103,8 +99,8 @@ type Swarm struct {
 	n          int
 	privateKey p2p.PrivateKey
 
-	tellQueue *swarmutil.TellQueue
-	askQueue  *swarmutil.AskQueue
+	tells *swarmutil.TellHub
+	asks  *swarmutil.AskHub
 }
 
 func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
@@ -126,7 +122,7 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte,
 	s.r.mu.RLock()
 	s2 := s.r.swarms[a.N]
 	s.r.mu.RUnlock()
-	s2.askQueue.DeliverAsk(ctx, msg, lw)
+	s2.asks.DeliverAsk(ctx, msg, lw)
 	return buf.Bytes(), nil
 }
 
@@ -150,38 +146,16 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 		return nil
 	}
 	s.r.mu.RUnlock()
-	s2.tellQueue.DeliverTell(msg)
+	s2.tells.DeliverTell(msg)
 	return nil
 }
 
 func (s *Swarm) ServeAsks(fn p2p.AskHandler) error {
-	ctx := context.Background()
-	eg := errgroup.Group{}
-	for i := 0; i < defaultNumWorkers; i++ {
-		eg.Go(func() error {
-			for {
-				if err := s.askQueue.ServeAsk(ctx, fn); err != nil {
-					return err
-				}
-			}
-		})
-	}
-	return eg.Wait()
+	return s.asks.ServeAsks(fn)
 }
 
 func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
-	ctx := context.Background()
-	eg := errgroup.Group{}
-	for i := 0; i < defaultNumWorkers; i++ {
-		eg.Go(func() error {
-			for {
-				if err := s.tellQueue.ServeTell(ctx, fn); err != nil {
-					return err
-				}
-			}
-		})
-	}
-	return eg.Wait()
+	return s.tells.ServeTells(fn)
 }
 
 func (s *Swarm) LocalAddrs() []p2p.Addr {
@@ -194,9 +168,8 @@ func (s *Swarm) MTU(context.Context, p2p.Addr) int {
 
 func (s *Swarm) Close() error {
 	s.r.removeSwarm(s)
-	err := p2p.ErrSwarmClosed
-	s.askQueue.CloseWithError(err)
-	s.tellQueue.CloseWithError(err)
+	s.asks.CloseWithError(p2p.ErrSwarmClosed)
+	s.tells.CloseWithError(p2p.ErrSwarmClosed)
 	return nil
 }
 
