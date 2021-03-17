@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/brendoncarroll/go-p2p/d/celltracker"
@@ -17,15 +16,14 @@ func init() {
 }
 
 var trackerCmd = &cobra.Command{
-	Use:   "tracker",
+	Use:   "cell-tracker",
 	Short: "runs a cell-tracker server",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := cmd.ParseFlags(args); err != nil {
 			return err
 		}
-		ctx := context.Background()
 		s := celltracker.NewServer()
-		go s.Run(ctx)
+		defer s.Close()
 
 		return http.ListenAndServe(addr, s)
 	},

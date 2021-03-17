@@ -17,12 +17,12 @@ func TestClientServer(t *testing.T) {
 	defer cf()
 
 	s := NewServer()
+	defer s.Close()
 	token := GenerateToken("http://" + addr + "/")
 	t.Logf("token: %s", token)
 	c, err := NewClient(token)
 	require.Nil(t, err)
 
-	go s.Run(ctx)
 	go func() {
 		if err := http.ListenAndServe(addr, s); err != nil {
 			t.Log(err)
@@ -30,7 +30,7 @@ func TestClientServer(t *testing.T) {
 	}()
 	pollServer("http://" + addr)
 
-	data, err := c.Get(ctx)
+	data, err := c.cell.Get(ctx)
 	require.Nil(t, err)
 	assert.Len(t, data, 0)
 

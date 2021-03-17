@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/c/cryptocell"
 	"github.com/brendoncarroll/go-p2p/c/httpcell"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/crypto/nacl/sign"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -52,18 +52,15 @@ func (c *serverCell) get(ctx context.Context) []byte {
 }
 
 func (c *serverCell) cas(ctx context.Context, believedHash, next []byte) (bool, []byte, error) {
-	pubKey := [32]byte{}
-	copy(pubKey[:], c.publicKey)
-	_, valid := sign.Open(nil, next, &pubKey)
-	if !valid {
-		return false, nil, errors.New("invalid signature")
+	if err := cryptocell.Validate(c.publicKey, purposeCellTracker, next); err != nil {
+		return false, nil, err
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	actualHash := sha3.Sum256(c.payload)
-	if bytes.Compare(believedHash, actualHash[:]) != 0 {
+	if !bytes.Equal(believedHash, actualHash[:]) {
 		return false, c.payload, nil
 	}
 
@@ -73,15 +70,20 @@ func (c *serverCell) cas(ctx context.Context, believedHash, next []byte) (bool, 
 }
 
 type Server struct {
+	cf    context.CancelFunc
 	cells sync.Map
 }
 
 func NewServer() *Server {
-	return &Server{}
+	ctx, cf := context.WithCancel(context.Background())
+	s := &Server{cf: cf}
+	go s.evictLoop(ctx)
+	return s
 }
 
-func (s *Server) Run(ctx context.Context) {
-	s.evictLoop(ctx)
+func (s *Server) Close() error {
+	s.cf()
+	return nil
 }
 
 func (s *Server) evictLoop(ctx context.Context) {
