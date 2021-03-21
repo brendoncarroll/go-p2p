@@ -49,3 +49,18 @@ func (pid *PeerID) UnmarshalText(data []byte) error {
 	enc.Decode(pid[:], data)
 	return nil
 }
+
+type HasPeerID interface {
+	Addr
+	GetPeerID() PeerID
+}
+
+func ExtractPeerID(x Addr) PeerID {
+	if hasPeerID, ok := x.(HasPeerID); ok {
+		return hasPeerID.GetPeerID()
+	}
+	if unwrap, ok := x.(UnwrapAddr); ok {
+		return ExtractPeerID(unwrap.Unwrap())
+	}
+	return ZeroPeerID()
+}

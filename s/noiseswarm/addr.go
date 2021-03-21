@@ -38,6 +38,10 @@ func (a Addr) Map(fn func(p2p.Addr) p2p.Addr) Addr {
 	}
 }
 
+func (a Addr) GetPeerID() p2p.PeerID {
+	return a.ID
+}
+
 func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	parts := bytes.SplitN(data, []byte("@"), 2)
 	if len(parts) < 2 {
