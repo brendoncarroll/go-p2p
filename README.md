@@ -124,6 +124,9 @@ A package with a DHT, overlay network, and cache is in the works.  Right now a c
 - **Integer Multiplexing**
 This is the simplest possible multiplexing scheme, it does not support asking, and prepends an integer, encoded as a varint to the message.
 
+- **String Multiplexing**
+Another very simple multiplexing scheme.  It does not support asking.  It prepends a length prefixed string to the message.
+
 - **Dynamic Multiplexing**
 A service which multiplexes multiple logical swarms, over the same underlying transport swarm.
 Each multiplexed swarm is identified by a string, and a registry of multiplexed swarms is used to map each to an integer.
