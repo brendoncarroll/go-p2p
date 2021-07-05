@@ -127,7 +127,7 @@ func (kc *Cache) Closest(key []byte) *Entry {
 	for _, e := range b {
 		XORBytes(dist, e.Key, key)
 		if minDist == nil || bytes.Compare(dist, minDist) < 0 {
-			minDist = append([]byte{}, dist...)
+			minDist = append(minDist[:0], dist...)
 			closestEntry = &e
 		}
 	}
