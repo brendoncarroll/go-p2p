@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-state/cells"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +31,7 @@ func TestClientServer(t *testing.T) {
 	}()
 	pollServer("http://" + addr)
 
-	data, err := c.cell.Get(ctx)
+	data, err := cells.GetBytes(ctx, c.cell)
 	require.Nil(t, err)
 	assert.Len(t, data, 0)
 

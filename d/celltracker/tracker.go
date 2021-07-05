@@ -6,16 +6,17 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-state/cells"
 )
 
 var _ p2p.DiscoveryService = &CellTracker{}
 
 // CellTracker is p2p tracker implemented on top of a CAS cell
 type CellTracker struct {
-	cell p2p.Cell
+	cell cells.Cell
 }
 
-func New(cell p2p.Cell) *CellTracker {
+func New(cell cells.Cell) *CellTracker {
 	return &CellTracker{
 		cell: cell,
 	}
@@ -70,13 +71,13 @@ func (ct *CellTracker) ListAddrs(ctx context.Context, id p2p.PeerID) ([]string, 
 }
 
 func (ct *CellTracker) Reset(ctx context.Context) error {
-	return p2p.Apply(ctx, ct.cell, func(current []byte) ([]byte, error) {
+	return cells.Apply(ctx, ct.cell, func(current []byte) ([]byte, error) {
 		return nil, nil
 	})
 }
 
 func (ct *CellTracker) get(ctx context.Context) (*TrackerState, error) {
-	current, err := ct.cell.Get(ctx)
+	current, err := cells.GetBytes(ctx, ct.cell)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +89,7 @@ func (ct *CellTracker) get(ctx context.Context) (*TrackerState, error) {
 }
 
 func (ct *CellTracker) apply(ctx context.Context, fn func(TrackerState) (*TrackerState, error)) error {
-	return p2p.Apply(ctx, ct.cell, func(current []byte) ([]byte, error) {
+	return cells.Apply(ctx, ct.cell, func(current []byte) ([]byte, error) {
 		currentState := TrackerState{}
 		if len(current) > 1 {
 			if err := json.Unmarshal(current, &currentState); err != nil {

@@ -3,22 +3,27 @@ package cryptocell
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/binary"
+	"io"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-state/cells"
 	"github.com/pkg/errors"
 )
 
-var _ p2p.Cell = &Signed{}
+const overhead = ed25519.SignatureSize + 4
+
+var _ cells.Cell = &Signed{}
 
 type Signed struct {
-	inner      p2p.Cell
+	inner      cells.Cell
 	purpose    string
 	publicKey  p2p.PublicKey
 	privateKey p2p.PrivateKey
 }
 
-func NewSigned(inner p2p.Cell, purpose string, publicKey p2p.PublicKey, privateKey p2p.PrivateKey) *Signed {
+func NewSigned(inner cells.Cell, purpose string, publicKey p2p.PublicKey, privateKey p2p.PrivateKey) *Signed {
 	if publicKey == nil {
 		panic("must specify public key")
 	}
@@ -33,60 +38,87 @@ func NewSigned(inner p2p.Cell, purpose string, publicKey p2p.PublicKey, privateK
 	}
 }
 
-func (s *Signed) CAS(ctx context.Context, prev, next []byte) (bool, []byte, error) {
+func (s *Signed) CAS(ctx context.Context, actual, prev, next []byte) (bool, int, error) {
+	if len(next) > s.MaxSize() {
+		return false, 0, cells.ErrTooLarge{}
+	}
 	if s.privateKey == nil {
-		return false, nil, errors.Errorf("cannot write to signing cell without private key")
+		return false, 0, errors.Errorf("cannot write to signing cell without private key")
 	}
-	payload, raw, err := s.get(ctx)
+	actual2, err := cells.GetBytes(ctx, s.inner)
 	if err != nil {
-		return false, nil, err
+		return false, 0, err
 	}
-	if !bytes.Equal(payload, prev) {
-		return false, payload, nil
-	}
-	sig, err := p2p.Sign(s.privateKey, s.purpose, next)
+	n, err := s.unwrap(actual, actual2)
 	if err != nil {
-		return false, nil, err
+		return false, 0, err
 	}
-	next2 := makeContents(next, sig)
-	swapped, raw, err := s.inner.CAS(ctx, raw, next2)
+	if !bytes.Equal(actual[:n], prev) {
+		return false, n, nil
+	}
+	buf := make([]byte, s.inner.MaxSize())
+	n, err = s.wrap(buf, next)
 	if err != nil {
-		return false, nil, err
+		return false, 0, nil
 	}
-	var actual []byte
-	if len(raw) > 0 {
-		actual, _, err = splitContents(raw)
+	next2 := buf[:n]
+	swapped, n, err := s.inner.CAS(ctx, buf, actual2, next2)
+	if err != nil {
+		return false, 0, err
+	}
+	if n > 0 {
+		n, err = s.unwrap(actual, buf[:n])
 		if err != nil {
-			return false, nil, err
+			return false, 0, err
 		}
 	}
-	return swapped, actual, nil
+	return swapped, n, nil
 }
 
-func (s *Signed) get(ctx context.Context) (payload, raw []byte, err error) {
-	raw, err = s.inner.Get(ctx)
+func (s *Signed) Read(ctx context.Context, buf []byte) (int, error) {
+	buf2, err := cells.GetBytes(ctx, s.inner)
 	if err != nil {
-		return nil, nil, err
+		return 0, err
 	}
-	if len(raw) == 0 {
-		return nil, nil, nil
+	if len(buf) < len(buf2)-overhead {
+		return 0, io.ErrShortBuffer
 	}
-	payload, sig, err := splitContents(raw)
+	return s.unwrap(buf, buf2)
+}
+
+func (s *Signed) MaxSize() int {
+	return s.inner.MaxSize() - overhead
+}
+
+func (s *Signed) wrap(dst, x []byte) (int, error) {
+	if len(dst) < len(x)+overhead {
+		return 0, nil
+	}
+	sig, err := p2p.Sign(s.privateKey, s.purpose, x)
 	if err != nil {
-		return nil, nil, err
+		return 0, err
+	}
+	binary.BigEndian.PutUint32(dst[:4], uint32(len(x)))
+	copy(dst[4:], x)
+	copy(dst[4+len(x):], sig)
+	return len(x) + overhead, nil
+}
+
+func (s *Signed) unwrap(dst, x []byte) (int, error) {
+	if len(x) == 0 {
+		return 0, nil
+	}
+	payload, sig, err := splitContents(x)
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) < len(payload) {
+		return 0, io.ErrShortBuffer
 	}
 	if err := p2p.Verify(s.publicKey, s.purpose, payload, sig); err != nil {
-		return nil, nil, err
+		return 0, err
 	}
-	return payload, raw, nil
-}
-
-func (s *Signed) Get(ctx context.Context) ([]byte, error) {
-	payload, _, err := s.get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return payload, nil
+	return copy(dst, payload), nil
 }
 
 func Validate(pubKey p2p.PublicKey, purpose string, contents []byte) error {
@@ -98,14 +130,6 @@ func Validate(pubKey p2p.PublicKey, purpose string, contents []byte) error {
 		return err
 	}
 	return nil
-}
-
-func makeContents(payload, sig []byte) []byte {
-	contents := make([]byte, 4+len(payload)+len(sig))
-	binary.BigEndian.PutUint32(contents[:4], uint32(len(payload)))
-	copy(contents[4:4+len(payload)], payload)
-	copy(contents[4+len(payload):], sig)
-	return contents
 }
 
 func splitContents(raw []byte) (payload, sig []byte, err error) {

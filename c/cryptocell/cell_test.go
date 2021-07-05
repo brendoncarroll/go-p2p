@@ -1,37 +1,36 @@
 package cryptocell
 
 import (
-	"encoding/hex"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/brendoncarroll/go-p2p/p2ptest"
+	"github.com/brendoncarroll/go-state/cells"
+	"github.com/brendoncarroll/go-state/cells/celltest"
 	"github.com/stretchr/testify/require"
 )
 
-// TODO: add memcell for tests
-// func TestSecretBox(t *testing.T) {
-// 	cellutil.CellTestSuite(t, func() p2p.Cell {
-// 	})
-// }
+const defaultSize = 1 << 16
 
-// func TestSigned(t *testing.T) {
-// 	cellutil.CellTestSuite(t, func() p2p.Cell {
-// 	})
-// }
+func TestSigned(t *testing.T) {
+	celltest.CellTestSuite(t, func(t testing.TB) cells.Cell {
+		return newTestSigned(t)
+	})
+}
 
-func TestEncryptDecrypt(t *testing.T) {
-	secret := make([]byte, 32)
+func newTestSigned(t testing.TB) *Signed {
+	key1 := p2ptest.NewTestKey(t, 0)
+	return NewSigned(cells.NewMem(defaultSize), "signed-cell", key1.Public(), key1)
+}
 
-	ptext := []byte("hello world")
-	ctext := encrypt(ptext, secret)
-	t.Log(hex.Dump(ctext))
+func TestSigWrapUnwrap(t *testing.T) {
+	s := newTestSigned(t)
+	buf := make([]byte, s.MaxSize())
 
-	ptext2, err := decrypt(ctext, secret)
-	require.Nil(t, err)
-	t.Log(string(ptext2))
+	testInput := []byte("test input string 1")
+	n, err := s.wrap(buf, testInput)
+	require.NoError(t, err)
+	require.Equal(t, overhead+len(testInput), n)
 
-	ctextTamper := append([]byte{}, ctext...)
-	ctextTamper[0] ^= 1
-	_, err = decrypt(ctextTamper, secret)
-	assert.NotNil(t, err)
+	n, err = s.unwrap(buf, buf[:n])
+	require.NoError(t, err)
 }

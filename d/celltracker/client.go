@@ -9,7 +9,8 @@ import (
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/c/cryptocell"
-	"github.com/brendoncarroll/go-p2p/c/httpcell"
+	"github.com/brendoncarroll/go-state/cells"
+	"github.com/brendoncarroll/go-state/cells/httpcell"
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/sha3"
 )
@@ -35,7 +36,7 @@ func GenerateToken(endpoint string) string {
 type Client struct {
 	url string
 
-	cell p2p.Cell
+	cell cells.Cell
 	*CellTracker
 }
 
@@ -54,7 +55,7 @@ func NewClient(token string) (*Client, error) {
 	privateKey := derivePrivateKey(secret)
 	pubKeyBytes := p2p.MarshalPublicKey(privateKey.Public())
 
-	var cell p2p.Cell
+	var cell cells.Cell
 	cell = httpcell.New(httpcell.Spec{
 		URL: u.String(),
 		Headers: map[string]string{

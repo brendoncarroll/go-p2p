@@ -13,7 +13,7 @@ import (
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/c/cryptocell"
-	"github.com/brendoncarroll/go-p2p/c/httpcell"
+	"github.com/brendoncarroll/go-state/cells/httpcell"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/sha3"

@@ -61,6 +61,8 @@ func Verify(key PublicKey, purpose string, data, sig []byte) error {
 		valid = ecdsa.VerifyASN1(key, digest, sig)
 	case *rsa.PublicKey:
 		return rsa.VerifyPKCS1v15(key, crypto.Hash(0), digest, sig)
+	default:
+		return errors.Errorf("unsupported key %T", key)
 	}
 	if valid {
 		return nil
