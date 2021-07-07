@@ -52,7 +52,7 @@ func New(x p2p.Swarm, privateKey p2p.PrivateKey) *Swarm {
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	dst := addr.(Addr)
 	return s.withAnyReadySession(ctx, dst, func(sess *session) error {
-		return sess.tell(ctx, p2p.VecBytes(data))
+		return sess.tell(ctx, p2p.VecBytes(nil, data))
 	})
 }
 

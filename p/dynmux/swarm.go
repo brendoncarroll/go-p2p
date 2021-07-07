@@ -42,7 +42,7 @@ func (s *baseSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) err
 	}
 	msg := Message{}
 	msg.SetChannel(i)
-	msg.SetData(p2p.VecBytes(data))
+	msg.SetData(p2p.VecBytes(nil, data))
 	return s.m.s.Tell(ctx, addr, p2p.IOVec{msg})
 }
 
@@ -54,7 +54,7 @@ func (s *baseSwarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]b
 	}
 	msg := Message{}
 	msg.SetChannel(i)
-	msg.SetData(p2p.VecBytes(data))
+	msg.SetData(p2p.VecBytes(nil, data))
 	return innerSwarm.Ask(ctx, addr, p2p.IOVec{msg})
 }
 

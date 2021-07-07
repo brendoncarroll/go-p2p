@@ -31,6 +31,6 @@ func TestSigWrapUnwrap(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, overhead+len(testInput), n)
 
-	n, err = s.unwrap(buf, buf[:n])
+	_, err = s.unwrap(buf, buf[:n])
 	require.NoError(t, err)
 }

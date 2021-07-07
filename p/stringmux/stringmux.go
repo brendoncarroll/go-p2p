@@ -79,7 +79,7 @@ type secureAskMux struct {
 	*muxCore
 }
 
-func WrapSecureAskMux(x p2p.SecureSwarm) SecureAskMux {
+func WrapSecureAskSwarm(x p2p.SecureAskSwarm) SecureAskMux {
 	return &secureAskMux{
 		muxCore: newMuxCore(x),
 	}

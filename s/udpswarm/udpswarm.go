@@ -72,7 +72,7 @@ func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	a := addr.(Addr)
 	a2 := (net.UDPAddr)(a)
-	_, err := s.conn.WriteToUDP(p2p.VecBytes(data), &a2)
+	_, err := s.conn.WriteToUDP(p2p.VecBytes(nil, data), &a2)
 	return err
 }
 

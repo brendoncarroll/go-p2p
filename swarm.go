@@ -42,19 +42,12 @@ func VecSize(v IOVec) int {
 	return total
 }
 
-func VecBytes(v IOVec) []byte {
-	if len(v) == 0 {
-		return nil
-	}
-	if len(v) == 1 {
-		return v[0]
-	}
-	total := VecSize(v)
-	ret := make([]byte, 0, total)
+// VecBytes appends all the buffers in v to out and returns the result
+func VecBytes(out []byte, v IOVec) []byte {
 	for i := range v {
-		ret = append(ret, v[i]...)
+		out = append(out, v[i]...)
 	}
-	return ret
+	return out
 }
 
 type Teller interface {

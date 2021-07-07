@@ -57,10 +57,7 @@ func (r *Realm) block() bool {
 		r.clock.Sleep(r.latency)
 	}
 	x := rand.Float64()
-	if x < r.dropRate {
-		return false
-	}
-	return true
+	return x >= r.dropRate
 }
 
 func (r *Realm) NewSwarm() *Swarm {
@@ -108,7 +105,7 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte,
 	msg := &p2p.Message{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
-		Payload: p2p.VecBytes(data),
+		Payload: p2p.VecBytes(nil, data),
 	}
 	if len(data) > s.r.mtu {
 		return nil, p2p.ErrMTUExceeded
@@ -131,7 +128,7 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	msg := &p2p.Message{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
-		Payload: p2p.VecBytes(data),
+		Payload: p2p.VecBytes(nil, data),
 	}
 	if len(data) > s.r.mtu {
 		return p2p.ErrMTUExceeded

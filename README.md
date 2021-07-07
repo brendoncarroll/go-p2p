@@ -56,18 +56,10 @@ The interface ends up resembling a hybrid between the server in `http` and the `
 
 ### C is for Cell
 Compare-and-swap cells are a synchronization primitive.
-They are less general than message passing (`Tell` and `Ask`).
-Message passing enables "push" communication, while cells only allow "pull" communication.
-A cell can be implemented on top of message-passing, but message-passing can only be approximated with a cell (by polling).
-
 Cells are useful for modeling shared state that can change.
 
-- **HTTP Cell**
-A cell implementation backed by an HTTP server.
-
-- **NaCl Cell**
-A cell which encrypts and signs its contents.
-A secret key must be shared to decrypt the cell contents.
+- **Signed Cell**
+A cell which signs it's contents.
 
 ### D is for Discovery
 Services for discovering peers.
@@ -78,10 +70,6 @@ Works on top of any cell.
 A default client and server implementation are provided.
 
 ### S is for Swarm
-
-- **Fragmenting Swarm**
-A higher order swarm which increases the MTU of an underlying swarm by breaking apart messages,
-and assembling them on the other side.
 
 - **In-Memory Swarm**
 A swarm which transfers data to other swarms in memory. Useful for testing.
@@ -112,6 +100,10 @@ An insecure swarm, included mainly as a building block.
 Creates and manages NAT mappings for addresses behind a IPv4 with a NAT table, using UPnP.
 Applies the mappings to values returned from `LocalAddr`
 
+- **Fragmenting Swarm**
+A higher order swarm which increases the MTU of an underlying swarm by breaking apart messages,
+and assembling them on the other side.
+
 The `swarmutil` package contains utilities for writing `Swarms` and a test suite to make sure it exhibits all the behaviors expected.
 
 ### P is for Protocols
@@ -125,7 +117,7 @@ A package with a DHT, overlay network, and cache is in the works.  Right now a c
 This is the simplest possible multiplexing scheme, it does not support asking, and prepends an integer, encoded as a varint to the message.
 
 - **String Multiplexing**
-Another very simple multiplexing scheme.  It does not support asking.  It prepends a length prefixed string to the message.
+Another very simple multiplexing scheme.  It prepends a length prefixed string to the message.
 
 - **Dynamic Multiplexing**
 A service which multiplexes multiple logical swarms, over the same underlying transport swarm.

@@ -374,7 +374,7 @@ func signChannelBinding(privateKey p2p.PrivateKey, cb []byte) ([]byte, error) {
 	if len(cb) < 64 {
 		panic("short cb")
 	}
-	sig, err := p2p.Sign(privateKey, SigPurpose, cb)
+	sig, err := p2p.Sign(nil, privateKey, SigPurpose, cb)
 	if err != nil {
 		return nil, err
 	}

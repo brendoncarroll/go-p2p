@@ -123,7 +123,7 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	reply, err := c.Send(true, p2p.VecBytes(data))
+	reply, err := c.Send(true, p2p.VecBytes(nil, data))
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.Send(false, p2p.VecBytes(data))
+	_, err = c.Send(false, p2p.VecBytes(nil, data))
 	if err != nil {
 		return err
 	}

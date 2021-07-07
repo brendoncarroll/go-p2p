@@ -94,7 +94,7 @@ func (s *Signed) wrap(dst, x []byte) (int, error) {
 	if len(dst) < len(x)+overhead {
 		return 0, nil
 	}
-	sig, err := p2p.Sign(s.privateKey, s.purpose, x)
+	sig, err := p2p.Sign(nil, s.privateKey, s.purpose, x)
 	if err != nil {
 		return 0, err
 	}
