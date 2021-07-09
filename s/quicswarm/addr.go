@@ -24,6 +24,10 @@ func (a Addr) Key() string {
 	return string(data)
 }
 
+func (a Addr) String() string {
+	return a.Key()
+}
+
 func (a Addr) MarshalText() ([]byte, error) {
 	data, err := a.Addr.MarshalText()
 	if err != nil {

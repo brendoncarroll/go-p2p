@@ -59,7 +59,7 @@ Compare-and-swap cells are a synchronization primitive.
 Cells are useful for modeling shared state that can change.
 
 - **Signed Cell**
-A cell which signs it's contents.
+A cell which signs and verifies it's contents using the `p2p.Sign` and `p2p.Verify` functions
 
 ### D is for Discovery
 Services for discovering peers.

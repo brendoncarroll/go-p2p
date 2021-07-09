@@ -41,16 +41,16 @@ type Swarm struct {
 	asks  *swarmutil.AskHub
 }
 
-func NewOnUDP(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
+func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
 	x, err := udpswarm.New(laddr)
 	if err != nil {
 		return nil, err
 	}
-	return New(x, privKey)
+	return New(x, privKey, opts...)
 }
 
 // New creates a new swarm on top of x, using privKey for authentication
-func New(x p2p.Swarm, privKey p2p.PrivateKey) (*Swarm, error) {
+func New(x p2p.Swarm, privKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
 	pconn := p2pconn.NewPacketConn(x)
 	tlsConfig := generateServerTLS(privKey)
 	l, err := quic.Listen(pconn, tlsConfig, generateQUICConfig())
@@ -70,6 +70,9 @@ func New(x p2p.Swarm, privKey p2p.PrivateKey) (*Swarm, error) {
 		tells:     swarmutil.NewTellHub(),
 		asks:      swarmutil.NewAskHub(),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
 	go s.serve(ctx)
 	return s, nil
 }
@@ -80,8 +83,7 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 		return p2p.ErrMTUExceeded
 	}
 	err := s.withSession(ctx, dst, func(sess quic.Session) error {
-		// stream
-		stream, err := sess.OpenUniStreamSync(ctx)
+		stream, err := sess.OpenUniStream()
 		if err != nil {
 			return err
 		}
