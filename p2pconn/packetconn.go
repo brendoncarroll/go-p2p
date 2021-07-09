@@ -8,26 +8,18 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 )
 
 // NewPacketConn turns a swarm into a net.PacketConn
 // It only uses tells, asks are ignored.
 func NewPacketConn(s p2p.Swarm) net.PacketConn {
-	pc := &packetConn{
+	return &packetConn{
 		swarm: s,
-		queue: swarmutil.NewTellQueue(),
 	}
-	go func() {
-		err := s.ServeTells(pc.queue.DeliverTell)
-		pc.queue.CloseWithError(err)
-	}()
-	return pc
 }
 
 type packetConn struct {
 	swarm p2p.Swarm
-	queue *swarmutil.TellQueue
 
 	mu                          sync.Mutex
 	readDeadline, writeDeadline *time.Time
@@ -46,12 +38,12 @@ func (c *packetConn) WriteTo(p []byte, to net.Addr) (int, error) {
 func (c *packetConn) ReadFrom(p []byte) (n int, from net.Addr, err error) {
 	ctx, cf := c.getReadContext()
 	defer cf()
-	if err := c.queue.ServeTell(ctx, func(msg *p2p.Message) {
-		from = addr{Swarm: c.swarm, Addr: msg.Src}
-		n = copy(p, msg.Payload)
-	}); err != nil {
+	var src, dst p2p.Addr
+	n, err = c.swarm.Recv(ctx, &src, &dst, p)
+	if err != nil {
 		return 0, nil, err
 	}
+	from = addr{Swarm: c.swarm, Addr: src}
 	return n, from, nil
 }
 
