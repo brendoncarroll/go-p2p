@@ -10,8 +10,7 @@ import (
 
 func TestSwarm(t *testing.T) {
 	t.Parallel()
-	swarmtest.TestSuiteSwarm(t, func(t testing.TB, n int) []p2p.Swarm {
-		xs := make([]p2p.Swarm, n)
+	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
 		r := NewRealm()
 		for i := range xs {
 			xs[i] = r.NewSwarm()
@@ -19,10 +18,8 @@ func TestSwarm(t *testing.T) {
 		t.Cleanup(func() {
 			swarmtest.CloseSwarms(t, xs)
 		})
-		return xs
 	})
-	swarmtest.TestSuiteAskSwarm(t, func(t testing.TB, n int) []p2p.AskSwarm {
-		xs := make([]p2p.AskSwarm, n)
+	swarmtest.TestAskSwarm(t, func(t testing.TB, xs []p2p.AskSwarm) {
 		r := NewRealm()
 		for i := range xs {
 			xs[i] = r.NewSwarm()
@@ -32,10 +29,8 @@ func TestSwarm(t *testing.T) {
 				require.Nil(t, xs[i].Close())
 			}
 		})
-		return xs
 	})
-	swarmtest.TestSuiteSecureSwarm(t, func(t testing.TB, n int) []p2p.SecureSwarm {
-		xs := make([]p2p.SecureSwarm, n)
+	swarmtest.TestSecureSwarm(t, func(t testing.TB, xs []p2p.SecureSwarm) {
 		r := NewRealm()
 		for i := range xs {
 			xs[i] = r.NewSwarm()
@@ -45,6 +40,5 @@ func TestSwarm(t *testing.T) {
 				require.Nil(t, xs[i].Close())
 			}
 		})
-		return xs
 	})
 }

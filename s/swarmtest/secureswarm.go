@@ -7,9 +7,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSuiteSecureSwarm(t *testing.T, newSwarms func(t testing.TB, n int) []p2p.SecureSwarm) {
+func TestSecureSwarm(t *testing.T, newSwarms func(testing.TB, []p2p.SecureSwarm)) {
 	t.Run("TestNotNilPublicKey", func(t *testing.T) {
-		x := newSwarms(t, 1)[0]
+		xs := make([]p2p.SecureSwarm, 1)
+		newSwarms(t, xs)
+		x := xs[0]
 		require.NotNil(t, x.PublicKey())
 	})
 }

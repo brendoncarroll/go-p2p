@@ -61,7 +61,7 @@ func (ms multiSwarm) ParseAddr(data []byte) (p2p.Addr, error) {
 
 	// transport
 	tname := string(groups[1])
-	inner, ok := ms[tname]
+	inner, ok := ms.swarms[tname]
 	if !ok {
 		return nil, fmt.Errorf("AggSwarm does not have transport %s", tname)
 	}

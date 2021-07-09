@@ -8,33 +8,25 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 )
 
 // NewPacketConn turns a swarm into a net.PacketConn
 // It only uses tells, asks are ignored.
 func NewPacketConn(s p2p.Swarm) net.PacketConn {
-	pc := &packetConn{
+	return &packetConn{
 		swarm: s,
-		queue: swarmutil.NewTellQueue(),
 	}
-	go func() {
-		err := s.ServeTells(pc.queue.DeliverTell)
-		pc.queue.CloseWithError(err)
-	}()
-	return pc
 }
 
 type packetConn struct {
 	swarm p2p.Swarm
-	queue *swarmutil.TellQueue
 
 	mu                          sync.Mutex
 	readDeadline, writeDeadline *time.Time
 }
 
 func (c *packetConn) WriteTo(p []byte, to net.Addr) (int, error) {
-	target := to.(addr)
+	target := to.(Addr)
 	ctx, cf := c.getWriteContext()
 	defer cf()
 	if err := c.swarm.Tell(ctx, target.Addr, p2p.IOVec{p}); err != nil {
@@ -46,17 +38,17 @@ func (c *packetConn) WriteTo(p []byte, to net.Addr) (int, error) {
 func (c *packetConn) ReadFrom(p []byte) (n int, from net.Addr, err error) {
 	ctx, cf := c.getReadContext()
 	defer cf()
-	if err := c.queue.ServeTell(ctx, func(msg *p2p.Message) {
-		from = addr{Swarm: c.swarm, Addr: msg.Src}
-		n = copy(p, msg.Payload)
-	}); err != nil {
+	var src, dst p2p.Addr
+	n, err = c.swarm.Recv(ctx, &src, &dst, p)
+	if err != nil {
 		return 0, nil, err
 	}
+	from = Addr{Swarm: c.swarm, Addr: src}
 	return n, from, nil
 }
 
 func (c *packetConn) LocalAddr() net.Addr {
-	return addr{Addr: c.swarm.LocalAddrs()[0], Swarm: c.swarm}
+	return Addr{Addr: c.swarm.LocalAddrs()[0], Swarm: c.swarm}
 }
 
 func (c *packetConn) SetDeadline(t time.Time) error {
@@ -105,16 +97,20 @@ func (c *packetConn) Close() error {
 	return c.swarm.Close()
 }
 
-type addr struct {
-	p2p.Addr
+type Addr struct {
 	p2p.Swarm
+	p2p.Addr
 }
 
-func (a addr) Network() string {
-	return fmt.Sprintf("p2p-%T", a.Swarm)
+func NewAddr(s p2p.Swarm, a p2p.Addr) net.Addr {
+	return Addr{s, a}
 }
 
-func (a addr) String() string {
+func (a Addr) Network() string {
+	return fmt.Sprintf("p2p-%T-%v", a.Swarm, a.Swarm)
+}
+
+func (a Addr) String() string {
 	data, _ := a.Addr.MarshalText()
 	return string(data)
 }

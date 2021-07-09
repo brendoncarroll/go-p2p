@@ -74,6 +74,10 @@ func (s *Swarm) MTU(context.Context, p2p.Addr) int {
 	return MTU
 }
 
+func (s *Swarm) MaxIncomingSize() int {
+	return MTU
+}
+
 func (s *Swarm) LocalAddrs() []p2p.Addr {
 	pubKey := s.signer.PublicKey()
 	laddr := s.l.Addr().(*net.TCPAddr)
@@ -109,25 +113,25 @@ func (s *Swarm) LookupPublicKey(ctx context.Context, x p2p.Addr) (p2p.PublicKey,
 	return c.pubKey.(p2p.PublicKey), nil
 }
 
-func (s *Swarm) ServeAsks(fn p2p.AskHandler) error {
-	return s.askHub.ServeAsks(fn)
+func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
+	return s.askHub.ServeAsk(ctx, fn)
 }
 
-func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
-	return s.tellHub.ServeTells(fn)
+func (s *Swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return s.tellHub.Recv(ctx, src, dst, buf)
 }
 
-func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
+func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {
 	a2 := addr.(*Addr)
 	c, err := s.getConn(ctx, a2)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	reply, err := c.Send(true, p2p.VecBytes(nil, data))
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	return reply, nil
+	return copy(resp, reply), nil
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {

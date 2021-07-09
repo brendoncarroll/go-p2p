@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log"
 	"sync"
 
@@ -28,6 +27,7 @@ type Muxer interface {
 
 type muxer struct {
 	s         p2p.Swarm
+	askSwarm  p2p.AskSwarm
 	sessionID uuid.UUID
 
 	mu     sync.RWMutex
@@ -57,9 +57,10 @@ func MultiplexSwarm(s p2p.Swarm) Muxer {
 		reqs: map[channelKey]chan struct{}{},
 	}
 
-	go s.ServeTells(m.handleTell)
-	if asker, ok := s.(p2p.Asker); ok {
-		go asker.ServeAsks(m.handleAsk)
+	go m.recvLoop(context.Background())
+	if asker, ok := s.(p2p.AskSwarm); ok {
+		m.askSwarm = asker
+		go m.serveLoop(context.Background())
 	}
 
 	return m
@@ -69,7 +70,52 @@ func (m *muxer) LocalAddrs() []p2p.Addr {
 	return m.s.LocalAddrs()
 }
 
-func (m *muxer) handleTell(msg *p2p.Message) {
+func (m *muxer) recvLoop(ctx context.Context) error {
+	buf := make([]byte, m.s.MaxIncomingSize())
+	for {
+		var src, dst p2p.Addr
+		n, err := m.s.Recv(ctx, &src, &dst, buf)
+		if err != nil {
+			return err
+		}
+		m.handleTell(p2p.Message{
+			Src:     src,
+			Dst:     dst,
+			Payload: buf[:n],
+		})
+	}
+}
+
+func (m *muxer) serveLoop(ctx context.Context) error {
+	for {
+		err := m.askSwarm.ServeAsk(ctx, func(resp []byte, msg p2p.Message) int {
+			msg2 := Message(msg.Payload)
+			if err := msg2.Validate(); err != nil {
+				log.Println(err)
+				return 0
+			}
+			c := msg2.GetChannel()
+			if c < 2 {
+				return 0
+			}
+			if int(c) >= len(m.swarms) {
+				return 0
+			}
+			s := m.swarms[c]
+			n, _ := s.askHub.Deliver(ctx, resp, p2p.Message{
+				Src:     msg.Src,
+				Dst:     msg.Dst,
+				Payload: msg2.GetData(),
+			})
+			return n
+		})
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func (m *muxer) handleTell(msg p2p.Message) {
 	ctx := context.TODO()
 	msg2 := Message(msg.Payload)
 	if err := msg2.Validate(); err != nil {
@@ -124,34 +170,10 @@ func (m *muxer) handleTell(msg *p2p.Message) {
 			msg.Payload = msg2.GetData()
 			s := m.swarms[c]
 			if s != nil {
-				s.tellHub.DeliverTell(msg)
+				s.tellHub.Deliver(ctx, msg)
 			}
 		}
 	}
-}
-
-func (m *muxer) handleAsk(ctx context.Context, msg *p2p.Message, w io.Writer) {
-	msg2 := Message(msg.Payload)
-	if err := msg2.Validate(); err != nil {
-		log.Println(err)
-		return
-	}
-
-	c := msg2.GetChannel()
-	if c < 2 {
-		return
-	}
-	if int(c) >= len(m.swarms) {
-		return
-	}
-	s := m.swarms[c]
-
-	msg = &p2p.Message{
-		Src:     msg.Src,
-		Dst:     msg.Dst,
-		Payload: msg2.GetData(),
-	}
-	s.askHub.DeliverAsk(ctx, msg, w)
 }
 
 func (m *muxer) Open(x string) (p2p.Swarm, error) {

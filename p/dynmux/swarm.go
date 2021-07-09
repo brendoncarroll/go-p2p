@@ -24,15 +24,15 @@ func newSwarm(m *muxer, name string) *baseSwarm {
 	}
 }
 
-func (s *baseSwarm) ServeTells(fn p2p.TellHandler) error {
-	return s.tellHub.ServeTells(fn)
+func (s *baseSwarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return s.tellHub.Recv(ctx, src, dst, buf)
 }
 
-func (s *baseSwarm) ServeAsks(fn p2p.AskHandler) error {
+func (s *baseSwarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
 	if _, ok := s.m.s.(p2p.Asker); !ok {
 		panic("underlying swarm does not support ask")
 	}
-	return s.askHub.ServeAsks(fn)
+	return s.askHub.ServeAsk(ctx, fn)
 }
 
 func (s *baseSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
@@ -46,20 +46,24 @@ func (s *baseSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) err
 	return s.m.s.Tell(ctx, addr, p2p.IOVec{msg})
 }
 
-func (s *baseSwarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
+func (s *baseSwarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {
 	innerSwarm := s.m.s.(p2p.AskSwarm)
 	i, err := s.m.lookup(ctx, addr, s.name)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	msg := Message{}
 	msg.SetChannel(i)
 	msg.SetData(p2p.VecBytes(nil, data))
-	return innerSwarm.Ask(ctx, addr, p2p.IOVec{msg})
+	return innerSwarm.Ask(ctx, resp, addr, p2p.IOVec{msg})
 }
 
 func (s *baseSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
 	return s.m.s.MTU(ctx, addr) - channelSize
+}
+
+func (s *baseSwarm) MaxIncomingSize() int {
+	return s.m.s.MaxIncomingSize()
 }
 
 func (s *baseSwarm) LocalAddrs() []p2p.Addr {

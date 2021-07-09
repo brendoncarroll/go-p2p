@@ -6,7 +6,6 @@ import (
 	"net"
 
 	"github.com/pkg/errors"
-	"golang.org/x/sync/errgroup"
 )
 
 type Message struct {
@@ -14,50 +13,43 @@ type Message struct {
 	Payload  []byte
 }
 
-type AskHandler func(ctx context.Context, req *Message, w io.Writer)
-type TellHandler func(msg *Message)
+type Teller interface {
+	// Tell sends a message containing data to dst
+	// Tell returns an error if the message cannot be set in flight.
+	// A nil error does not guarentee delivery of the message.
+	Tell(ctx context.Context, dst Addr, data IOVec) error
+	// Recv blocks until the context is cancelled or 1 message is recieved.
+	// The contents of message are written into src, dst and buf; the number of bytes written to buf is returned.
+	// If buf is too small Recv returns io.ErrShortBuffer
+	Recv(ctx context.Context, src, dst *Addr, buf []byte) (int, error)
+	// MaxIncomingSize returns the minimum size a buffer must be so that Recv never returns io.ErrShortBuffer
+	MaxIncomingSize() int
+}
 
-func NoOpAskHandler(ctx context.Context, req *Message, w io.Writer) {}
+type AskHandler func(resp []byte, req Message) int
 
-func NoOpTellHandler(msg *Message) {}
+type Asker interface {
+	Ask(ctx context.Context, resp []byte, addr Addr, data IOVec) (int, error)
+	ServeAsk(ctx context.Context, fn AskHandler) error
+}
+
+var _ AskHandler = NoOpAskHandler
+
+func NoOpAskHandler(resp []byte, req Message) int { return 0 }
 
 type Swarm interface {
 	Teller
 
+	// LocalAddrs returns all the addresses that can be used to contact this Swarm
 	LocalAddrs() []Addr
+	// MTU returns the maximum transmission unit for a particular address,
+	// If the context is done, MTU returns a safe default value.
 	MTU(ctx context.Context, addr Addr) int
+	// Close releases all resources held by the swarm.
+	// It should be called when the swarm is no longer in use.
 	Close() error
+	// ParseAddr attempts to parse an address from data
 	ParseAddr(data []byte) (Addr, error)
-}
-
-type IOVec = net.Buffers
-
-// VecSize returns the total size of the vector in bytes if it were contiguous.
-// It is the sum of len(v[i]) for all i
-func VecSize(v IOVec) int {
-	var total int
-	for i := range v {
-		total += len(v[i])
-	}
-	return total
-}
-
-// VecBytes appends all the buffers in v to out and returns the result
-func VecBytes(out []byte, v IOVec) []byte {
-	for i := range v {
-		out = append(out, v[i]...)
-	}
-	return out
-}
-
-type Teller interface {
-	Tell(ctx context.Context, addr Addr, data IOVec) error
-	ServeTells(TellHandler) error
-}
-
-type Asker interface {
-	Ask(ctx context.Context, addr Addr, data IOVec) ([]byte, error)
-	ServeAsks(AskHandler) error
 }
 
 type AskSwarm interface {
@@ -85,6 +77,26 @@ type SecureAskSwarm interface {
 	Secure
 }
 
+type IOVec = net.Buffers
+
+// VecSize returns the total size of the vector in bytes if it were contiguous.
+// It is the sum of len(v[i]) for all i
+func VecSize(v IOVec) int {
+	var total int
+	for i := range v {
+		total += len(v[i])
+	}
+	return total
+}
+
+// VecBytes appends all the buffers in v to out and returns the result
+func VecBytes(out []byte, v IOVec) []byte {
+	for i := range v {
+		out = append(out, v[i]...)
+	}
+	return out
+}
+
 // LookupPublicKeyInHandler calls LookupPublicKey with
 // an expired context, and panics on an error.  SecureSwarms must
 // be able to return a PublicKey retrieved from memory, during the
@@ -104,14 +116,22 @@ func LookupPublicKeyInHandler(s Secure, target Addr) PublicKey {
 	return pubKey
 }
 
-// ServeBoth calls ServeTells and ServeAsks
-func ServeBoth(s AskSwarm, th TellHandler, ah AskHandler) error {
-	eg := errgroup.Group{}
-	eg.Go(func() error {
-		return s.ServeTells(th)
-	})
-	eg.Go(func() error {
-		return s.ServeAsks(ah)
-	})
-	return eg.Wait()
+func DiscardAsks(ctx context.Context, a Asker) error {
+	for {
+		if err := a.ServeAsk(ctx, NoOpAskHandler); err != nil {
+			return err
+		}
+	}
+}
+
+func DiscardTells(ctx context.Context, t Teller) error {
+	for {
+		var src, dst Addr
+		if _, err := t.Recv(ctx, &src, &dst, nil); err != nil {
+			if err == io.ErrShortBuffer {
+				continue
+			}
+			return err
+		}
+	}
 }

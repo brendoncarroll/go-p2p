@@ -71,11 +71,21 @@ var testConnectCmd = &cobra.Command{
 			"ssh": s21,
 		})
 
-		go s3.ServeTells(func(m *p2p.Message) {
+		go func() error {
 			ctx := context.TODO()
-			s3.Tell(ctx, m.Src, p2p.IOVec{m.Payload})
-			log.Println("MSG:", m.Src, "->", m.Dst, " ", m.Payload)
-		})
+			buf := make([]byte, s3.MaxIncomingSize())
+			for {
+				var src, dst p2p.Addr
+				n, err := s3.Recv(ctx, &src, &dst, buf)
+				if err != nil {
+					return err
+				}
+				if err := s3.Tell(ctx, src, p2p.IOVec{buf[:n]}); err != nil {
+					return err
+				}
+				log.Println("MSG:", src, "->", dst, " ", buf[:n])
+			}
+		}()
 
 		addrs := map[string]p2p.Addr{}
 		for {
@@ -87,5 +97,6 @@ var testConnectCmd = &cobra.Command{
 			}
 			time.Sleep(time.Second)
 		}
+		return nil
 	},
 }

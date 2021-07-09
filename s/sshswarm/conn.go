@@ -1,14 +1,12 @@
 package sshswarm
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"log"
 	"net"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -116,25 +114,28 @@ func newClient(s *Swarm, remoteAddr *Addr, netConn net.Conn) (*Conn, error) {
 }
 
 func (c *Conn) loop() {
+	resp := make([]byte, MTU)
 	for {
 		select {
 		case req := <-c.reqs:
 			ctx := context.TODO()
-			msg := &p2p.Message{
+			msg := p2p.Message{
 				Src:     c.RemoteAddr(),
 				Dst:     c.localAddr,
 				Payload: req.Payload,
 			}
 			if req.WantReply {
-				buf := bytes.Buffer{}
-				lw := &swarmutil.LimitWriter{W: &buf, N: MTU}
-				c.swarm.askHub.DeliverAsk(ctx, msg, lw)
-				resData := buf.Bytes()
-				if err := req.Reply(true, resData); err != nil {
+				n, err := c.swarm.askHub.Deliver(ctx, resp, msg)
+				if err != nil {
+					log.Println(err)
+				}
+				if err := req.Reply(true, resp[:n]); err != nil {
 					log.Println(err)
 				}
 			} else {
-				c.swarm.tellHub.DeliverTell(msg)
+				if err := c.swarm.tellHub.Deliver(ctx, msg); err != nil {
+					log.Println(err)
+				}
 			}
 		case ncr := <-c.newChanReqs:
 			if err := ncr.Reject(ssh.Prohibited, "don't do that"); err != nil {

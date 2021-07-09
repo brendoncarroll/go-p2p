@@ -10,8 +10,7 @@ import (
 
 func TestSwarm(t *testing.T) {
 	t.Parallel()
-	swarmtest.TestSuiteSwarm(t, func(t testing.TB, n int) []p2p.Swarm {
-		xs := make([]p2p.Swarm, n)
+	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
 		for i := range xs {
 			s, err := New("127.0.0.1:")
 			require.Nil(t, err)
@@ -20,6 +19,5 @@ func TestSwarm(t *testing.T) {
 		t.Cleanup(func() {
 			swarmtest.CloseSwarms(t, xs)
 		})
-		return xs
 	})
 }

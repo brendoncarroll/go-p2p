@@ -1,15 +1,12 @@
 
-.PHONY: test test2 docker protobuf
+.PHONY: test test2 docker
 
-test: protobuf
+test:
 	go test --race ./...
 
-testv: protobuf
+testv:
 	go test --race -v -count=1 ./...
 
 docker:
 	docker build -t p2putil:latest .
-
-protobuf:
-	cd ./s/noiseswarm && ./build.sh	
 

@@ -3,10 +3,8 @@ package udpswarm
 import (
 	"context"
 	"net"
-	"strings"
 
 	"github.com/brendoncarroll/go-p2p"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -32,11 +30,10 @@ not implement p2p.SecureSwarm.
 It is included as a transport for secure swarms to be built on.
 */
 type Swarm struct {
-	conn       *net.UDPConn
-	numWorkers int
+	conn *net.UDPConn
 }
 
-func New(laddr string, opts ...Option) (*Swarm, error) {
+func New(laddr string) (*Swarm, error) {
 	udpAddr, err := net.ResolveUDPAddr("", laddr)
 	if err != nil {
 		return nil, err
@@ -46,27 +43,9 @@ func New(laddr string, opts ...Option) (*Swarm, error) {
 		return nil, err
 	}
 	s := &Swarm{
-		conn:       conn,
-		numWorkers: defaultNumWorkers,
-	}
-	for _, opt := range opts {
-		opt(s)
+		conn: conn,
 	}
 	return s, nil
-}
-
-func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
-	eg := errgroup.Group{}
-	for i := 0; i < s.numWorkers; i++ {
-		eg.Go(func() error {
-			return s.readLoop(fn)
-		})
-	}
-	err := eg.Wait()
-	if err == nil {
-		err = p2p.ErrSwarmClosed
-	}
-	return err
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
@@ -74,6 +53,16 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	a2 := (net.UDPAddr)(a)
 	_, err := s.conn.WriteToUDP(p2p.VecBytes(nil, data), &a2)
 	return err
+}
+
+func (s *Swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	n, udpAddr, err := s.conn.ReadFromUDP(buf)
+	if err != nil {
+		return 0, err
+	}
+	*src = Addr(*udpAddr)
+	*dst = s.LocalAddrs()[0]
+	return n, nil
 }
 
 func (s *Swarm) LocalAddrs() []p2p.Addr {
@@ -90,6 +79,10 @@ func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
 	return IPv4MTU
 }
 
+func (s *Swarm) MaxIncomingSize() int {
+	return TheoreticalMTU
+}
+
 func (s *Swarm) ParseAddr(x []byte) (p2p.Addr, error) {
 	a := Addr{}
 	if err := a.UnmarshalText(x); err != nil {
@@ -100,23 +93,4 @@ func (s *Swarm) ParseAddr(x []byte) (p2p.Addr, error) {
 
 func (s *Swarm) Close() error {
 	return s.conn.Close()
-}
-
-func (s *Swarm) readLoop(fn p2p.TellHandler) error {
-	buf := make([]byte, TheoreticalMTU)
-	for {
-		n, udpAddr, err := s.conn.ReadFromUDP(buf)
-		if err != nil {
-			if strings.Contains(err.Error(), "use of closed network connection") {
-				err = nil
-			}
-			return err
-		}
-		msg := &p2p.Message{
-			Src:     (Addr)(*udpAddr),
-			Dst:     s.LocalAddrs()[0],
-			Payload: buf[:n],
-		}
-		fn(msg)
-	}
 }
