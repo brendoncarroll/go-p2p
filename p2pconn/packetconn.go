@@ -26,7 +26,7 @@ type packetConn struct {
 }
 
 func (c *packetConn) WriteTo(p []byte, to net.Addr) (int, error) {
-	target := to.(addr)
+	target := to.(Addr)
 	ctx, cf := c.getWriteContext()
 	defer cf()
 	if err := c.swarm.Tell(ctx, target.Addr, p2p.IOVec{p}); err != nil {
@@ -43,12 +43,12 @@ func (c *packetConn) ReadFrom(p []byte) (n int, from net.Addr, err error) {
 	if err != nil {
 		return 0, nil, err
 	}
-	from = addr{Swarm: c.swarm, Addr: src}
+	from = Addr{Swarm: c.swarm, Addr: src}
 	return n, from, nil
 }
 
 func (c *packetConn) LocalAddr() net.Addr {
-	return addr{Addr: c.swarm.LocalAddrs()[0], Swarm: c.swarm}
+	return Addr{Addr: c.swarm.LocalAddrs()[0], Swarm: c.swarm}
 }
 
 func (c *packetConn) SetDeadline(t time.Time) error {
@@ -97,16 +97,20 @@ func (c *packetConn) Close() error {
 	return c.swarm.Close()
 }
 
-type addr struct {
-	p2p.Addr
+type Addr struct {
 	p2p.Swarm
+	p2p.Addr
 }
 
-func (a addr) Network() string {
-	return fmt.Sprintf("p2p-%T", a.Swarm)
+func NewAddr(s p2p.Swarm, a p2p.Addr) net.Addr {
+	return Addr{s, a}
 }
 
-func (a addr) String() string {
+func (a Addr) Network() string {
+	return fmt.Sprintf("p2p-%T-%v", a.Swarm, a.Swarm)
+}
+
+func (a Addr) String() string {
 	data, _ := a.Addr.MarshalText()
 	return string(data)
 }

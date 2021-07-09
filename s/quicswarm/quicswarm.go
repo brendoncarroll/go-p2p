@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
-	"errors"
 	"io"
 	"io/ioutil"
 	"net"
@@ -12,8 +11,11 @@ import (
 	"sync"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/p2pconn"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"github.com/brendoncarroll/go-p2p/s/udpswarm"
 	"github.com/lucas-clemente/quic-go"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
@@ -25,11 +27,13 @@ var log = p2p.Logger
 var _ p2p.SecureAskSwarm = &Swarm{}
 
 type Swarm struct {
-	mtu     int
-	privKey p2p.PrivateKey
-	udpConn *net.UDPConn
-	l       quic.Listener
-	cf      context.CancelFunc
+	inner     p2p.Swarm
+	mtu       int
+	privKey   p2p.PrivateKey
+	pconn     net.PacketConn
+	tlsConfig *tls.Config
+	l         quic.Listener
+	cf        context.CancelFunc
 
 	mu        sync.RWMutex
 	sessCache map[sessionKey]quic.Session
@@ -38,27 +42,31 @@ type Swarm struct {
 	asks  *swarmutil.AskHub
 }
 
-func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
+func NewUDP(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
+	x, err := udpswarm.New(laddr)
+	if err != nil {
+		return nil, err
+	}
+	return New(x, privKey)
+}
+
+// New creates a new swarm on top of x, using privKey for authentication
+func New(x p2p.Swarm, privKey p2p.PrivateKey) (*Swarm, error) {
+	pconn := p2pconn.NewPacketConn(x)
 	tlsConfig := generateServerTLS(privKey)
-	udpAddr, err := net.ResolveUDPAddr("udp", laddr)
-	if err != nil {
-		return nil, err
-	}
-	udpConn, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		return nil, err
-	}
-	l, err := quic.Listen(udpConn, tlsConfig, generateQUICConfig())
+	l, err := quic.Listen(pconn, tlsConfig, generateQUICConfig())
 	if err != nil {
 		return nil, err
 	}
 	ctx, cf := context.WithCancel(context.Background())
 	s := &Swarm{
-		mtu:     DefaultMTU,
-		udpConn: udpConn,
-		l:       l,
-		privKey: privKey,
-		cf:      cf,
+		inner:     x,
+		mtu:       DefaultMTU,
+		pconn:     pconn,
+		tlsConfig: tlsConfig,
+		l:         l,
+		privKey:   privKey,
+		cf:        cf,
 
 		sessCache: map[sessionKey]quic.Session{},
 		tells:     swarmutil.NewTellHub(),
@@ -69,7 +77,7 @@ func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
-	dst := addr.(*Addr)
+	dst := addr.(Addr)
 	if len(data) > s.mtu {
 		return p2p.ErrMTUExceeded
 	}
@@ -99,7 +107,7 @@ func (s *Swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, 
 }
 
 func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {
-	dst := addr.(*Addr)
+	dst := addr.(Addr)
 	if len(data) > s.mtu {
 		return 0, p2p.ErrMTUExceeded
 	}
@@ -145,19 +153,26 @@ func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
 func (s *Swarm) Close() (retErr error) {
 	s.tells.CloseWithError(p2p.ErrSwarmClosed)
 	s.asks.CloseWithError(p2p.ErrSwarmClosed)
-	s.cf()
+	// this should also close the inner swarm
 	if err := s.l.Close(); retErr == nil {
 		retErr = err
 	}
-	if err := s.udpConn.Close(); retErr == nil {
-		retErr = err
-	}
+	s.cf()
 	return retErr
 }
 
-func (s *Swarm) LocalAddrs() []p2p.Addr {
-	addr := s.makeLocalAddr(s.l.Addr())
-	return p2p.ExpandUnspecifiedIPs([]p2p.Addr{addr})
+func (s *Swarm) LocalAddrs() (ret []p2p.Addr) {
+	for _, addr := range s.inner.LocalAddrs() {
+		ret = append(ret, Addr{
+			ID:   s.LocalID(),
+			Addr: addr,
+		})
+	}
+	return ret
+}
+
+func (s *Swarm) LocalID() p2p.PeerID {
+	return p2p.NewPeerID(s.privKey.Public())
 }
 
 func (s *Swarm) MTU(context.Context, p2p.Addr) int {
@@ -173,10 +188,10 @@ func (s *Swarm) PublicKey() p2p.PublicKey {
 }
 
 func (s *Swarm) LookupPublicKey(ctx context.Context, x p2p.Addr) (p2p.PublicKey, error) {
-	a := x.(*Addr)
+	a := x.(Addr)
 	var pubKey p2p.PublicKey
 	if err := s.withSession(ctx, a, func(sess quic.Session) error {
-		tlsState := sess.ConnectionState()
+		tlsState := sess.ConnectionState().TLS
 		// ok to panic here on OOB, it is a bug to have a session with
 		// no certificates in the cache.
 		cert := tlsState.PeerCertificates[0]
@@ -188,7 +203,7 @@ func (s *Swarm) LookupPublicKey(ctx context.Context, x p2p.Addr) (p2p.PublicKey,
 	return pubKey, nil
 }
 
-func (s *Swarm) withSession(ctx context.Context, dst *Addr, fn func(sess quic.Session) error) error {
+func (s *Swarm) withSession(ctx context.Context, dst Addr, fn func(sess quic.Session) error) error {
 	s.mu.Lock()
 	sess, exists := s.sessCache[sessionKey{addr: dst.Key(), outbound: false}]
 	if !exists {
@@ -199,20 +214,18 @@ func (s *Swarm) withSession(ctx context.Context, dst *Addr, fn func(sess quic.Se
 		return fn(sess)
 	}
 
-	raddr := net.UDPAddr{
-		IP:   dst.IP,
-		Port: dst.Port,
-	}
-	sess, err := quic.DialContext(ctx, s.udpConn, &raddr, raddr.String(), generateClientTLS(s.privKey), generateQUICConfig())
+	raddr := p2pconn.NewAddr(s.inner, dst.Addr)
+	host := ""
+	sess, err := quic.DialContext(ctx, s.pconn, raddr, host, generateClientTLS(s.privKey), generateQUICConfig())
 	if err != nil {
 		return err
 	}
-	peerAddr, err := addrFromSession(sess)
+	peerAddr, err := remoteAddrFromSession(sess)
 	if err != nil {
 		return err
 	}
-	if !peerAddr.Equals(dst) {
-		return errors.New("wrong peer")
+	if !peerAddr.ID.Equals(dst.ID) {
+		return errors.Errorf("wrong peer HAVE: %v WANT: %v", peerAddr.ID, dst.ID)
 	}
 	s.putSession(peerAddr, sess, true)
 	log.WithFields(logrus.Fields{
@@ -231,7 +244,7 @@ func (s *Swarm) serve(ctx context.Context) {
 			}
 			return
 		}
-		addr, err := addrFromSession(sess)
+		addr, err := remoteAddrFromSession(sess)
 		if err != nil {
 			log.Warn(err)
 			continue
@@ -244,20 +257,20 @@ func (s *Swarm) serve(ctx context.Context) {
 	}
 }
 
-func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, addr *Addr, isClient bool) {
+func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, src Addr, isClient bool) {
 	defer func() {
 		s.mu.Lock()
-		delete(s.sessCache, sessionKey{addr: addr.Key(), outbound: isClient})
+		delete(s.sessCache, sessionKey{addr: src.Key(), outbound: isClient})
 		s.mu.Unlock()
 	}()
-	group := errgroup.Group{}
-	group.Go(func() error {
-		return s.handleAsks(ctx, sess, addr)
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		return s.handleAsks(ctx, sess, src)
 	})
-	group.Go(func() error {
-		return s.handleTells(ctx, sess, addr)
+	eg.Go(func() error {
+		return s.handleTells(ctx, sess, src)
 	})
-	if err := group.Wait(); quicErr(err) != nil && err != context.Canceled {
+	if err := eg.Wait(); quicErr(err) != nil && err != context.Canceled {
 		if err := sess.CloseWithError(1, err.Error()); err != nil {
 			logrus.Error(err)
 		}
@@ -265,8 +278,8 @@ func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, addr *Addr
 	sess.CloseWithError(0, "")
 }
 
-func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr *Addr) error {
-	log := log.WithFields(logrus.Fields{"remote_addr": *srcAddr})
+func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr Addr) error {
+	log := log.WithFields(logrus.Fields{"remote_addr": srcAddr})
 	for {
 		stream, err := sess.AcceptStream(ctx)
 		if err != nil {
@@ -281,8 +294,8 @@ func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr *Addr
 	}
 }
 
-func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstAddr *Addr) error {
-	log := log.WithFields(logrus.Fields{"remote_addr": *srcAddr})
+func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstAddr Addr) error {
+	log := log.WithFields(logrus.Fields{"remote_addr": srcAddr})
 	reqData := make([]byte, s.mtu)
 	n, err := readFrame(stream, reqData, s.mtu)
 	if err != nil {
@@ -305,7 +318,7 @@ func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstA
 	return stream.Close()
 }
 
-func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Addr) error {
+func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr Addr) error {
 	for {
 		stream, err := sess.AcceptUniStream(ctx)
 		if err != nil {
@@ -330,37 +343,35 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Add
 	}
 }
 
-func (s *Swarm) putSession(addr *Addr, newSess quic.Session, isClient bool) {
+func (s *Swarm) putSession(addr Addr, newSess quic.Session, isClient bool) {
 	s.mu.Lock()
 	s.sessCache[sessionKey{addr: addr.Key(), outbound: isClient}] = newSess
 	s.mu.Unlock()
 }
 
-func (s *Swarm) makeLocalAddr(x net.Addr) *Addr {
-	udpAddr := x.(*net.UDPAddr)
-	addr := &Addr{
-		ID:   p2p.NewPeerID(s.privKey.Public()),
-		IP:   udpAddr.IP,
-		Port: udpAddr.Port,
+// makeLocalAddr returns an Addr with the LocalID
+// and the inner address from x
+func (s *Swarm) makeLocalAddr(x net.Addr) Addr {
+	return Addr{
+		ID:   s.LocalID(),
+		Addr: x.(p2pconn.Addr).Addr,
 	}
-	return addr
 }
 
-func addrFromSession(x quic.Session) (*Addr, error) {
-	tlsState := x.ConnectionState()
+func remoteAddrFromSession(x quic.Session) (Addr, error) {
+	tlsState := x.ConnectionState().TLS
 	if len(tlsState.PeerCertificates) < 1 {
-		return nil, errors.New("no certificates")
+		return Addr{}, errors.New("no certificates")
 	}
 
 	cert := tlsState.PeerCertificates[0]
 	pubKey := cert.PublicKey
 	id := p2p.NewPeerID(pubKey)
 
-	raddr := x.RemoteAddr().(*net.UDPAddr)
-	return &Addr{
+	raddr := x.RemoteAddr().(p2pconn.Addr)
+	return Addr{
 		ID:   id,
-		IP:   raddr.IP,
-		Port: raddr.Port,
+		Addr: raddr.Addr,
 	}, nil
 }
 
@@ -371,21 +382,26 @@ func generateClientTLS(privKey p2p.PrivateKey) *tls.Config {
 		Certificates:       []tls.Certificate{cert},
 		InsecureSkipVerify: true,
 		ClientAuth:         tls.RequireAnyClientCert,
-		NextProtos:         []string{"go-p2p"},
+		NextProtos:         []string{"p2p"},
 	}
 }
 
 func generateServerTLS(privKey p2p.PrivateKey) *tls.Config {
 	cert := swarmutil.GenerateSelfSigned(privKey)
+	localID := p2p.NewPeerID(privKey.Public())
 	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		NextProtos:   []string{"go-p2p"},
-		ClientAuth:   tls.RequireAnyClientCert,
+		Certificates:       []tls.Certificate{cert},
+		NextProtos:         []string{"p2p"},
+		ClientAuth:         tls.RequireAnyClientCert,
+		ServerName:         localID.String(),
+		InsecureSkipVerify: true,
 	}
 }
 
 func generateQUICConfig() *quic.Config {
-	return nil
+	return &quic.Config{
+		EnableDatagrams: true,
+	}
 }
 
 func writeFrame(w io.Writer, data p2p.IOVec) error {

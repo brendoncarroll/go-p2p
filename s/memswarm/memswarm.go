@@ -121,13 +121,13 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IO
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	a := addr.(Addr)
+	if p2p.VecSize(data) > s.r.mtu {
+		return p2p.ErrMTUExceeded
+	}
 	msg := p2p.Message{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
 		Payload: p2p.VecBytes(nil, data),
-	}
-	if p2p.VecSize(data) > s.r.mtu {
-		return p2p.ErrMTUExceeded
 	}
 	if !s.r.block() {
 		return nil
@@ -152,7 +152,9 @@ func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
 }
 
 func (s *Swarm) LocalAddrs() []p2p.Addr {
-	return []p2p.Addr{Addr{N: s.n}}
+	return []p2p.Addr{
+		Addr{N: s.n},
+	}
 }
 
 func (s *Swarm) MTU(context.Context, p2p.Addr) int {
@@ -183,6 +185,10 @@ func (s *Swarm) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.PublicK
 	}
 	other := s.r.swarms[a.N]
 	return other.privateKey.Public(), nil
+}
+
+func (s *Swarm) String() string {
+	return fmt.Sprintf("MemSwarm@%p", s)
 }
 
 func genPrivateKey(i int) ed25519.PrivateKey {
