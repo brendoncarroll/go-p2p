@@ -3,10 +3,12 @@ package fragswarm
 import (
 	"context"
 	"encoding/binary"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -32,6 +34,7 @@ type swarm struct {
 	mu     sync.Mutex
 	aggs   map[aggKey]*aggregator
 	msgIDs map[string]uint32
+	tells  *swarmutil.TellHub
 }
 
 func newSwarm(x p2p.Swarm, mtu int) *swarm {
@@ -43,7 +46,9 @@ func newSwarm(x p2p.Swarm, mtu int) *swarm {
 		cf:     cf,
 		aggs:   make(map[aggKey]*aggregator),
 		msgIDs: make(map[string]uint32),
+		tells:  swarmutil.NewTellHub(),
 	}
+	go s.recvLoop(ctx)
 	go s.cleanupLoop(ctx)
 	return s
 }
@@ -55,15 +60,17 @@ func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	s.msgIDs[addr.Key()]++
 	s.mu.Unlock()
 
-	total := len(data) / underMTU
-	if len(data)%underMTU > 0 {
+	size := p2p.VecSize(data)
+	data2 := p2p.VecBytes(nil, data)
+	total := size / underMTU
+	if size%underMTU > 0 {
 		total++
 	}
 	if total == 0 {
 		total = 1
 	}
 	if total == 1 {
-		msg := newMessage(id, 0, 1, data)
+		msg := newMessage(id, 0, 1, data2)
 		return s.Swarm.Tell(ctx, addr, msg)
 	}
 
@@ -71,39 +78,68 @@ func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	for part := 0; part < total; part++ {
 		part := part
 		start := underMTU * part
-		end := len(data)
+		end := size
 		if start+underMTU < end {
 			end = start + underMTU
 		}
 		eg.Go(func() error {
-			msg := newMessage(id, uint8(part), uint8(total), data[start:end])
+			msg := newMessage(id, uint8(part), uint8(total), data2[start:end])
 			return s.Swarm.Tell(ctx, addr, msg)
 		})
 	}
 	return eg.Wait()
 }
 
-func (s *swarm) ServeTells(fn p2p.TellHandler) error {
-	return s.Swarm.ServeTells(func(x *p2p.Message) {
-		s.handleTell(x, fn)
-	})
+func (s *swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return s.tells.Recv(ctx, src, dst, buf)
 }
 
-func (s *swarm) handleTell(x *p2p.Message, next p2p.TellHandler) {
+func (s *swarm) MaxIncomingSize() int {
+	return s.mtu
+}
+
+func (s *swarm) recvLoop(ctx context.Context) error {
+	eg, ctx := errgroup.WithContext(ctx)
+	N := runtime.GOMAXPROCS(0)
+	for i := 0; i < N; i++ {
+		eg.Go(func() error {
+			for {
+				var src, dst p2p.Addr
+				buf := make([]byte, s.Swarm.MaxIncomingSize())
+				n, err := s.Swarm.Recv(ctx, &src, &dst, buf)
+				if err != nil {
+					return err
+				}
+				if err := s.handleTell(ctx, p2p.Message{
+					Src:     src,
+					Dst:     dst,
+					Payload: buf[:n],
+				}); err != nil {
+					logrus.Error(err)
+				}
+			}
+		})
+	}
+	err := eg.Wait()
+	s.tells.CloseWithError(err)
+	return err
+}
+
+// handleTell will not retain x.Payload
+func (s *swarm) handleTell(ctx context.Context, x p2p.Message) error {
 	id, part, totalParts, data, err := parseMessage(x.Payload)
 	if err != nil {
 		log := logrus.WithFields(logrus.Fields{"src": x.Src})
 		log.Error("error parsing message")
-		return
+		return err
 	}
 	// if there is only one part skip creating the aggregator
 	if totalParts == 1 {
-		next(&p2p.Message{
+		return s.tells.Deliver(ctx, p2p.Message{
 			Src:     x.Src,
 			Dst:     x.Dst,
 			Payload: data,
 		})
-		return
 	}
 	key := aggKey{addr: x.Src.Key(), id: id}
 	s.mu.Lock()
@@ -114,7 +150,7 @@ func (s *swarm) handleTell(x *p2p.Message, next p2p.TellHandler) {
 	}
 	s.mu.Unlock()
 	if agg.addPart(part, totalParts, data) {
-		next(&p2p.Message{
+		err = s.tells.Deliver(ctx, p2p.Message{
 			Src:     x.Src,
 			Dst:     x.Dst,
 			Payload: agg.assemble(),
@@ -123,6 +159,7 @@ func (s *swarm) handleTell(x *p2p.Message, next p2p.TellHandler) {
 		delete(s.aggs, key)
 		s.mu.Unlock()
 	}
+	return err
 }
 
 func (s *swarm) MTU(ctx context.Context, target p2p.Addr) int {
@@ -202,12 +239,12 @@ func (a *aggregator) assemble() []byte {
 	return buf
 }
 
-func newMessage(id uint32, part uint8, total uint8, data p2p.IOVec) p2p.IOVec {
+func newMessage(id uint32, part uint8, total uint8, data []byte) p2p.IOVec {
 	var msg [][]byte
 	msg = appendUvarint(msg, uint64(id))
 	msg = appendUvarint(msg, uint64(part))
 	msg = appendUvarint(msg, uint64(total))
-	msg = append(msg, data...)
+	msg = append(msg, data)
 	return msg
 }
 

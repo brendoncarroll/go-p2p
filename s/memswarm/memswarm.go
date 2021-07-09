@@ -1,7 +1,6 @@
 package memswarm
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/binary"
@@ -100,59 +99,56 @@ type Swarm struct {
 	asks  *swarmutil.AskHub
 }
 
-func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
+func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {
 	a := addr.(Addr)
-	msg := &p2p.Message{
+	msg := p2p.Message{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
 		Payload: p2p.VecBytes(nil, data),
 	}
-	if len(data) > s.r.mtu {
-		return nil, p2p.ErrMTUExceeded
+	if p2p.VecSize(data) > s.r.mtu {
+		return 0, p2p.ErrMTUExceeded
 	}
 	if !s.r.block() {
-		return nil, errors.New("message dropped")
+		return 0, errors.New("message dropped")
 	}
-	s.r.log(true, msg)
-	buf := bytes.Buffer{}
-	lw := &swarmutil.LimitWriter{W: &buf, N: s.r.mtu}
+	s.r.log(true, &msg)
 	s.r.mu.RLock()
 	s2 := s.r.swarms[a.N]
 	s.r.mu.RUnlock()
-	s2.asks.DeliverAsk(ctx, msg, lw)
-	return buf.Bytes(), nil
+	return s2.asks.Deliver(ctx, resp, msg)
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	a := addr.(Addr)
-	msg := &p2p.Message{
+	msg := p2p.Message{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
 		Payload: p2p.VecBytes(nil, data),
 	}
-	if len(data) > s.r.mtu {
+	if p2p.VecSize(data) > s.r.mtu {
 		return p2p.ErrMTUExceeded
 	}
 	if !s.r.block() {
 		return nil
 	}
-	s.r.log(false, msg)
+	s.r.log(false, &msg)
 	s.r.mu.RLock()
 	s2 := s.r.swarms[a.N]
 	if s2 == nil {
 		return nil
 	}
 	s.r.mu.RUnlock()
-	s2.tells.DeliverTell(msg)
+	s2.tells.Deliver(ctx, msg)
 	return nil
 }
 
-func (s *Swarm) ServeAsks(fn p2p.AskHandler) error {
-	return s.asks.ServeAsks(fn)
+func (s *Swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return s.tells.Recv(ctx, src, dst, buf)
 }
 
-func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
-	return s.tells.ServeTells(fn)
+func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
+	return s.asks.ServeAsk(ctx, fn)
 }
 
 func (s *Swarm) LocalAddrs() []p2p.Addr {
@@ -160,6 +156,10 @@ func (s *Swarm) LocalAddrs() []p2p.Addr {
 }
 
 func (s *Swarm) MTU(context.Context, p2p.Addr) int {
+	return s.r.mtu
+}
+
+func (s *Swarm) MaxIncomingSize() int {
 	return s.r.mtu
 }
 

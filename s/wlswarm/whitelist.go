@@ -3,7 +3,6 @@ package wlswarm
 import (
 	"context"
 	"errors"
-	"io"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/sirupsen/logrus"
@@ -40,12 +39,16 @@ func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return errors.New("address unreachable")
 }
 
-func (s *swarm) ServeTells(fn p2p.TellHandler) error {
-	return s.SecureSwarm.ServeTells(func(m *p2p.Message) {
-		if checkAddr(s, s.af, m.Src, false) {
-			fn(m)
+func (s *swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	for {
+		n, err := s.SecureSwarm.Recv(ctx, src, dst, buf)
+		if err != nil {
+			return 0, err
 		}
-	})
+		if checkAddr(s, s.af, *src, false) {
+			return n, err
+		}
+	}
 }
 
 var _ p2p.Asker = &asker{}
@@ -55,19 +58,28 @@ type asker struct {
 	af AllowFunc
 }
 
-func (s *asker) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
-	if checkAddr(s, s.af, addr, true) {
-		return s.SecureAskSwarm.Ask(ctx, addr, data)
+func (s *asker) Ask(ctx context.Context, resp []byte, dst p2p.Addr, data p2p.IOVec) (int, error) {
+	if checkAddr(s, s.af, dst, true) {
+		return s.SecureAskSwarm.Ask(ctx, resp, dst, data)
 	}
-	return nil, errors.New("address unreachable")
+	return 0, errors.New("address unreachable")
 }
 
-func (s *asker) ServeAsks(fn p2p.AskHandler) error {
-	return s.SecureAskSwarm.ServeAsks(func(ctx context.Context, m *p2p.Message, w io.Writer) {
-		if checkAddr(s, s.af, m.Src, false) {
-			fn(ctx, m, w)
+func (s *asker) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
+	var done bool
+	for !done {
+		err := s.SecureAskSwarm.ServeAsk(ctx, func(resp []byte, m p2p.Message) int {
+			if !checkAddr(s, s.af, m.Src, false) {
+				return 0
+			}
+			done = true
+			return fn(resp, m)
+		})
+		if err != nil {
+			return err
 		}
-	})
+	}
+	return nil
 }
 
 // checkAddr is called inside TellHandler

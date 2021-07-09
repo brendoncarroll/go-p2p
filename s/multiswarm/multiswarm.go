@@ -2,9 +2,9 @@ package multiswarm
 
 import (
 	"context"
-	"io"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 )
@@ -16,62 +16,86 @@ var (
 )
 
 func NewSwarm(m map[string]p2p.Swarm) p2p.Swarm {
-	return multiSwarm(m)
+	ms := newSwarm(m)
+	go ms.recvLoops(context.Background())
+	return ms
 }
 
 func NewSecure(m map[string]p2p.SecureSwarm) p2p.SecureSwarm {
-	ms := multiSwarm{}
+	ms := newSwarm(map[string]p2p.Swarm{})
 	msec := multiSecure{}
-
 	for name, s := range m {
-		ms[name] = s
 		msec[name] = s
+		ms.swarms[name] = s
 	}
+	go ms.recvLoops(context.Background())
 	return p2p.ComposeSecureSwarm(ms, msec)
 }
 
 func NewSecureAsk(m map[string]p2p.SecureAskSwarm) p2p.SecureAskSwarm {
-	ms := multiSwarm{}
-	ma := multiAsker{}
+	ms := newSwarm(map[string]p2p.Swarm{})
+	ma := newAsker(map[string]p2p.Asker{})
 	msec := multiSecure{}
 
 	for name, s := range m {
-		ms[name] = s
-		ma[name] = s
+		ms.swarms[name] = s
+		ma.swarms[name] = s
 		msec[name] = s
 	}
-
+	ctx := context.Background()
+	go ms.recvLoops(ctx)
+	go ma.serveLoops(ctx)
 	return p2p.ComposeSecureAskSwarm(ms, ma, msec)
 }
 
-type multiSwarm map[string]p2p.Swarm
+type multiSwarm struct {
+	swarms map[string]p2p.Swarm
+	tells  *swarmutil.TellHub
+}
+
+func newSwarm(m map[string]p2p.Swarm) multiSwarm {
+	s := multiSwarm{
+		swarms: m,
+		tells:  swarmutil.NewTellHub(),
+	}
+	return s
+}
 
 func (mt multiSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	dst := addr.(Addr)
-	t, ok := mt[dst.Transport]
+	t, ok := mt.swarms[dst.Transport]
 	if !ok {
 		return ErrTransportNotExist
 	}
 	return t.Tell(ctx, dst.Addr, data)
 }
 
-func (mt multiSwarm) ServeTells(fn p2p.TellHandler) error {
+func (mt multiSwarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return mt.tells.Recv(ctx, src, dst, buf)
+}
+
+func (mt multiSwarm) recvLoops(ctx context.Context) error {
 	eg := errgroup.Group{}
-	for tname, t := range mt {
+	for tname, t := range mt.swarms {
 		tname := tname
 		t := t
 		eg.Go(func() error {
-			return t.ServeTells(func(msg *p2p.Message) {
-				msg.Src = Addr{
-					Transport: tname,
-					Addr:      msg.Src,
+			buf := make([]byte, t.MaxIncomingSize())
+			for {
+				var src, dst p2p.Addr
+				n, err := t.Recv(ctx, &src, &dst, buf)
+				if err != nil {
+					return err
 				}
-				msg.Dst = Addr{
-					Transport: tname,
-					Addr:      msg.Dst,
+				msg := p2p.Message{
+					Src:     Addr{Transport: tname, Addr: src},
+					Dst:     Addr{Transport: tname, Addr: dst},
+					Payload: buf[:n],
 				}
-				fn(msg)
-			})
+				if err := mt.tells.Deliver(ctx, msg); err != nil {
+					return err
+				}
+			}
 		})
 	}
 	return eg.Wait()
@@ -79,16 +103,27 @@ func (mt multiSwarm) ServeTells(fn p2p.TellHandler) error {
 
 func (mt multiSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
 	dst := addr.(Addr)
-	t, ok := mt[dst.Transport]
+	t, ok := mt.swarms[dst.Transport]
 	if !ok {
 		return -1
 	}
 	return t.MTU(ctx, dst.Addr)
 }
 
+func (mt multiSwarm) MaxIncomingSize() int {
+	var max int
+	for _, t := range mt.swarms {
+		x := t.MaxIncomingSize()
+		if x > max {
+			max = x
+		}
+	}
+	return max
+}
+
 func (mt multiSwarm) LocalAddrs() []p2p.Addr {
 	ret := []p2p.Addr{}
-	for tname, t := range mt {
+	for tname, t := range mt.swarms {
 		for _, addr := range t.LocalAddrs() {
 			a := Addr{
 				Transport: tname,
@@ -102,33 +137,49 @@ func (mt multiSwarm) LocalAddrs() []p2p.Addr {
 
 func (mt multiSwarm) Close() error {
 	var err error
-	for _, t := range mt {
+	for _, t := range mt.swarms {
 		if err2 := t.Close(); err2 != nil {
 			err = err2
 			log.Error(err2)
 		}
 	}
+	mt.tells.CloseWithError(errors.New("swarm closed"))
 	return err
 }
 
-type multiAsker map[string]p2p.Asker
-
-func (ma multiAsker) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
-	dst := addr.(Addr)
-	t, ok := ma[dst.Transport]
-	if !ok {
-		return nil, ErrTransportNotExist
-	}
-	return t.Ask(ctx, dst.Addr, data)
+type multiAsker struct {
+	swarms map[string]p2p.Asker
+	asks   *swarmutil.AskHub
 }
 
-func (ma multiAsker) ServeAsks(fn p2p.AskHandler) error {
+func newAsker(m map[string]p2p.Asker) multiAsker {
+	ma := multiAsker{
+		swarms: m,
+		asks:   swarmutil.NewAskHub(),
+	}
+	return ma
+}
+
+func (ma multiAsker) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {
+	dst := addr.(Addr)
+	t, ok := ma.swarms[dst.Transport]
+	if !ok {
+		return 0, ErrTransportNotExist
+	}
+	return t.Ask(ctx, resp, dst.Addr, data)
+}
+
+func (ma multiAsker) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
+	return ma.asks.ServeAsk(ctx, fn)
+}
+
+func (ma multiAsker) serveLoops(ctx context.Context) error {
 	eg := errgroup.Group{}
-	for tname, t := range ma {
+	for tname, t := range ma.swarms {
 		tname := tname
 		t := t
 		eg.Go(func() error {
-			return t.ServeAsks(func(ctx context.Context, msg *p2p.Message, w io.Writer) {
+			return t.ServeAsk(ctx, func(reqData []byte, msg p2p.Message) int {
 				msg.Src = Addr{
 					Transport: tname,
 					Addr:      msg.Src,
@@ -137,7 +188,11 @@ func (ma multiAsker) ServeAsks(fn p2p.AskHandler) error {
 					Transport: tname,
 					Addr:      msg.Dst,
 				}
-				fn(ctx, msg, w)
+				n, err := ma.asks.Deliver(ctx, reqData, msg)
+				if err != nil {
+					return 0
+				}
+				return n
 			})
 		})
 	}

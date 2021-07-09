@@ -3,45 +3,47 @@ package swarmtest
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	mrand "math/rand"
 	"testing"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 )
 
-func TestSuiteSwarm(t *testing.T, newSwarms func(testing.TB, int) []p2p.Swarm) {
-	t.Run("TestLocalAddrs", func(t *testing.T) {
-		xs := newSwarms(t, 1)
+// TestSwarm runs a suite of tests to ensure a Swarm exhibits the correct behaviors
+// newSwarms should fill the passed slice with swarms which can communicate with one another,
+// and register any cleanup on the provided testing.TB
+func TestSwarm(t *testing.T, newSwarms func(testing.TB, []p2p.Swarm)) {
+	t.Run("LocalAddrs", func(t *testing.T) {
+		xs := make([]p2p.Swarm, 1)
+		newSwarms(t, xs)
 		x := xs[0]
 		TestLocalAddrs(t, x)
 	})
-	t.Run("TestMarshalParse", func(t *testing.T) {
-		xs := newSwarms(t, 1)
+	t.Run("MarshalParse", func(t *testing.T) {
+		xs := make([]p2p.Swarm, 1)
+		newSwarms(t, xs)
 		x := xs[0]
 		TestMarshalParse(t, x)
 	})
-	t.Run("TestTell", func(t *testing.T) {
-		xs := newSwarms(t, 10)
-		require.Len(t, xs, 10)
+	t.Run("SingleTell", func(t *testing.T) {
+		xs := make([]p2p.Swarm, 2)
+		newSwarms(t, xs)
+		TestTell(t, xs[0], xs[1])
+	})
+	t.Run("Tell", func(t *testing.T) {
+		xs := make([]p2p.Swarm, 10)
+		newSwarms(t, xs)
 		TestTellAllPairs(t, xs)
 	})
-	t.Run("TestTellBidirectional", func(t *testing.T) {
-		xs := newSwarms(t, 2)
+	t.Run("TellBidirectional", func(t *testing.T) {
+		xs := make([]p2p.Swarm, 2)
+		newSwarms(t, xs)
 		a, b := xs[0], xs[1]
-		aQueue, bQueue := swarmutil.NewTellQueue(), swarmutil.NewTellQueue()
-		go a.ServeTells(func(msg *p2p.Message) {
-			aQueue.DeliverTell(msg)
-		})
-		go b.ServeTells(func(msg *p2p.Message) {
-			bQueue.DeliverTell(msg)
-		})
-		TestTellBidirectional(t, a, b, aQueue, bQueue)
+		TestTellBidirectional(t, a, b)
 	})
 }
 
@@ -60,59 +62,44 @@ func TestMarshalParse(t *testing.T, s p2p.Swarm) {
 }
 
 func TestTellAllPairs(t *testing.T, xs []p2p.Swarm) {
-	recv := makeChans(xs)
 	for i := range xs {
 		for j := range xs {
 			if j != i {
-				dst := xs[j].LocalAddrs()[0]
-				testTell(t, xs[i], dst, recv[j])
+				TestTell(t, xs[i], xs[j])
 			}
 		}
 	}
 }
 
-func makeChans(xs []p2p.Swarm) []chan p2p.Message {
-	recv := make([]chan p2p.Message, len(xs))
-	for i := range xs {
-		i := i
-		recv[i] = make(chan p2p.Message, 1)
-		go xs[i].ServeTells(func(msg *p2p.Message) {
-			recv[i] <- copyMessage(msg)
-		})
-	}
-	return recv
-}
-
-func testTell(t *testing.T, src p2p.Swarm, dstAddr p2p.Addr, recvChan chan p2p.Message) {
-	ctx := context.Background()
+func TestTell(t *testing.T, src, dst p2p.Swarm) {
+	ctx, cf := context.WithTimeout(context.Background(), time.Second)
+	defer cf()
 	payload := genPayload()
-	require.NoError(t, src.Tell(ctx, dstAddr, p2p.IOVec{payload}))
-
+	dstAddr := dst.LocalAddrs()[0]
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		return src.Tell(ctx, dstAddr, p2p.IOVec{payload})
+	})
 	var recv p2p.Message
-	select {
-	case <-ctx.Done():
-		t.Error("timeout waiting for tell")
-	case recv = <-recvChan:
-	}
-
+	eg.Go(func() error {
+		var err error
+		recv, err = readMessage(ctx, dst)
+		return err
+	})
+	require.NoError(t, eg.Wait())
 	assert.Equal(t, string(payload), string(recv.Payload))
 	assert.Equal(t, dstAddr, recv.Dst, "DST addr incorrect. HAVE: %v WANT: %v", recv.Dst, dstAddr)
 	assert.NotNil(t, recv.Src, "SRC addr is nil")
 }
 
-func TestTellBidirectional(t *testing.T, a, b p2p.Swarm, aQueue, bQueue *swarmutil.TellQueue) {
+func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
 	const N = 50
 	ctx, cf := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cf()
 
-	aInbox := make(chan p2p.Message, N)
-	bInbox := make(chan p2p.Message, N)
-	go copyTells(ctx, aInbox, aQueue)
-	go copyTells(ctx, bInbox, bQueue)
-
 	eg := errgroup.Group{}
 	sleepRandom := func() {
-		dur := time.Millisecond * time.Duration(1+rand.Intn(10)-5)
+		dur := time.Millisecond * time.Duration(1+mrand.Intn(10)-5)
 		time.Sleep(dur)
 	}
 	eg.Go(func() error {
@@ -135,26 +122,31 @@ func TestTellBidirectional(t *testing.T, a, b p2p.Swarm, aQueue, bQueue *swarmut
 		}
 		return nil
 	})
-	require.Nil(t, eg.Wait())
-	passN := N * 3 / 4
-	aSlice := collectChan(ctx, N, aInbox)
-	bSlice := collectChan(ctx, N, bInbox)
-	t.Log("a inbox: ", len(aSlice))
-	t.Log("b inbox: ", len(bSlice))
-	assert.GreaterOrEqual(t, len(aSlice), passN)
-	assert.GreaterOrEqual(t, len(bSlice), passN)
-}
-
-func collectChan(ctx context.Context, N int, ch chan p2p.Message) (ret []p2p.Message) {
-	for i := 0; i < N; i++ {
-		select {
-		case <-ctx.Done():
-			return ret
-		case x := <-ch:
-			ret = append(ret, x)
+	aInbox := []p2p.Message{}
+	bInbox := []p2p.Message{}
+	readIntoMailbox := func(s p2p.Swarm, inbox *[]p2p.Message) error {
+		for i := 0; i < N; i++ {
+			msg, err := readMessage(ctx, s)
+			if err != nil {
+				return err
+			}
+			*inbox = append(*inbox, msg)
 		}
+		return nil
 	}
-	return ret
+	eg.Go(func() error {
+		return readIntoMailbox(a, &aInbox)
+	})
+	eg.Go(func() error {
+		return readIntoMailbox(b, &bInbox)
+	})
+	require.Nil(t, eg.Wait())
+
+	passN := N * 3 / 4
+	t.Log("a inbox: ", len(aInbox))
+	t.Log("b inbox: ", len(bInbox))
+	assert.GreaterOrEqual(t, len(aInbox), passN)
+	assert.GreaterOrEqual(t, len(bInbox), passN)
 }
 
 func genPayload() []byte {
@@ -180,20 +172,16 @@ func CloseSecureSwarms(t testing.TB, xs []p2p.SecureSwarm) {
 	}
 }
 
-func copyMessage(x *p2p.Message) p2p.Message {
+func readMessage(ctx context.Context, s p2p.Swarm) (p2p.Message, error) {
+	var src, dst p2p.Addr
+	buf := make([]byte, s.MaxIncomingSize())
+	n, err := s.Recv(ctx, &src, &dst, buf)
+	if err != nil {
+		return p2p.Message{}, nil
+	}
 	return p2p.Message{
-		Dst:     x.Dst,
-		Src:     x.Src,
-		Payload: append([]byte{}, x.Payload...),
-	}
-}
-
-func copyTells(ctx context.Context, ch chan p2p.Message, q *swarmutil.TellQueue) {
-	for {
-		if err := q.ServeTell(ctx, func(m *p2p.Message) {
-			ch <- copyMessage(m)
-		}); err != nil {
-			return
-		}
-	}
+		Src:     src,
+		Dst:     dst,
+		Payload: buf[:n],
+	}, nil
 }

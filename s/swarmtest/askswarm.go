@@ -2,70 +2,76 @@ package swarmtest
 
 import (
 	"context"
-	"io"
 	"math/rand"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
-func TestSuiteAskSwarm(t *testing.T, newSwarms func(testing.TB, int) []p2p.AskSwarm) {
+// TestAskSwarm runs a test suite on AskSwarms to ensure they implement p2p.AskSwarm correctly
+func TestAskSwarm(t *testing.T, newSwarms func(testing.TB, []p2p.AskSwarm)) {
+	t.Run("SingleAsk", func(t *testing.T) {
+		xs := make([]p2p.AskSwarm, 2)
+		newSwarms(t, xs)
+		TestAsk(t, xs[0], xs[1])
+	})
 	t.Run("MultipleAsks", func(t *testing.T) {
-		xs := newSwarms(t, 10)
-		require.Len(t, xs, 10)
+		xs := make([]p2p.AskSwarm, 10)
+		newSwarms(t, xs)
 		TestMultipleAsks(t, xs)
 	})
 }
 
 func TestMultipleAsks(t *testing.T, xs []p2p.AskSwarm) {
 	const N = 100
-	queues := make([]*swarmutil.AskQueue, len(xs))
-	for i := range xs {
-		i := i
-		queues[i] = swarmutil.NewAskQueue()
-		go xs[i].ServeAsks(func(ctx context.Context, msg *p2p.Message, w io.Writer) {
-			queues[i].DeliverAsk(ctx, msg, w)
-		})
-	}
 	for i := 0; i < N; i++ {
-		TestAsk(t, xs, queues)
+		TestAskAll(t, xs)
 	}
 }
 
-func TestAsk(t *testing.T, xs []p2p.AskSwarm, queues []*swarmutil.AskQueue) {
-	ctx := context.Background()
+func TestAskAll(t *testing.T, xs []p2p.AskSwarm) {
 	for _, i := range rand.Perm(len(xs)) {
 		for _, j := range rand.Perm(len(xs)) {
-			if i != j {
-				func() {
-					srcAddr := xs[i].LocalAddrs()[0]
-					dstAddr := xs[j].LocalAddrs()[0]
-					ctx, cf := context.WithTimeout(ctx, 5*time.Second)
-					defer cf()
-					mu := sync.Mutex{}
-					gotAsk := false
-
-					go queues[j].ServeAsk(ctx, func(ctx context.Context, msg *p2p.Message, w io.Writer) {
-						assert.Equal(t, "ping", string(msg.Payload))
-						_, err := w.Write([]byte("pong"))
-						require.Nil(t, err)
-						mu.Lock()
-						gotAsk = true
-						mu.Unlock()
-					})
-					reply, err := xs[i].Ask(ctx, xs[j].LocalAddrs()[0], p2p.IOVec{[]byte("ping")})
-					require.Nil(t, err, "error in Ask %v -> %v", srcAddr, dstAddr)
-					require.Equal(t, "pong", string(reply))
-					mu.Lock()
-					defer mu.Unlock()
-					require.True(t, gotAsk)
-				}()
+			if i == j {
+				continue
 			}
+			TestAsk(t, xs[i], xs[j])
 		}
 	}
+}
+
+func TestAsk(t *testing.T, src, dst p2p.AskSwarm) {
+	ctx := context.Background()
+	ctx, cf := context.WithTimeout(ctx, 3*time.Second)
+	defer cf()
+
+	dstAddr := dst.LocalAddrs()[0]
+
+	eg := errgroup.Group{}
+	actualRespData := make([]byte, src.MTU(ctx, dstAddr))
+	eg.Go(func() error {
+		reqData := []byte("ping")
+		n, err := src.Ask(ctx, actualRespData, dstAddr, p2p.IOVec{reqData})
+		actualRespData = actualRespData[:n]
+		return err
+	})
+	var actualReqDst p2p.Addr
+	var actualReqData []byte
+	eg.Go(func() error {
+		respData := []byte("pong")
+		return dst.ServeAsk(ctx, func(resp []byte, req p2p.Message) int {
+			actualReqDst = req.Dst
+			actualReqData = append([]byte{}, req.Payload...)
+			return copy(resp, respData)
+		})
+	})
+	require.NoError(t, eg.Wait())
+
+	assert.Equal(t, "ping", string(actualReqData))
+	assert.Equal(t, dstAddr, actualReqDst)
+	assert.Equal(t, "pong", string(actualRespData))
 }

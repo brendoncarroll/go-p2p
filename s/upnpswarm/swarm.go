@@ -46,12 +46,16 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return s.inner.Tell(ctx, addr, data)
 }
 
-func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
-	return s.inner.ServeTells(fn)
+func (s *Swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return s.inner.Recv(ctx, src, dst, buf)
 }
 
 func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
 	return s.inner.MTU(ctx, addr)
+}
+
+func (s *Swarm) MaxIncomingSize() int {
+	return s.inner.MaxIncomingSize()
 }
 
 func (s *Swarm) LocalAddrs() []p2p.Addr {
@@ -76,20 +80,24 @@ func (s *AskSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) erro
 	return s.inner.Tell(ctx, addr, data)
 }
 
-func (s *AskSwarm) ServeTells(fn p2p.TellHandler) error {
-	return s.inner.ServeTells(fn)
+func (s *AskSwarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return s.inner.Recv(ctx, src, dst, buf)
 }
 
-func (s *AskSwarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
-	return s.inner.Ask(ctx, addr, data)
+func (s *AskSwarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {
+	return s.inner.Ask(ctx, resp, addr, data)
 }
 
-func (s *AskSwarm) ServeAsks(fn p2p.AskHandler) error {
-	return s.inner.ServeAsks(fn)
+func (s *AskSwarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
+	return s.inner.ServeAsk(ctx, fn)
 }
 
 func (s *AskSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
 	return s.inner.MTU(ctx, addr)
+}
+
+func (s *AskSwarm) MaxIncomingSize() int {
+	return s.inner.MaxIncomingSize()
 }
 
 func (s *AskSwarm) LocalAddrs() []p2p.Addr {

@@ -1,7 +1,6 @@
 package quicswarm
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
@@ -35,8 +34,8 @@ type Swarm struct {
 	mu        sync.RWMutex
 	sessCache map[sessionKey]quic.Session
 
-	tellHub *swarmutil.TellHub
-	askHub  *swarmutil.AskHub
+	tells *swarmutil.TellHub
+	asks  *swarmutil.AskHub
 }
 
 func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
@@ -62,19 +61,11 @@ func New(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
 		cf:      cf,
 
 		sessCache: map[sessionKey]quic.Session{},
-		tellHub:   swarmutil.NewTellHub(),
-		askHub:    swarmutil.NewAskHub(),
+		tells:     swarmutil.NewTellHub(),
+		asks:      swarmutil.NewAskHub(),
 	}
 	go s.serve(ctx)
 	return s, nil
-}
-
-func (s *Swarm) ServeTells(fn p2p.TellHandler) error {
-	return s.tellHub.ServeTells(fn)
-}
-
-func (s *Swarm) ServeAsks(fn p2p.AskHandler) error {
-	return s.askHub.ServeAsks(fn)
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
@@ -103,15 +94,19 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return err
 }
 
-func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte, error) {
+func (s *Swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return s.tells.Recv(ctx, src, dst, buf)
+}
+
+func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {
 	dst := addr.(*Addr)
 	if len(data) > s.mtu {
-		return nil, p2p.ErrMTUExceeded
+		return 0, p2p.ErrMTUExceeded
 	}
 	log := log.WithFields(logrus.Fields{
 		"remote_addr": dst,
 	})
-	var respData []byte
+	var n int
 	if err := s.withSession(ctx, dst, func(sess quic.Session) error {
 		// stream
 		stream, err := sess.OpenStreamSync(ctx)
@@ -135,21 +130,21 @@ func (s *Swarm) Ask(ctx context.Context, addr p2p.Addr, data p2p.IOVec) ([]byte,
 			return err
 		}
 		log.Debug("ask request sent")
-		data, err := readFrame(stream, s.mtu)
-		if err != nil {
-			return err
-		}
-		respData = data
-		return nil
+		n, err = readFrame(stream, resp, s.mtu)
+		return err
 	}); err != nil {
-		return nil, err
+		return 0, err
 	}
-	return respData, nil
+	return n, nil
+}
+
+func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
+	return s.asks.ServeAsk(ctx, fn)
 }
 
 func (s *Swarm) Close() (retErr error) {
-	s.tellHub.CloseWithError(p2p.ErrSwarmClosed)
-	s.askHub.CloseWithError(p2p.ErrSwarmClosed)
+	s.tells.CloseWithError(p2p.ErrSwarmClosed)
+	s.asks.CloseWithError(p2p.ErrSwarmClosed)
 	s.cf()
 	if err := s.l.Close(); retErr == nil {
 		retErr = err
@@ -166,6 +161,10 @@ func (s *Swarm) LocalAddrs() []p2p.Addr {
 }
 
 func (s *Swarm) MTU(context.Context, p2p.Addr) int {
+	return s.mtu
+}
+
+func (s *Swarm) MaxIncomingSize() int {
 	return s.mtu
 }
 
@@ -284,20 +283,23 @@ func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr *Addr
 
 func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstAddr *Addr) error {
 	log := log.WithFields(logrus.Fields{"remote_addr": *srcAddr})
-	data, err := readFrame(stream, s.mtu)
+	reqData := make([]byte, s.mtu)
+	n, err := readFrame(stream, reqData, s.mtu)
 	if err != nil {
 		return err
 	}
-	log.Debugf("received ask request len=%d", len(data))
-	m := &p2p.Message{
+	log.Debugf("received ask request len=%d", n)
+	m := p2p.Message{
 		Dst:     dstAddr,
 		Src:     srcAddr,
-		Payload: data,
+		Payload: reqData[:n],
 	}
-	respBuf := &bytes.Buffer{}
-	w := &swarmutil.LimitWriter{W: respBuf, N: s.mtu}
-	s.askHub.DeliverAsk(ctx, m, w)
-	if err := writeFrame(stream, p2p.IOVec{respBuf.Bytes()}); err != nil {
+	respBuf := make([]byte, s.mtu)
+	n, err = s.asks.Deliver(ctx, respBuf, m)
+	if err != nil {
+		return err
+	}
+	if err := writeFrame(stream, p2p.IOVec{respBuf[:n]}); err != nil {
 		return err
 	}
 	return stream.Close()
@@ -316,12 +318,14 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr *Add
 				log.Error(err)
 				return
 			}
-			m := &p2p.Message{
+			m := p2p.Message{
 				Dst:     s.makeLocalAddr(sess.LocalAddr()),
 				Src:     srcAddr,
 				Payload: data,
 			}
-			s.tellHub.DeliverTell(m)
+			if err := s.tells.Deliver(ctx, m); err != nil {
+				log.Errorf("during tell delivery: %v", err)
+			}
 		}()
 	}
 }
@@ -392,13 +396,16 @@ func writeFrame(w io.Writer, data p2p.IOVec) error {
 	return err
 }
 
-func readFrame(src io.Reader, maxLen int) ([]byte, error) {
+func readFrame(src io.Reader, dst []byte, maxLen int) (int, error) {
 	var l uint32
 	binary.Read(src, binary.BigEndian, &l)
 	if int(l) > maxLen {
-		return nil, errors.New("frame is too big")
+		return 0, errors.New("frame is too big")
 	}
-	return ioutil.ReadAll(io.LimitReader(src, int64(l)))
+	if len(dst) < int(l) {
+		return 0, io.ErrShortBuffer
+	}
+	return io.ReadFull(src, dst[:l])
 }
 
 func quicErr(err error) error {

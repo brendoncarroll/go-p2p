@@ -11,11 +11,10 @@ import (
 
 func TestMultiSwarm(t *testing.T) {
 	t.Parallel()
-	swarmtest.TestSuiteSwarm(t, func(t testing.TB, n int) []p2p.Swarm {
+	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
 		r1 := memswarm.NewRealm()
 		r2 := memswarm.NewRealm()
 
-		xs := make([]p2p.Swarm, n)
 		for i := range xs {
 			privKey := p2ptest.NewTestKey(t, i)
 			m := map[string]p2p.SecureAskSwarm{
@@ -28,6 +27,5 @@ func TestMultiSwarm(t *testing.T) {
 		t.Cleanup(func() {
 			swarmtest.CloseSwarms(t, xs)
 		})
-		return xs
 	})
 }
