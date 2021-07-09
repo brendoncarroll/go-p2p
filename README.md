@@ -18,7 +18,7 @@ The core abstraction is the `Swarm`. Which represents a group of nodes which can
 
 ```
 type Swarm interface {
-    Tell(ctx context.Context, addr Addr, data []byte) error
+    Tell(ctx context.Context, dst Addr, data []byte) error
     Recv(ctx context.Context, src, dst, *Addr, buf []byte) (int, error)
 
     ParseAddr(data []byte) (Addr, error)
@@ -78,17 +78,13 @@ A swarm which transfers data to other swarms in memory. Useful for testing.
 Creates a multiplexed addressed space using names given to each subswarm.
 Applications can use this to "future-proof" their transport layer.
 
-- **Noise Swarm**
-A secure higher order swarm.
-It secures messages using the Noise Protocol Framework's NN handshake.
-It can run on top of any other swarm.
-
 - **Peer Swarm**
 A swarm that uses PeerIDs as addresses.
 It requires an underlying swarm, and a function that maps PeerIDs to addresses.
 
 - **QUIC Swarm**
-A secure swarm supporting `Asks` built on the QUIC protocol (UDP based).
+A secure swarm supporting `Asks` built on the QUIC protocol.
+It can wrap any other `p2p.Swarm`, and provide a `p2p.SecureAskSwarm`
 
 - **SSH Swarm**
 A secure swarm supporting `Asks` built on the SSH protocol (TCP based).

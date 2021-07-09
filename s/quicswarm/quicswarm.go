@@ -27,13 +27,12 @@ var log = p2p.Logger
 var _ p2p.SecureAskSwarm = &Swarm{}
 
 type Swarm struct {
-	inner     p2p.Swarm
-	mtu       int
-	privKey   p2p.PrivateKey
-	pconn     net.PacketConn
-	tlsConfig *tls.Config
-	l         quic.Listener
-	cf        context.CancelFunc
+	inner   p2p.Swarm
+	mtu     int
+	privKey p2p.PrivateKey
+	pconn   net.PacketConn
+	l       quic.Listener
+	cf      context.CancelFunc
 
 	mu        sync.RWMutex
 	sessCache map[sessionKey]quic.Session
@@ -42,7 +41,7 @@ type Swarm struct {
 	asks  *swarmutil.AskHub
 }
 
-func NewUDP(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
+func NewOnUDP(laddr string, privKey p2p.PrivateKey) (*Swarm, error) {
 	x, err := udpswarm.New(laddr)
 	if err != nil {
 		return nil, err
@@ -60,13 +59,12 @@ func New(x p2p.Swarm, privKey p2p.PrivateKey) (*Swarm, error) {
 	}
 	ctx, cf := context.WithCancel(context.Background())
 	s := &Swarm{
-		inner:     x,
-		mtu:       DefaultMTU,
-		pconn:     pconn,
-		tlsConfig: tlsConfig,
-		l:         l,
-		privKey:   privKey,
-		cf:        cf,
+		inner:   x,
+		mtu:     DefaultMTU,
+		pconn:   pconn,
+		l:       l,
+		privKey: privKey,
+		cf:      cf,
 
 		sessCache: map[sessionKey]quic.Session{},
 		tells:     swarmutil.NewTellHub(),

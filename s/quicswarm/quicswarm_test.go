@@ -12,7 +12,6 @@ import (
 )
 
 func testSwarm(t *testing.T, baseSwarms func(testing.TB, []p2p.Swarm)) {
-	t.Parallel()
 	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
 		ss := make([]p2p.Swarm, len(xs))
 		baseSwarms(t, ss)
@@ -49,6 +48,7 @@ func testSwarm(t *testing.T, baseSwarms func(testing.TB, []p2p.Swarm)) {
 }
 
 func TestOnUDP(t *testing.T) {
+	t.Parallel()
 	testSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
 		for i := range xs {
 			var err error
@@ -59,6 +59,7 @@ func TestOnUDP(t *testing.T) {
 }
 
 func TestOnMem(t *testing.T) {
+	t.Parallel()
 	testSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
 		var opts []memswarm.Option
 		// opts = append(opts, memswarm.WithLogging(os.Stdout))
