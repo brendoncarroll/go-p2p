@@ -13,5 +13,5 @@ type Swarm interface {
 
 type AskSwarm interface {
 	p2p.SecureAskSwarm
-	AskPeer(ctx context.Context, dst p2p.PeerID, data p2p.IOVec) ([]byte, error)
+	AskPeer(ctx context.Context, resp []byte, dst p2p.PeerID, data p2p.IOVec) (int, error)
 }

@@ -48,7 +48,10 @@ func (c *packetConn) ReadFrom(p []byte) (n int, from net.Addr, err error) {
 }
 
 func (c *packetConn) LocalAddr() net.Addr {
-	return Addr{Addr: c.swarm.LocalAddrs()[0], Swarm: c.swarm}
+	return Addr{
+		Addr:  c.swarm.LocalAddrs()[0],
+		Swarm: c.swarm,
+	}
 }
 
 func (c *packetConn) SetDeadline(t time.Time) error {
