@@ -80,11 +80,13 @@ func newMuxCore(swarm p2p.Swarm, mf muxFunc, dmf demuxFunc) *muxCore {
 			log.Error(err)
 		}
 	}()
-	go func() {
-		if err := mc.serveLoop(ctx); err != nil && err != p2p.ErrSwarmClosed {
-			log.Error(err)
-		}
-	}()
+	if mc.asker != nil {
+		go func() {
+			if err := mc.serveLoop(ctx); err != nil && err != p2p.ErrSwarmClosed {
+				log.Error(err)
+			}
+		}()
+	}
 	return mc
 }
 
