@@ -291,7 +291,7 @@ func makeMessage(c ChannelID, data p2p.IOVec) p2p.IOVec {
 func readMessage(data []byte) (ChannelID, []byte, error) {
 	c, n := binary.Uvarint(data)
 	if n < 1 {
-		return 0, nil, errors.Errorf("intmux: could not read message")
+		return 0, nil, errors.Errorf("intmux: could not read message %q", data)
 	}
 	return c, data[n:], nil
 }
