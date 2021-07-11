@@ -106,6 +106,9 @@ The `swarmutil` package contains utilities for writing `Swarms` and a test suite
 
 The utility of this library is determined entirely by how easily well-known p2p algorithms can be built and composed using it's primitives.
 
+- **Chord**
+A package for the Chord protocol.  Provides functions for computing distance.
+
 - **Kademlia**
 A package with a DHT, overlay network, and cache is in the works.  Right now a cache that evicts keys distant in XOR space is available.
 
