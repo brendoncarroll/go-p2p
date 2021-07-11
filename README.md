@@ -109,16 +109,9 @@ The utility of this library is determined entirely by how easily well-known p2p 
 - **Kademlia**
 A package with a DHT, overlay network, and cache is in the works.  Right now a cache that evicts keys distant in XOR space is available.
 
-- **Integer Multiplexing**
-This is the simplest possible multiplexing scheme, it does not support asking, and prepends an integer, encoded as a varint to the message.
-
-- **String Multiplexing**
-Another very simple multiplexing scheme.  It prepends a length prefixed string to the message.
-
-- **Dynamic Multiplexing**
-A service which multiplexes multiple logical swarms, over the same underlying transport swarm.
-Each multiplexed swarm is identified by a string, and a registry of multiplexed swarms is used to map each to an integer.
-This makes for a good application platform, as it is possible to add and remove services.  Only services with the same name will be able to send messages to one another.
+- **Multiplexing**
+Multiplexing creates multiple logical swarms on top of a single swarm.
+The `p2pmux` package provides string and integer multiplexers.
 
 ## PKI
 A `PeerID` type is provided to be used as the hash of public keys, for identifying peers.
