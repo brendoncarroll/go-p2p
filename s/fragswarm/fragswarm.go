@@ -103,9 +103,9 @@ func (s *swarm) recvLoop(ctx context.Context) error {
 	N := runtime.GOMAXPROCS(0)
 	for i := 0; i < N; i++ {
 		eg.Go(func() error {
+			buf := make([]byte, s.Swarm.MaxIncomingSize())
 			for {
 				var src, dst p2p.Addr
-				buf := make([]byte, s.Swarm.MaxIncomingSize())
 				n, err := s.Swarm.Recv(ctx, &src, &dst, buf)
 				if err != nil {
 					return err
@@ -188,7 +188,7 @@ func (s *swarm) cleanup() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
-	cutoff := now.Add(-5 * time.Second)
+	cutoff := now.Add(-10 * time.Second)
 	for k, a := range s.aggs {
 		if a.createdAt.Before(cutoff) {
 			delete(s.aggs, k)

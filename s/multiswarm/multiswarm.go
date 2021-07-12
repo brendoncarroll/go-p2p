@@ -143,7 +143,7 @@ func (mt multiSwarm) Close() error {
 			log.Error(err2)
 		}
 	}
-	mt.tells.CloseWithError(errors.New("swarm closed"))
+	mt.tells.CloseWithError(p2p.ErrSwarmClosed)
 	return err
 }
 

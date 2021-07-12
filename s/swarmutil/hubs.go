@@ -144,8 +144,9 @@ type recvReq struct {
 type AskHub struct {
 	reqs chan *serveReq
 
-	closed chan struct{}
-	err    error
+	closeOnce sync.Once
+	closed    chan struct{}
+	err       error
 }
 
 func NewAskHub() *AskHub {
@@ -200,8 +201,10 @@ func (q *AskHub) checkClosed() error {
 }
 
 func (q *AskHub) CloseWithError(err error) {
-	q.err = err
-	close(q.closed)
+	q.closeOnce.Do(func() {
+		q.err = err
+		close(q.closed)
+	})
 }
 
 type serveReq struct {

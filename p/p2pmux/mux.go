@@ -246,9 +246,9 @@ func (ms *muxedSwarm) Close() error {
 	ms.mu.Lock()
 	ms.isClosed = true
 	ms.mu.Unlock()
+	ms.m.deleteSwarm(ms.cid)
 	ms.tellHub.CloseWithError(p2p.ErrSwarmClosed)
 	ms.askHub.CloseWithError(p2p.ErrSwarmClosed)
-	ms.m.deleteSwarm(ms.cid)
 	return nil
 }
 
