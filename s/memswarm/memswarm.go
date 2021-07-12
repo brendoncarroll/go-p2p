@@ -153,7 +153,11 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 		logrus.Warnf("swarm %v does not exist in same memswarm.Realm", a.N)
 		return nil
 	}
-	s2.tells.Deliver(ctx, msg)
+	ctx, cf := context.WithTimeout(ctx, 3*time.Second)
+	defer cf()
+	if err := s2.tells.Deliver(ctx, msg); err != nil {
+		logrus.Warnf("error delivering tell %v -> %v: %v", s.n, a.N, err)
+	}
 	return nil
 }
 
