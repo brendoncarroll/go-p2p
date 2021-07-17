@@ -171,12 +171,12 @@ func (q *AskHub) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
 		return ctx.Err()
 	case q.reqs <- req:
 	}
+	// at this point we are committed
 	select {
-	case <-ctx.Done():
-		// TODO: fn could still be called if we return here
-		return ctx.Err()
 	case <-req.done:
 		return nil
+	case <-q.closed:
+		return q.err
 	}
 }
 

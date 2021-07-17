@@ -2,11 +2,10 @@ package multiswarm
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
 	"regexp"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/pkg/errors"
 )
 
 var _ p2p.UnwrapAddr = Addr{}
@@ -51,25 +50,47 @@ func (a Addr) MarshalText() ([]byte, error) {
 
 var addrRe = regexp.MustCompile(`^(.+?)://(.+)$`)
 
-func (ms multiSwarm) ParseAddr(data []byte) (p2p.Addr, error) {
-	addr := Addr{}
-	groups := addrRe.FindSubmatch(data)
+type parserFunc = func([]byte) (p2p.Addr, error)
+
+// AddrSchema is an address scheme for parsing addresses from multiple swarms
+type AddrSchema struct {
+	parsers map[string]parserFunc
+}
+
+func NewSchemaFromSwarms(sws map[string]p2p.Swarm) AddrSchema {
+	parsers := make(map[string]parserFunc, len(sws))
+	for k, sw := range sws {
+		parsers[k] = sw.ParseAddr
+	}
+	return AddrSchema{
+		parsers: parsers,
+	}
+}
+
+func NewSchemaFromSecureSwarms(sws map[string]p2p.SecureSwarm) AddrSchema {
+	sws2 := make(map[string]p2p.Swarm, len(sws))
+	for k, v := range sws {
+		sws2[k] = v
+	}
+	return NewSchemaFromSwarms(sws2)
+}
+
+func (as AddrSchema) ParseAddr(x []byte) (p2p.Addr, error) {
+	groups := addrRe.FindSubmatch(x)
 	if len(groups) != 3 {
 		return nil, errors.New("could not unmarshal")
 	}
-	addr.Transport = string(groups[1])
-
-	// transport
-	tname := string(groups[1])
-	inner, ok := ms.swarms[tname]
-	if !ok {
-		return nil, fmt.Errorf("AggSwarm does not have transport %s", tname)
+	transport := string(groups[1])
+	parser, exists := as.parsers[transport]
+	if !exists {
+		return nil, errors.Errorf("%v does not exist in muiltiswarm.Schema", transport)
 	}
-	addr.Transport = tname
-	innerAddr, err := inner.ParseAddr(groups[2])
+	innerAddr, err := parser(groups[2])
 	if err != nil {
 		return nil, err
 	}
-	addr.Addr = innerAddr
-	return addr, nil
+	return Addr{
+		Transport: transport,
+		Addr:      innerAddr,
+	}, nil
 }

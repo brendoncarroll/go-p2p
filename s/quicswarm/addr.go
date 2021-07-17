@@ -54,29 +54,21 @@ func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	return a, nil
 }
 
-func (a *Addr) GetPeerID() p2p.PeerID {
+func (a Addr) GetPeerID() p2p.PeerID {
 	return a.ID
 }
 
-func (a *Addr) Unwrap() p2p.Addr {
+func (a Addr) Unwrap() p2p.Addr {
 	return a.Addr
 }
 
-func (a *Addr) Map(fn func(p2p.Addr) p2p.Addr) p2p.Addr {
+func (a Addr) Map(fn func(p2p.Addr) p2p.Addr) p2p.Addr {
 	return &Addr{
 		ID:   a.ID,
 		Addr: fn(a.Addr),
 	}
 }
 
-func (a *Addr) Equals(b *Addr) bool {
-	switch {
-	case a == nil && b == nil:
-		return true
-	case a == nil || b == nil:
-		return false
-	default:
-		return a.ID == b.ID &&
-			a.Addr.Key() == b.Addr.Key()
-	}
+func (a Addr) Equals(b Addr) bool {
+	return a.ID.Equals(b.ID) && p2p.CompareAddrs(a.Addr, b.Addr) == 0
 }

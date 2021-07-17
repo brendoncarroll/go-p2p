@@ -56,8 +56,8 @@ func newSwarm(x p2p.Swarm, mtu int) *swarm {
 func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	underMTU := s.Swarm.MTU(ctx, addr) - Overhead
 	s.mu.Lock()
-	id := s.msgIDs[addr.Key()]
-	s.msgIDs[addr.Key()]++
+	id := s.msgIDs[keyForAddr(addr)]
+	s.msgIDs[keyForAddr(addr)]++
 	s.mu.Unlock()
 
 	size := p2p.VecSize(data)
@@ -141,7 +141,7 @@ func (s *swarm) handleTell(ctx context.Context, x p2p.Message) error {
 			Payload: data,
 		})
 	}
-	key := aggKey{addr: x.Src.Key(), id: id}
+	key := aggKey{addr: keyForAddr(x.Src), id: id}
 	s.mu.Lock()
 	agg, exists := s.aggs[key]
 	if !exists {
@@ -277,4 +277,12 @@ func appendUvarint(b p2p.IOVec, x uint64) p2p.IOVec {
 	buf := [binary.MaxVarintLen64]byte{}
 	n := binary.PutUvarint(buf[:], x)
 	return append(b, buf[:n])
+}
+
+func keyForAddr(x p2p.Addr) string {
+	data, err := x.MarshalText()
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }

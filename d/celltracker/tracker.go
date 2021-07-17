@@ -9,8 +9,6 @@ import (
 	"github.com/brendoncarroll/go-state/cells"
 )
 
-var _ p2p.DiscoveryService = &CellTracker{}
-
 // CellTracker is p2p tracker implemented on top of a CAS cell
 type CellTracker struct {
 	cell cells.Cell

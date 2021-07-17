@@ -22,41 +22,45 @@ func NewSwarm(m map[string]p2p.Swarm) p2p.Swarm {
 }
 
 func NewSecure(m map[string]p2p.SecureSwarm) p2p.SecureSwarm {
-	ms := newSwarm(map[string]p2p.Swarm{})
+	ms := newSwarm(convertSecure(m))
 	msec := multiSecure{}
 	for name, s := range m {
 		msec[name] = s
-		ms.swarms[name] = s
 	}
 	go ms.recvLoops(context.Background())
 	return p2p.ComposeSecureSwarm(ms, msec)
 }
 
 func NewSecureAsk(m map[string]p2p.SecureAskSwarm) p2p.SecureAskSwarm {
-	ms := newSwarm(map[string]p2p.Swarm{})
+	ms := newSwarm(convertSecureAsk(m))
 	ma := newAsker(map[string]p2p.Asker{})
 	msec := multiSecure{}
 
 	for name, s := range m {
-		ms.swarms[name] = s
 		ma.swarms[name] = s
 		msec[name] = s
 	}
 	ctx := context.Background()
 	go ms.recvLoops(ctx)
-	go ma.serveLoops(ctx)
+	go func() {
+		if err := ma.serveLoops(ctx); err != nil && err != p2p.ErrSwarmClosed {
+			log.Error(err)
+		}
+	}()
 	return p2p.ComposeSecureAskSwarm(ms, ma, msec)
 }
 
 type multiSwarm struct {
-	swarms map[string]p2p.Swarm
-	tells  *swarmutil.TellHub
+	addrSchema AddrSchema
+	swarms     map[string]p2p.Swarm
+	tells      *swarmutil.TellHub
 }
 
 func newSwarm(m map[string]p2p.Swarm) multiSwarm {
 	s := multiSwarm{
-		swarms: m,
-		tells:  swarmutil.NewTellHub(),
+		addrSchema: NewSchemaFromSwarms(m),
+		swarms:     m,
+		tells:      swarmutil.NewTellHub(),
 	}
 	return s
 }
@@ -99,6 +103,10 @@ func (mt multiSwarm) recvLoops(ctx context.Context) error {
 		})
 	}
 	return eg.Wait()
+}
+
+func (ms multiSwarm) ParseAddr(data []byte) (p2p.Addr, error) {
+	return ms.addrSchema.ParseAddr(data)
 }
 
 func (mt multiSwarm) MTU(ctx context.Context, addr p2p.Addr) int {
@@ -179,21 +187,26 @@ func (ma multiAsker) serveLoops(ctx context.Context) error {
 		tname := tname
 		t := t
 		eg.Go(func() error {
-			return t.ServeAsk(ctx, func(reqData []byte, msg p2p.Message) int {
-				msg.Src = Addr{
-					Transport: tname,
-					Addr:      msg.Src,
-				}
-				msg.Dst = Addr{
-					Transport: tname,
-					Addr:      msg.Dst,
-				}
-				n, err := ma.asks.Deliver(ctx, reqData, msg)
+			for {
+				err := t.ServeAsk(ctx, func(reqData []byte, msg p2p.Message) int {
+					msg.Src = Addr{
+						Transport: tname,
+						Addr:      msg.Src,
+					}
+					msg.Dst = Addr{
+						Transport: tname,
+						Addr:      msg.Dst,
+					}
+					n, err := ma.asks.Deliver(ctx, reqData, msg)
+					if err != nil {
+						return 0
+					}
+					return n
+				})
 				if err != nil {
-					return 0
+					return err
 				}
-				return n
-			})
+			}
 		})
 	}
 	return eg.Wait()
@@ -215,4 +228,20 @@ func (ms multiSecure) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.P
 		return nil, errors.Errorf("invalid transport: %s", a.Transport)
 	}
 	return t.LookupPublicKey(ctx, a.Addr)
+}
+
+func convertSecure(x map[string]p2p.SecureSwarm) map[string]p2p.Swarm {
+	y := make(map[string]p2p.Swarm)
+	for k, v := range x {
+		y[k] = v
+	}
+	return y
+}
+
+func convertSecureAsk(x map[string]p2p.SecureAskSwarm) map[string]p2p.Swarm {
+	y := make(map[string]p2p.Swarm)
+	for k, v := range x {
+		y[k] = v
+	}
+	return y
 }

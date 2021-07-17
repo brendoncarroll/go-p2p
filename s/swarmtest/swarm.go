@@ -55,9 +55,9 @@ func TestLocalAddrs(t *testing.T, s p2p.Swarm) {
 func TestMarshalParse(t *testing.T, s p2p.Swarm) {
 	addr := s.LocalAddrs()[0]
 	data, err := addr.MarshalText()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 	addr2, err := s.ParseAddr(data)
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, addr, addr2, "Did not parse to same address")
 }
 
@@ -140,7 +140,7 @@ func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
 	eg.Go(func() error {
 		return readIntoMailbox(b, &bInbox)
 	})
-	require.Nil(t, eg.Wait())
+	require.NoError(t, eg.Wait())
 
 	passN := N * 3 / 4
 	t.Log("a inbox: ", len(aInbox))
@@ -162,13 +162,13 @@ func CloseSwarms(t testing.TB, xs []p2p.Swarm) {
 
 func CloseAskSwarms(t testing.TB, xs []p2p.AskSwarm) {
 	for i := range xs {
-		require.Nil(t, xs[i].Close())
+		require.NoError(t, xs[i].Close())
 	}
 }
 
 func CloseSecureSwarms(t testing.TB, xs []p2p.SecureSwarm) {
 	for i := range xs {
-		require.Nil(t, xs[i].Close())
+		require.NoError(t, xs[i].Close())
 	}
 }
 

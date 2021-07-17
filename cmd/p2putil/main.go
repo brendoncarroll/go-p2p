@@ -90,9 +90,9 @@ var testConnectCmd = &cobra.Command{
 		addrs := map[string]p2p.Addr{}
 		for {
 			for _, addr := range s3.LocalAddrs() {
-				if _, exists := addrs[addr.Key()]; !exists {
+				if _, exists := addrs[addr.String()]; !exists {
 					fmt.Println("ADDR:", addr)
-					addrs[addr.Key()] = addr
+					addrs[addr.String()] = addr
 				}
 			}
 			time.Sleep(time.Second)
