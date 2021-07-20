@@ -9,22 +9,22 @@ import (
 func TestTopology(t *testing.T) {
 	t.Run("TestChain", func(t *testing.T) {
 		for i := 0; i < 20; i++ {
-			testAdjList(t, i, Chain(i))
+			testAdjList(t, i, MakeChain(i))
 		}
 	})
 	t.Run("TestRing", func(t *testing.T) {
 		for i := 0; i < 20; i++ {
-			testAdjList(t, i, Ring(i))
+			testAdjList(t, i, MakeRing(i))
 		}
 	})
 	t.Run("TestCluster", func(t *testing.T) {
 		for i := 0; i < 20; i++ {
-			testAdjList(t, i, Cluster(i))
+			testAdjList(t, i, MakeCluster(i))
 		}
 	})
 	t.Run("TestHubAndSpoke", func(t *testing.T) {
 		for i := 0; i < 20; i++ {
-			testAdjList(t, i, HubAndSpoke(i))
+			testAdjList(t, i, MakeHubAndSpoke(i))
 		}
 	})
 }

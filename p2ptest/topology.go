@@ -2,8 +2,14 @@ package p2ptest
 
 type AdjList = [][]int
 
-func Chain(n int) (adjList AdjList) {
-	adjList = make(AdjList, n)
+func MakeChain(n int) AdjList {
+	adjList := make(AdjList, n)
+	Chain(adjList)
+	return adjList
+}
+
+func Chain(adjList AdjList) {
+	n := len(adjList)
 	for i := range adjList {
 		prev := i - 1
 		next := i + 1
@@ -14,11 +20,16 @@ func Chain(n int) (adjList AdjList) {
 			connectUni(adjList, i, next)
 		}
 	}
+}
+
+func MakeRing(n int) AdjList {
+	adjList := make(AdjList, n)
+	Ring(adjList)
 	return adjList
 }
 
-func Ring(n int) (adjList AdjList) {
-	adjList = make(AdjList, n)
+func Ring(adjList AdjList) {
+	n := len(adjList)
 	for i := 0; i < n; i++ {
 		next := (i + 1) % n
 		prev := (i + n - 1) % n
@@ -29,11 +40,16 @@ func Ring(n int) (adjList AdjList) {
 			connectUni(adjList, i, prev)
 		}
 	}
+}
+
+func MakeCluster(n int) AdjList {
+	adjList := make(AdjList, n)
+	Cluster(adjList)
 	return adjList
 }
 
-func Cluster(n int) (adjList AdjList) {
-	adjList = make(AdjList, n)
+func Cluster(adjList AdjList) {
+	n := len(adjList)
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
 			if i != j {
@@ -41,15 +57,19 @@ func Cluster(n int) (adjList AdjList) {
 			}
 		}
 	}
+}
+
+func MakeHubAndSpoke(n int) AdjList {
+	adjList := make(AdjList, n)
+	HubAndSpoke(adjList)
 	return adjList
 }
 
-func HubAndSpoke(n int) (adjList AdjList) {
-	adjList = make(AdjList, n)
+func HubAndSpoke(adjList AdjList) {
+	n := len(adjList)
 	for i := 1; i < n; i++ {
 		connectBiDi(adjList, 0, i)
 	}
-	return adjList
 }
 
 func connectUni(adjList AdjList, i, j int) {
