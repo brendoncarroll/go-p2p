@@ -63,10 +63,10 @@ func TestAsk(t *testing.T, src, dst p2p.AskSwarm) {
 	var actualReqData []byte
 	eg.Go(func() error {
 		respData := []byte("pong")
-		return dst.ServeAsk(ctx, func(resp []byte, req p2p.Message) int {
+		return dst.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message) (int, error) {
 			actualReqDst = req.Dst
 			actualReqData = append([]byte{}, req.Payload...)
-			return copy(resp, respData)
+			return copy(resp, respData), nil
 		})
 	})
 	require.NoError(t, eg.Wait())

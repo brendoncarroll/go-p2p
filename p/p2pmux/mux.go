@@ -94,7 +94,7 @@ func (mc *muxCore) recvLoop(ctx context.Context) error {
 	buf := make([]byte, mc.swarm.MaxIncomingSize())
 	for {
 		var src, dst p2p.Addr
-		n, err := mc.swarm.Recv(ctx, &src, &dst, buf)
+		n, err := mc.swarm.Receive(ctx, &src, &dst, buf)
 		if err != nil {
 			return err
 		}
@@ -120,7 +120,7 @@ func (mc *muxCore) recvLoop(ctx context.Context) error {
 
 func (mc *muxCore) serveLoop(ctx context.Context) error {
 	for {
-		if err := mc.asker.ServeAsk(ctx, func(resp []byte, req p2p.Message) int {
+		if err := mc.asker.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message) (int, error) {
 			var respN int
 			if err := func() error {
 				cid, body, err := mc.demuxFunc(req.Payload)
@@ -139,9 +139,9 @@ func (mc *muxCore) serveLoop(ctx context.Context) error {
 				return err
 			}(); err != nil {
 				log.Warn(err)
-				return 0
+				return 0, err
 			}
-			return respN
+			return respN, nil
 		}); err != nil {
 			return err
 		}
@@ -211,8 +211,8 @@ func (ms *muxedSwarm) Tell(ctx context.Context, dst p2p.Addr, data p2p.IOVec) er
 	return ms.m.tell(ctx, ms.cid, dst, data)
 }
 
-func (ms *muxedSwarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	return ms.tellHub.Recv(ctx, src, dst, buf)
+func (ms *muxedSwarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return ms.tellHub.Receive(ctx, src, dst, buf)
 }
 
 func (ms *muxedSwarm) Ask(ctx context.Context, resp []byte, dst p2p.Addr, data p2p.IOVec) (int, error) {

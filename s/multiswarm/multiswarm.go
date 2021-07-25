@@ -74,8 +74,8 @@ func (mt multiSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) er
 	return t.Tell(ctx, dst.Addr, data)
 }
 
-func (mt multiSwarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	return mt.tells.Recv(ctx, src, dst, buf)
+func (mt multiSwarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return mt.tells.Receive(ctx, src, dst, buf)
 }
 
 func (mt multiSwarm) recvLoops(ctx context.Context) error {
@@ -87,7 +87,7 @@ func (mt multiSwarm) recvLoops(ctx context.Context) error {
 			buf := make([]byte, t.MaxIncomingSize())
 			for {
 				var src, dst p2p.Addr
-				n, err := t.Recv(ctx, &src, &dst, buf)
+				n, err := t.Receive(ctx, &src, &dst, buf)
 				if err != nil {
 					return err
 				}
@@ -188,7 +188,7 @@ func (ma multiAsker) serveLoops(ctx context.Context) error {
 		t := t
 		eg.Go(func() error {
 			for {
-				err := t.ServeAsk(ctx, func(reqData []byte, msg p2p.Message) int {
+				err := t.ServeAsk(ctx, func(ctx context.Context, reqData []byte, msg p2p.Message) (int, error) {
 					msg.Src = Addr{
 						Transport: tname,
 						Addr:      msg.Src,
@@ -199,9 +199,9 @@ func (ma multiAsker) serveLoops(ctx context.Context) error {
 					}
 					n, err := ma.asks.Deliver(ctx, reqData, msg)
 					if err != nil {
-						return 0
+						return 0, err
 					}
-					return n
+					return n, nil
 				})
 				if err != nil {
 					return err

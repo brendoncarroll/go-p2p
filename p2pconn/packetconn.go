@@ -39,7 +39,7 @@ func (c *packetConn) ReadFrom(p []byte) (n int, from net.Addr, err error) {
 	ctx, cf := c.getReadContext()
 	defer cf()
 	var src, dst p2p.Addr
-	n, err = c.swarm.Recv(ctx, &src, &dst, p)
+	n, err = c.swarm.Receive(ctx, &src, &dst, p)
 	if err != nil {
 		return 0, nil, err
 	}

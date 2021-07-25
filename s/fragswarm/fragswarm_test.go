@@ -35,7 +35,7 @@ func TestFragment(t *testing.T) {
 	go func() error {
 		defer close(done)
 		var src, dst p2p.Addr
-		n, err := b.Recv(ctx, &src, &dst, buf)
+		n, err := b.Receive(ctx, &src, &dst, buf)
 		if err != nil {
 			return err
 		}

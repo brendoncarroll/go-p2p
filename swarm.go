@@ -21,12 +21,12 @@ type Teller interface {
 	// Recv blocks until the context is cancelled or 1 message is recieved.
 	// The contents of message are written into src, dst and buf; the number of bytes written to buf is returned.
 	// If buf is too small Recv returns io.ErrShortBuffer
-	Recv(ctx context.Context, src, dst *Addr, buf []byte) (int, error)
+	Receive(ctx context.Context, src, dst *Addr, buf []byte) (int, error)
 	// MaxIncomingSize returns the minimum size a buffer must be so that Recv never returns io.ErrShortBuffer
 	MaxIncomingSize() int
 }
 
-type AskHandler func(resp []byte, req Message) int
+type AskHandler func(ctx context.Context, resp []byte, req Message) (int, error)
 
 type Asker interface {
 	Ask(ctx context.Context, resp []byte, addr Addr, data IOVec) (int, error)
@@ -35,7 +35,7 @@ type Asker interface {
 
 var _ AskHandler = NoOpAskHandler
 
-func NoOpAskHandler(resp []byte, req Message) int { return 0 }
+func NoOpAskHandler(ctx context.Context, resp []byte, req Message) (int, error) { return 0, nil }
 
 type Swarm interface {
 	Teller
@@ -127,7 +127,7 @@ func DiscardAsks(ctx context.Context, a Asker) error {
 func DiscardTells(ctx context.Context, t Teller) error {
 	for {
 		var src, dst Addr
-		if _, err := t.Recv(ctx, &src, &dst, nil); err != nil {
+		if _, err := t.Receive(ctx, &src, &dst, nil); err != nil {
 			if err == io.ErrShortBuffer {
 				continue
 			}

@@ -39,9 +39,9 @@ func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return errors.New("address unreachable")
 }
 
-func (s *swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+func (s *swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
 	for {
-		n, err := s.SecureSwarm.Recv(ctx, src, dst, buf)
+		n, err := s.SecureSwarm.Receive(ctx, src, dst, buf)
 		if err != nil {
 			return 0, err
 		}
@@ -68,12 +68,12 @@ func (s *asker) Ask(ctx context.Context, resp []byte, dst p2p.Addr, data p2p.IOV
 func (s *asker) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
 	var done bool
 	for !done {
-		err := s.SecureAskSwarm.ServeAsk(ctx, func(resp []byte, m p2p.Message) int {
+		err := s.SecureAskSwarm.ServeAsk(ctx, func(ctx context.Context, resp []byte, m p2p.Message) (int, error) {
 			if !checkAddr(s, s.af, m.Src, false) {
-				return 0
+				return 0, nil
 			}
 			done = true
-			return fn(resp, m)
+			return fn(ctx, resp, m)
 		})
 		if err != nil {
 			return err
@@ -90,7 +90,7 @@ func checkAddr(sec p2p.Secure, af AllowFunc, addr p2p.Addr, isSend bool) bool {
 		if isSend {
 			logAttemptSend(peerID, addr)
 		} else {
-			logRecv(peerID, addr)
+			logReceive(peerID, addr)
 		}
 		return false
 	}
@@ -105,7 +105,7 @@ func logAttemptSend(id p2p.PeerID, addr p2p.Addr) {
 	}).Warn("tried to send message to peer not in whitelist")
 }
 
-func logRecv(id p2p.PeerID, addr p2p.Addr) {
+func logReceive(id p2p.PeerID, addr p2p.Addr) {
 	data, _ := addr.MarshalText()
 	log.WithFields(logrus.Fields{
 		"peer_id": id,

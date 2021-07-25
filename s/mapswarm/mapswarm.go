@@ -36,9 +36,9 @@ func (s *swarm) Tell(ctx context.Context, dst p2p.Addr, data p2p.IOVec) error {
 	return s.Swarm.Tell(ctx, s.downward(dst), data)
 }
 
-func (s *swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+func (s *swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
 	var src2, dst2 p2p.Addr
-	n, err := s.Swarm.Recv(ctx, &src2, &dst2, buf)
+	n, err := s.Swarm.Receive(ctx, &src2, &dst2, buf)
 	if err != nil {
 		return 0, err
 	}

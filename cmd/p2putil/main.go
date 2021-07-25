@@ -76,7 +76,7 @@ var testConnectCmd = &cobra.Command{
 			buf := make([]byte, s3.MaxIncomingSize())
 			for {
 				var src, dst p2p.Addr
-				n, err := s3.Recv(ctx, &src, &dst, buf)
+				n, err := s3.Receive(ctx, &src, &dst, buf)
 				if err != nil {
 					return err
 				}

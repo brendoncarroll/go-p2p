@@ -30,7 +30,7 @@ func TestStringMux(t *testing.T) {
 	eg.Go(func() error {
 		buf := make([]byte, m1foo.MaxIncomingSize())
 		var src, dst p2p.Addr
-		n, err := m1foo.Recv(ctx, &src, &dst, buf)
+		n, err := m1foo.Receive(ctx, &src, &dst, buf)
 		if err != nil {
 			return err
 		}
@@ -40,7 +40,7 @@ func TestStringMux(t *testing.T) {
 	eg.Go(func() error {
 		buf := make([]byte, m1bar.MaxIncomingSize())
 		var src, dst p2p.Addr
-		n, err := m1bar.Recv(ctx, &src, &dst, buf)
+		n, err := m1bar.Receive(ctx, &src, &dst, buf)
 		if err != nil {
 			return err
 		}
@@ -78,7 +78,7 @@ func TestVarintMux(t *testing.T) {
 	eg.Go(func() error {
 		buf := make([]byte, m1foo.MaxIncomingSize())
 		var src, dst p2p.Addr
-		n, err := m1foo.Recv(ctx, &src, &dst, buf)
+		n, err := m1foo.Receive(ctx, &src, &dst, buf)
 		if err != nil {
 			return err
 		}
@@ -88,7 +88,7 @@ func TestVarintMux(t *testing.T) {
 	eg.Go(func() error {
 		buf := make([]byte, m1bar.MaxIncomingSize())
 		var src, dst p2p.Addr
-		n, err := m1bar.Recv(ctx, &src, &dst, buf)
+		n, err := m1bar.Receive(ctx, &src, &dst, buf)
 		if err != nil {
 			return err
 		}

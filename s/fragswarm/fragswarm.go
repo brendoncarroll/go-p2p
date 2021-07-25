@@ -90,8 +90,8 @@ func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return eg.Wait()
 }
 
-func (s *swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	return s.tells.Recv(ctx, src, dst, buf)
+func (s *swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return s.tells.Receive(ctx, src, dst, buf)
 }
 
 func (s *swarm) MaxIncomingSize() int {
@@ -106,7 +106,7 @@ func (s *swarm) recvLoop(ctx context.Context) error {
 			buf := make([]byte, s.Swarm.MaxIncomingSize())
 			for {
 				var src, dst p2p.Addr
-				n, err := s.Swarm.Recv(ctx, &src, &dst, buf)
+				n, err := s.Swarm.Receive(ctx, &src, &dst, buf)
 				if err != nil {
 					return err
 				}

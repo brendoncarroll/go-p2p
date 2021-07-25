@@ -117,8 +117,8 @@ func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
 	return s.askHub.ServeAsk(ctx, fn)
 }
 
-func (s *Swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	return s.tellHub.Recv(ctx, src, dst, buf)
+func (s *Swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+	return s.tellHub.Receive(ctx, src, dst, buf)
 }
 
 func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {

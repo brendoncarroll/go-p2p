@@ -175,7 +175,7 @@ func CloseSecureSwarms(t testing.TB, xs []p2p.SecureSwarm) {
 func readMessage(ctx context.Context, s p2p.Swarm) (p2p.Message, error) {
 	var src, dst p2p.Addr
 	buf := make([]byte, s.MaxIncomingSize())
-	n, err := s.Recv(ctx, &src, &dst, buf)
+	n, err := s.Receive(ctx, &src, &dst, buf)
 	if err != nil {
 		return p2p.Message{}, nil
 	}

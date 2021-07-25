@@ -55,7 +55,7 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return err
 }
 
-func (s *Swarm) Recv(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
+func (s *Swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
 	n, udpAddr, err := s.conn.ReadFromUDP(buf)
 	if err != nil {
 		return 0, err
