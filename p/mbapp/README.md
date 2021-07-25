@@ -7,5 +7,5 @@ It also performs message fragmentation and reassembly.
 This allows the application to send messages which exceed the MTU of the underlying transport.
 
 ## Wire Format
-MBAPP prepends a 20 byte header to each message.
+MBAPP prepends a 24 byte header to each message.
 
