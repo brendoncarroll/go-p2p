@@ -117,7 +117,10 @@ func (c *Conn) loop() {
 	resp := make([]byte, MTU)
 	for {
 		select {
-		case req := <-c.reqs:
+		case req, ok := <-c.reqs:
+			if !ok {
+				return
+			}
 			ctx := context.TODO()
 			msg := p2p.Message{
 				Src:     c.RemoteAddr(),
@@ -137,11 +140,13 @@ func (c *Conn) loop() {
 					log.Println(err)
 				}
 			}
-		case ncr := <-c.newChanReqs:
+		case ncr, ok := <-c.newChanReqs:
+			if !ok {
+				return
+			}
 			if err := ncr.Reject(ssh.Prohibited, "don't do that"); err != nil {
 				log.Println(err)
 			}
-
 		case <-c.shutdown:
 			return
 		}

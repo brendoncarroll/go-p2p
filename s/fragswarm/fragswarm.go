@@ -54,6 +54,9 @@ func newSwarm(x p2p.Swarm, mtu int) *swarm {
 }
 
 func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
+	if p2p.VecSize(data) > s.mtu {
+		return p2p.ErrMTUExceeded
+	}
 	underMTU := s.Swarm.MTU(ctx, addr) - Overhead
 	s.mu.Lock()
 	id := s.msgIDs[keyForAddr(addr)]
