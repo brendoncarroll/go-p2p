@@ -91,12 +91,12 @@ func (h Header) SetPartIndex(v uint16) {
 }
 
 func (h Header) GetPartCount() uint16 {
-	return uint16(h.getUint32(3) & 0xFFFF)
+	return uint16(h.getUint32(4) & 0x0000_FFFF)
 }
 
 func (h Header) SetPartCount(v uint16) {
 	h.updateUint32(4, func(x uint32) uint32 {
-		return x&0xFFFF_0000 | uint32(v)
+		return (x & 0xFFFF_0000) | uint32(v)
 	})
 }
 
@@ -107,7 +107,7 @@ func (h Header) SetTimeout(t time.Duration) {
 }
 
 func (h Header) GetTimeout() time.Duration {
-	return time.Duration(h.getUint32(4)) * time.Millisecond
+	return time.Duration(h.getUint32(5)) * time.Millisecond
 }
 
 func (h Header) GroupID() GroupID {

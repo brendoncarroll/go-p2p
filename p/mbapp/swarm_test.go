@@ -8,6 +8,10 @@ import (
 	"github.com/brendoncarroll/go-p2p/s/swarmtest"
 )
 
+func init() {
+	disableFastPath = true
+}
+
 func TestSwarm(t *testing.T) {
 	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
 		r := memswarm.NewRealm()

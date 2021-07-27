@@ -21,30 +21,31 @@ type collector struct {
 
 func newCollector(isAsk, isReply bool, partCount, totalSize int, now time.Time) *collector {
 	return &collector{
-		isAsk:   isAsk,
-		isReply: isReply,
+		isAsk:     isAsk,
+		isReply:   isReply,
+		partCount: partCount,
 
 		buf:    make([]byte, totalSize),
 		bitMap: newBitMap(partCount),
 	}
 }
 
-func (c *collector) addPart(partNum int, data []byte) error {
-	if c.partCount >= partNum {
-		return errors.Errorf("partNum %d >= partCount %d", partNum, c.partCount)
+func (c *collector) addPart(partIndex int, data []byte) error {
+	if partIndex >= c.partCount {
+		return errors.Errorf("partIndex %d >= partCount %d", partIndex, c.partCount)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.bitMap.get(partNum) {
+	if c.bitMap.get(partIndex) {
 		return nil
 	}
 	partSize := len(c.buf) / c.partCount
-	offset := partSize * partNum
+	offset := partSize * partIndex
 	if offset > len(c.buf) {
-		return errors.Errorf("incorrect partSize=%v or partNum=%v, offset=%v", partSize, partNum, offset)
+		return errors.Errorf("incorrect partSize=%v or partIndex=%v, offset=%v", partSize, partIndex, offset)
 	}
 	copy(c.buf, data)
-	c.bitMap.set(partNum, true)
+	c.bitMap.set(partIndex, true)
 	return nil
 }
 
@@ -100,15 +101,17 @@ func (fl *fragLayer) dropCollector(id GroupID) {
 func (fl *fragLayer) cleanupLoop(ctx context.Context) {
 	const period = time.Minute
 	ticker := time.NewTicker(period)
-	fl.mu.Lock()
-	defer fl.mu.Unlock()
 	for {
-		now := time.Now().UTC()
-		for id, c := range fl.collectors {
-			if now.Sub(c.createdAt) > fl.ttl {
-				delete(fl.collectors, id)
+		func() {
+			fl.mu.Lock()
+			defer fl.mu.Unlock()
+			now := time.Now().UTC()
+			for id, c := range fl.collectors {
+				if now.Sub(c.createdAt) > fl.ttl {
+					delete(fl.collectors, id)
+				}
 			}
-		}
+		}()
 		select {
 		case <-ctx.Done():
 			return

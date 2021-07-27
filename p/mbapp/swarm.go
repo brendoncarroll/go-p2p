@@ -13,6 +13,7 @@ import (
 )
 
 var _ p2p.SecureAskSwarm = &Swarm{}
+var disableFastPath bool
 
 type Swarm struct {
 	inner p2p.SecureSwarm
@@ -159,7 +160,7 @@ func (s *Swarm) handleMessage(ctx context.Context, src, dst p2p.Addr, data []byt
 	}
 	gid := hdr.GroupID()
 	// fast path
-	if partCount < 2 {
+	if partCount < 2 && !disableFastPath {
 		if !hdr.IsAsk() {
 			return s.handleTell(ctx, src, dst, body)
 		}
@@ -257,18 +258,22 @@ func (s *Swarm) send(ctx context.Context, dst p2p.Addr, params sendParams) error
 	mtu := s.inner.MTU(ctx, dst)
 	partSize := (mtu - HeaderSize)
 	totalSize := p2p.VecSize(params.m)
-	numParts := totalSize / partSize
+	partCount := totalSize / partSize
+	if totalSize%partSize > 0 {
+		partCount++
+	}
 
-	hdr.SetPartCount(uint16(numParts))
+	hdr.SetPartCount(uint16(partCount))
+	hdr.SetTotalSize(uint32(totalSize))
 
 	// fast path
-	if numParts < 2 {
+	if partCount < 2 {
 		msg := p2p.IOVec{[]byte(hdr)}
 		msg = append(msg, params.m...)
 		return s.inner.Tell(ctx, dst, msg)
 	}
 	eg := errgroup.Group{}
-	for i := 0; i < numParts; i++ {
+	for i := 0; i < partCount; i++ {
 		hdrBuf2 := hdrBuf
 		hdr := Header(hdrBuf2[:])
 		hdr.SetPartIndex(uint16(i))
