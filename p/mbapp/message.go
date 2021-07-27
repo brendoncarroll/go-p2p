@@ -19,7 +19,7 @@ const (
 // 0 | mode bits       24| resp code 8|
 // 1 | origin time                  32|
 // 2 | counter                      32|
-// 3 | total size 					32|
+// 3 | part size 					32|
 // 4 | part index   16| part count  16|
 // 5 | timeout or dest time
 type Header []byte

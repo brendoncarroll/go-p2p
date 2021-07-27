@@ -39,12 +39,16 @@ func (c *collector) addPart(partIndex int, data []byte) error {
 	if c.bitMap.get(partIndex) {
 		return nil
 	}
-	partSize := len(c.buf) / c.partCount
-	offset := partSize * partIndex
-	if offset > len(c.buf) {
-		return errors.Errorf("incorrect partSize=%v or partIndex=%v, offset=%v", partSize, partIndex, offset)
+	var offset int
+	if partIndex == (c.partCount - 1) {
+		offset = len(c.buf) - len(data)
+	} else {
+		offset = len(data) * partIndex
 	}
-	copy(c.buf, data)
+	if offset >= len(c.buf) {
+		return errors.Errorf("invalid offset len=%d for buf of len=%d", offset, len(c.buf))
+	}
+	copy(c.buf[offset:], data)
 	c.bitMap.set(partIndex, true)
 	return nil
 }

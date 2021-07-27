@@ -182,15 +182,15 @@ func (s *Swarm) handleMessage(ctx context.Context, src, dst p2p.Addr, data []byt
 		return nil
 	}
 	defer s.fragLayer.dropCollector(hdr.GroupID())
-	return col.withBuffer(func([]byte) error {
+	return col.withBuffer(func(buf []byte) error {
 		if hdr.IsAsk() {
 			if hdr.IsReply() {
-				return s.handleAskReply(ctx, src, dst, gid, hdr.GetErrorCode(), col.buf)
+				return s.handleAskReply(ctx, src, dst, gid, hdr.GetErrorCode(), buf)
 			} else {
-				return s.handleAskRequest(ctx, src, dst, gid, body)
+				return s.handleAskRequest(ctx, src, dst, gid, buf)
 			}
 		} else {
-			return s.handleTell(ctx, src, dst, body)
+			return s.handleTell(ctx, src, dst, buf)
 		}
 	})
 }
@@ -259,7 +259,7 @@ func (s *Swarm) send(ctx context.Context, dst p2p.Addr, params sendParams) error
 	partSize := (mtu - HeaderSize)
 	totalSize := p2p.VecSize(params.m)
 	partCount := totalSize / partSize
-	if totalSize%partSize > 0 {
+	if partSize*partCount < totalSize {
 		partCount++
 	}
 
@@ -272,15 +272,20 @@ func (s *Swarm) send(ctx context.Context, dst p2p.Addr, params sendParams) error
 		msg = append(msg, params.m...)
 		return s.inner.Tell(ctx, dst, msg)
 	}
+	whole := p2p.VecBytes(nil, params.m)
 	eg := errgroup.Group{}
 	for i := 0; i < partCount; i++ {
 		hdrBuf2 := hdrBuf
 		hdr := Header(hdrBuf2[:])
 		hdr.SetPartIndex(uint16(i))
-
+		start := i * partSize
+		end := (i + 1) * partSize
+		if end > len(whole) {
+			end = len(whole)
+		}
 		eg.Go(func() error {
 			msg := p2p.IOVec{[]byte(hdr)}
-			msg = append(msg, params.m...)
+			msg = append(msg, whole[start:end])
 			return s.inner.Tell(ctx, dst, msg)
 		})
 	}
