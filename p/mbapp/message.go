@@ -101,9 +101,8 @@ func (h Header) SetPartCount(v uint16) {
 }
 
 // Extensions
-func (h Header) SetTimeout(t time.Duration) {
-	timeout := uint32(t.Milliseconds())
-	h.setUint32(5, timeout)
+func (h Header) SetTimeout(v uint32) {
+	h.setUint32(5, v)
 }
 
 func (h Header) GetTimeout() time.Duration {

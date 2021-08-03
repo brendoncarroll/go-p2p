@@ -21,9 +21,9 @@ func (bm bitMap) set(i int, v bool) {
 		panic("bitMap: index out of bounds")
 	}
 	if v {
-		bm.buf[i/8] |= (1 << i % 8)
+		bm.buf[i/8] |= mask(i)
 	} else {
-		bm.buf[i/8] &= ^(1 << i % 8)
+		bm.buf[i/8] &= maskInverse(i)
 	}
 }
 
@@ -31,7 +31,7 @@ func (bm bitMap) get(i int) bool {
 	if i >= bm.len() {
 		panic("bitMap: index out of bounds")
 	}
-	return bm.buf[i/8]&(1<<i%8) > 0
+	return bm.buf[i/8]&mask(i) > 0
 }
 
 func (bm bitMap) len() int {
@@ -46,4 +46,12 @@ func (bm bitMap) allSet() bool {
 		}
 	}
 	return true
+}
+
+func mask(i int) uint8 {
+	return 1 << (i % 8)
+}
+
+func maskInverse(i int) uint8 {
+	return ^mask(i)
 }

@@ -2,6 +2,7 @@ package mbapp
 
 import (
 	"context"
+	"math"
 	"sync/atomic"
 	"time"
 
@@ -59,7 +60,7 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, dst p2p.Addr, req p2p.IOVe
 		isReply:    false,
 		counter:    counter,
 		originTime: originTime,
-		timeout:    getTimeout(ctx),
+		timeout:    getTimeoutMillis(ctx),
 
 		m: req,
 	}); err != nil {
@@ -127,7 +128,7 @@ func (s *Swarm) MTU(ctx context.Context, target p2p.Addr) int {
 }
 
 func (s *Swarm) MaxIncomingSize() int {
-	return s.inner.MaxIncomingSize()
+	return s.mtu
 }
 
 func (s *Swarm) ParseAddr(x []byte) (p2p.Addr, error) {
@@ -239,7 +240,7 @@ type sendParams struct {
 	counter    uint32
 	originTime PhaseTime32
 
-	timeout *time.Duration
+	timeout uint32
 
 	m p2p.IOVec
 }
@@ -251,9 +252,7 @@ func (s *Swarm) send(ctx context.Context, dst p2p.Addr, params sendParams) error
 	hdr.SetIsReply(params.isReply)
 	hdr.SetCounter(params.counter)
 	hdr.SetOriginTime(params.originTime)
-	if params.timeout != nil {
-		hdr.SetTimeout(*params.timeout)
-	}
+	hdr.SetTimeout(params.timeout)
 
 	mtu := s.inner.MTU(ctx, dst)
 	partSize := (mtu - HeaderSize)
@@ -300,12 +299,12 @@ func (s *Swarm) getTime() PhaseTime32 {
 	return NewPhaseTime32(time.Now().UTC(), time.Millisecond)
 }
 
-func getTimeout(ctx context.Context) *time.Duration {
+func getTimeoutMillis(ctx context.Context) uint32 {
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		return nil
+		return math.MaxUint32
 	}
 	now := time.Now().UTC()
 	timeout := deadline.Sub(now)
-	return &timeout
+	return uint32(timeout.Milliseconds())
 }

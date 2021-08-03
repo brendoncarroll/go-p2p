@@ -12,5 +12,5 @@ func IsErrSwarmClosed(err error) bool {
 }
 
 func IsErrMTUExceeded(err error) bool {
-	return errors.Is(err, ErrSwarmClosed)
+	return errors.Is(err, ErrMTUExceeded)
 }

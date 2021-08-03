@@ -14,14 +14,14 @@ func init() {
 
 func TestSwarm(t *testing.T) {
 	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
-		r := memswarm.NewRealm()
+		r := memswarm.NewRealm(memswarm.WithMTU(1 << 16))
 		for i := range xs {
 			s := r.NewSwarm()
 			xs[i] = New(s, 1<<20)
 		}
 	})
 	swarmtest.TestAskSwarm(t, func(t testing.TB, xs []p2p.AskSwarm) {
-		r := memswarm.NewRealm()
+		r := memswarm.NewRealm(memswarm.WithMTU(1 << 16))
 		for i := range xs {
 			s := r.NewSwarm()
 			xs[i] = New(s, 1<<20)
