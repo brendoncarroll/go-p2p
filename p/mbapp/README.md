@@ -8,4 +8,3 @@ This allows the application to send messages which exceed the MTU of the underly
 
 ## Wire Format
 MBAPP prepends a 24 byte header to each message.
-

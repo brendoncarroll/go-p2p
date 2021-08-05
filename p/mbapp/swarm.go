@@ -2,7 +2,6 @@ package mbapp
 
 import (
 	"context"
-	"math"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +14,8 @@ import (
 
 var _ p2p.SecureAskSwarm = &Swarm{}
 var disableFastPath bool
+
+const maxTimeout = (1 << 28) * time.Millisecond
 
 type Swarm struct {
 	inner p2p.SecureSwarm
@@ -91,8 +92,8 @@ func (s *Swarm) Tell(ctx context.Context, dst p2p.Addr, msg p2p.IOVec) error {
 		originTime: s.getTime(),
 		isAsk:      false,
 		isReply:    false,
-
-		m: msg,
+		timeout:    uint32(maxTimeout.Milliseconds()),
+		m:          msg,
 	})
 }
 
@@ -302,7 +303,7 @@ func (s *Swarm) getTime() PhaseTime32 {
 func getTimeoutMillis(ctx context.Context) uint32 {
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		return math.MaxUint32
+		return uint32(maxTimeout.Milliseconds())
 	}
 	now := time.Now().UTC()
 	timeout := deadline.Sub(now)
