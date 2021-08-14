@@ -4,7 +4,6 @@ go 1.15
 
 require (
 	github.com/brendoncarroll/go-state v0.0.0-20210627233638-99c825eb7040
-	github.com/google/uuid v1.1.1
 	github.com/jonboulle/clockwork v0.1.1-0.20190114141812-62fb9bc030d1
 	github.com/lucas-clemente/quic-go v0.21.1
 	github.com/pkg/errors v0.9.1

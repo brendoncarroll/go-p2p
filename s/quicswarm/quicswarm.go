@@ -51,7 +51,7 @@ func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option) (*Swarm, err
 
 // New creates a new swarm on top of x, using privKey for authentication
 func New(x p2p.Swarm, privKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
-	pconn := p2pconn.NewPacketConn(x)
+	pconn := connWrapper{p2pconn.NewPacketConn(x)}
 	tlsConfig := generateServerTLS(privKey)
 	l, err := quic.Listen(pconn, tlsConfig, generateQUICConfig())
 	if err != nil {
@@ -79,7 +79,7 @@ func New(x p2p.Swarm, privKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	dst := addr.(Addr)
-	if len(data) > s.mtu {
+	if p2p.VecSize(data) > s.mtu {
 		return p2p.ErrMTUExceeded
 	}
 	err := s.withSession(ctx, dst, func(sess quic.Session) error {
@@ -108,7 +108,7 @@ func (s *Swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (in
 
 func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {
 	dst := addr.(Addr)
-	if len(data) > s.mtu {
+	if p2p.VecSize(data) > s.mtu {
 		return 0, p2p.ErrMTUExceeded
 	}
 	log := log.WithFields(logrus.Fields{

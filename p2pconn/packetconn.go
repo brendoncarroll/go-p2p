@@ -10,8 +10,9 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 )
 
-// NewPacketConn turns a swarm into a net.PacketConn
-// It only uses tells, asks are ignored.
+// NewPacketConn turns a Swarm into a net.PacketConn
+// Asks are not served, if you have an ask swarm you will need to handle or discard asks
+// separately
 func NewPacketConn(s p2p.Swarm) net.PacketConn {
 	return &packetConn{
 		swarm: s,

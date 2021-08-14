@@ -25,7 +25,7 @@ var _ interface {
 	p2p.Asker
 } = &Swarm{}
 
-const MTU = 1 << 20
+const MTU = 1 << 17
 
 type Swarm struct {
 	pubKey p2p.PublicKey
@@ -123,6 +123,9 @@ func (s *Swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (in
 
 func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {
 	a2 := addr.(*Addr)
+	if p2p.VecSize(data) > MTU {
+		return 0, p2p.ErrMTUExceeded
+	}
 	c, err := s.getConn(ctx, a2)
 	if err != nil {
 		return 0, err
@@ -136,6 +139,9 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IO
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	a2 := addr.(*Addr)
+	if p2p.VecSize(data) > MTU {
+		return p2p.ErrMTUExceeded
+	}
 	c, err := s.getConn(ctx, a2)
 	if err != nil {
 		return err

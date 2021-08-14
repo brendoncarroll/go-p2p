@@ -45,6 +45,12 @@ func TestSwarm(t *testing.T, newSwarms func(testing.TB, []p2p.Swarm)) {
 		a, b := xs[0], xs[1]
 		TestTellBidirectional(t, a, b)
 	})
+	t.Run("TellMTU", func(t *testing.T) {
+		xs := make([]p2p.Swarm, 2)
+		newSwarms(t, xs)
+		a, b := xs[0], xs[1]
+		TestTellMTU(t, a, b)
+	})
 }
 
 func TestLocalAddrs(t *testing.T, s p2p.Swarm) {
@@ -147,6 +153,38 @@ func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
 	t.Log("b inbox: ", len(bInbox))
 	assert.GreaterOrEqual(t, len(aInbox), passN)
 	assert.GreaterOrEqual(t, len(bInbox), passN)
+}
+
+func TestTellMTU(t *testing.T, a, b p2p.Swarm) {
+	ctx, cf := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cf()
+
+	size := a.MTU(ctx, b.LocalAddrs()[0])
+	err := a.Tell(ctx, b.LocalAddrs()[0], p2p.IOVec{make([]byte, size+1)})
+	require.Equal(t, p2p.ErrMTUExceeded, err)
+
+	var sent, received []byte
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		size := a.MTU(ctx, b.LocalAddrs()[0])
+		buf := make([]byte, size)
+		sent = buf
+		return a.Tell(ctx, b.LocalAddrs()[0], p2p.IOVec{buf})
+	})
+	eg.Go(func() error {
+		buf := make([]byte, b.MaxIncomingSize())
+		var src, dst p2p.Addr
+		n, err := b.Receive(ctx, &src, &dst, buf)
+		if err != nil {
+			return err
+		}
+		received = buf[:n]
+		return nil
+	})
+	require.NoError(t, eg.Wait())
+	require.NotNil(t, sent)
+	require.NotNil(t, received)
+	require.Equal(t, len(sent), len(received))
 }
 
 func genPayload() []byte {
