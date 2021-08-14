@@ -155,12 +155,14 @@ func (s *Swarm) handleMessage(ctx context.Context, src, dst p2p.Addr, data []byt
 	if err != nil {
 		return err
 	}
+	originTime := hdr.GetOriginTime().UTC(time.Now(), time.Millisecond)
 	partCount := hdr.GetPartCount()
 	totalSize := hdr.GetTotalSize()
 	if totalSize > uint32(s.mtu) {
 		return errors.Errorf("total message size exceeds max")
 	}
 	gid := hdr.GroupID()
+	timeout := hdr.GetTimeout()
 	// fast path
 	if partCount < 2 && !disableFastPath {
 		if !hdr.IsAsk() {
@@ -186,6 +188,8 @@ func (s *Swarm) handleMessage(ctx context.Context, src, dst p2p.Addr, data []byt
 	defer s.fragLayer.dropCollector(hdr.GroupID())
 	return col.withBuffer(func(buf []byte) error {
 		if hdr.IsAsk() {
+			ctx, cf := context.WithDeadline(ctx, originTime.Add(timeout))
+			defer cf()
 			if hdr.IsReply() {
 				return s.handleAskReply(ctx, src, dst, gid, hdr.GetErrorCode(), buf)
 			} else {
