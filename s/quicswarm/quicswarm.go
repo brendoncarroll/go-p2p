@@ -312,6 +312,9 @@ func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstA
 	if err != nil {
 		return err
 	}
+	if n < 0 {
+		return stream.Close()
+	}
 	if err := writeFrame(stream, p2p.IOVec{respBuf[:n]}); err != nil {
 		return err
 	}
@@ -414,7 +417,9 @@ func writeFrame(w io.Writer, data p2p.IOVec) error {
 
 func readFrame(src io.Reader, dst []byte, maxLen int) (int, error) {
 	var l uint32
-	binary.Read(src, binary.BigEndian, &l)
+	if err := binary.Read(src, binary.BigEndian, &l); err != nil {
+		return 0, err
+	}
 	if int(l) > maxLen {
 		return 0, errors.New("frame is too big")
 	}

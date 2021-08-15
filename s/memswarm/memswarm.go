@@ -128,7 +128,14 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IO
 	}
 	s.r.log(true, &msg)
 	s2 := s.r.getSwarm(a.N)
-	return s2.asks.Deliver(ctx, resp, msg)
+	n, err := s2.asks.Deliver(ctx, resp, msg)
+	if err != nil {
+		return 0, err
+	}
+	if n < 0 {
+		return 0, errors.Errorf("error during ask %v", n)
+	}
+	return n, nil
 }
 
 func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {

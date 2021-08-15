@@ -48,6 +48,14 @@ func (h Header) SetIsReply(yes bool) {
 	h.setUint32Bit(0, isReplyBit, yes)
 }
 
+func (h Header) SetErrorCode(v uint8) {
+	h.updateUint32(0, func(x uint32) uint32 {
+		x &= ^uint32(0xFF)
+		x |= 0xFF & uint32(v)
+		return x
+	})
+}
+
 func (h Header) GetErrorCode() uint8 {
 	return uint8(h.getUint32(0) & 0xFF)
 }

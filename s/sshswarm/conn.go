@@ -2,11 +2,11 @@ package sshswarm
 
 import (
 	"context"
-	"errors"
 	"log"
 	"net"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -132,7 +132,11 @@ func (c *Conn) loop() {
 				if err != nil {
 					log.Println(err)
 				}
-				if err := req.Reply(true, resp[:n]); err != nil {
+				ok := n >= 0
+				if n < 0 {
+					n = 0
+				}
+				if err := req.Reply(ok, resp[:n]); err != nil {
 					log.Println(err)
 				}
 			} else {
@@ -158,10 +162,13 @@ func (c *Conn) Send(wantReply bool, payload []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ok {
-		return resData, nil
+	if !wantReply {
+		return nil, nil
 	}
-	return nil, nil
+	if !ok {
+		return nil, errors.Errorf("non-okay response")
+	}
+	return resData, nil
 }
 
 func (c *Conn) RemoteAddr() *Addr {

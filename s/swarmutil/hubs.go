@@ -185,9 +185,9 @@ func (q *AskHub) Deliver(ctx context.Context, respData []byte, req p2p.Message) 
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	case serveReq := <-q.reqs:
-		n, err := serveReq.fn(ctx, respData, req)
+		n := serveReq.fn(ctx, respData, req)
 		close(serveReq.done)
-		return n, err
+		return n, nil
 	}
 }
 

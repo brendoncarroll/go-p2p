@@ -5,12 +5,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
 )
 
 type collector struct {
-	isAsk     bool
-	isReply   bool
 	partCount int
 	createdAt time.Time
 
@@ -19,10 +18,8 @@ type collector struct {
 	buf    []byte
 }
 
-func newCollector(isAsk, isReply bool, partCount, totalSize int, now time.Time) *collector {
+func newCollector(partCount, totalSize int, now time.Time) *collector {
 	return &collector{
-		isAsk:     isAsk,
-		isReply:   isReply,
 		partCount: partCount,
 
 		buf:    make([]byte, totalSize),
@@ -65,10 +62,15 @@ func (c *collector) withBuffer(fn func([]byte) error) error {
 	return fn(c.buf)
 }
 
+type collectorID struct {
+	Remote  string
+	GroupID GroupID
+}
+
 type fragLayer struct {
 	ttl        time.Duration
 	mu         sync.RWMutex
-	collectors map[GroupID]*collector
+	collectors map[collectorID]*collector
 
 	cf context.CancelFunc
 }
@@ -77,29 +79,46 @@ func newFragLayer() *fragLayer {
 	ctx, cf := context.WithCancel(context.Background())
 	fl := &fragLayer{
 		cf:         cf,
-		collectors: make(map[GroupID]*collector),
+		collectors: make(map[collectorID]*collector),
 	}
 	go fl.cleanupLoop(ctx)
 	return fl
 }
 
-func (fl *fragLayer) getCollector(id GroupID, isAsk, isReply bool, partCount, totalSize int) (*collector, error) {
+func (fl *fragLayer) handlePart(remote p2p.Addr, gid GroupID, partIndex, partCount uint16, totalSize uint32, body []byte, fn func([]byte) error) error {
+	cid := collectorID{Remote: remote.String(), GroupID: gid}
+	if partCount < 2 && !disableFastPath {
+		return fn(body)
+	}
+	col, err := fl.getCollector(cid, partCount, totalSize)
+	if err != nil {
+		return err
+	}
+	col.addPart(int(partIndex), body)
+	if !col.isComplete() {
+		return nil
+	}
+	defer fl.dropCollector(cid)
+	return col.withBuffer(fn)
+}
+
+func (fl *fragLayer) getCollector(cid collectorID, partCount uint16, totalSize uint32) (*collector, error) {
 	fl.mu.Lock()
 	defer fl.mu.Unlock()
-	col, exists := fl.collectors[id]
+	col, exists := fl.collectors[cid]
 	if !exists {
 		now := time.Now().UTC()
-		col = newCollector(isAsk, isReply, partCount, totalSize, now)
-		fl.collectors[id] = col
+		col = newCollector(int(partCount), int(totalSize), now)
+		fl.collectors[cid] = col
 	}
 	// TODO: check that all parameters match, or error
 	return col, nil
 }
 
-func (fl *fragLayer) dropCollector(id GroupID) {
+func (fl *fragLayer) dropCollector(cid collectorID) {
 	fl.mu.Lock()
 	defer fl.mu.Unlock()
-	delete(fl.collectors, id)
+	delete(fl.collectors, cid)
 }
 
 func (fl *fragLayer) cleanupLoop(ctx context.Context) {

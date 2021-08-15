@@ -120,7 +120,7 @@ func (mc *muxCore) recvLoop(ctx context.Context) error {
 
 func (mc *muxCore) serveLoop(ctx context.Context) error {
 	for {
-		if err := mc.asker.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message) (int, error) {
+		if err := mc.asker.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message) int {
 			var respN int
 			if err := func() error {
 				cid, body, err := mc.demuxFunc(req.Payload)
@@ -139,9 +139,9 @@ func (mc *muxCore) serveLoop(ctx context.Context) error {
 				return err
 			}(); err != nil {
 				log.Warn(err)
-				return 0, err
+				return -1
 			}
-			return respN, nil
+			return respN
 		}); err != nil {
 			return err
 		}

@@ -79,5 +79,6 @@ func (a *asker) getAndRemoveAsk(id askID) *ask {
 }
 
 func retry(ctx context.Context, fn func() error) error {
+	// TODO: retry until context is cancelled.
 	return fn()
 }

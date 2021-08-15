@@ -6,6 +6,7 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -188,7 +189,7 @@ func (ma multiAsker) serveLoops(ctx context.Context) error {
 		t := t
 		eg.Go(func() error {
 			for {
-				err := t.ServeAsk(ctx, func(ctx context.Context, reqData []byte, msg p2p.Message) (int, error) {
+				err := t.ServeAsk(ctx, func(ctx context.Context, reqData []byte, msg p2p.Message) int {
 					msg.Src = Addr{
 						Transport: tname,
 						Addr:      msg.Src,
@@ -199,9 +200,10 @@ func (ma multiAsker) serveLoops(ctx context.Context) error {
 					}
 					n, err := ma.asks.Deliver(ctx, reqData, msg)
 					if err != nil {
-						return 0, err
+						logrus.Error("multiswarm: while handling ask", err)
+						return -1
 					}
-					return n, nil
+					return n
 				})
 				if err != nil {
 					return err

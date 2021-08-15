@@ -2,6 +2,7 @@ package mbapp
 
 import (
 	"context"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -15,11 +16,16 @@ import (
 var _ p2p.SecureAskSwarm = &Swarm{}
 var disableFastPath bool
 
-const maxTimeout = (1 << 28) * time.Millisecond
+const (
+	maxTimeout = (1 << 28) * time.Millisecond
+	maxAskWait = 30 * time.Second
+)
 
 type Swarm struct {
-	inner p2p.SecureSwarm
-	mtu   int
+	inner      p2p.SecureSwarm
+	mtu        int
+	log        *logrus.Logger
+	numWorkers int
 
 	cf        context.CancelFunc
 	fragLayer *fragLayer
@@ -29,11 +35,13 @@ type Swarm struct {
 	asks      *swarmutil.AskHub
 }
 
-func New(x p2p.SecureSwarm, mtu int) *Swarm {
+func New(x p2p.SecureSwarm, mtu int, opts ...Option) *Swarm {
 	ctx, cf := context.WithCancel(context.Background())
 	s := &Swarm{
-		inner: x,
-		mtu:   mtu,
+		inner:      x,
+		mtu:        mtu,
+		log:        logrus.New(),
+		numWorkers: runtime.GOMAXPROCS(0),
 
 		cf:        cf,
 		fragLayer: newFragLayer(),
@@ -41,11 +49,17 @@ func New(x p2p.SecureSwarm, mtu int) *Swarm {
 		tells:     swarmutil.NewTellHub(),
 		asks:      swarmutil.NewAskHub(),
 	}
-	go s.recvLoop(ctx)
+	s.log.SetLevel(logrus.ErrorLevel)
+	for _, opt := range opts {
+		opt(s)
+	}
+	go s.recvLoops(ctx, s.numWorkers)
 	return s
 }
 
 func (s *Swarm) Ask(ctx context.Context, resp []byte, dst p2p.Addr, req p2p.IOVec) (int, error) {
+	ctx, cf := context.WithTimeout(ctx, maxAskWait)
+	defer cf()
 	if p2p.VecSize(req) > s.mtu {
 		return 0, p2p.ErrMTUExceeded
 	}
@@ -92,7 +106,7 @@ func (s *Swarm) Tell(ctx context.Context, dst p2p.Addr, msg p2p.IOVec) error {
 		originTime: s.getTime(),
 		isAsk:      false,
 		isReply:    false,
-		timeout:    uint32(maxTimeout.Milliseconds()),
+		timeout:    getTimeoutMillis(ctx),
 		m:          msg,
 	})
 }
@@ -136,6 +150,16 @@ func (s *Swarm) ParseAddr(x []byte) (p2p.Addr, error) {
 	return s.inner.ParseAddr(x)
 }
 
+func (s *Swarm) recvLoops(ctx context.Context, n int) error {
+	eg := errgroup.Group{}
+	for i := 0; i < n; i++ {
+		eg.Go(func() error {
+			return s.recvLoop(ctx)
+		})
+	}
+	return eg.Wait()
+}
+
 func (s *Swarm) recvLoop(ctx context.Context) error {
 	buf := make([]byte, s.inner.MaxIncomingSize())
 	for {
@@ -145,7 +169,7 @@ func (s *Swarm) recvLoop(ctx context.Context) error {
 			return err
 		}
 		if err := s.handleMessage(ctx, src, dst, buf[:n]); err != nil {
-			logrus.Errorf("got %v while handling message from %v", err, src)
+			s.log.Errorf("got %v while handling message from %v", err, src)
 		}
 	}
 }
@@ -158,35 +182,13 @@ func (s *Swarm) handleMessage(ctx context.Context, src, dst p2p.Addr, data []byt
 	originTime := hdr.GetOriginTime().UTC(time.Now(), time.Millisecond)
 	partCount := hdr.GetPartCount()
 	totalSize := hdr.GetTotalSize()
+	partIndex := hdr.GetPartIndex()
 	if totalSize > uint32(s.mtu) {
 		return errors.Errorf("total message size exceeds max")
 	}
 	gid := hdr.GroupID()
 	timeout := hdr.GetTimeout()
-	// fast path
-	if partCount < 2 && !disableFastPath {
-		if !hdr.IsAsk() {
-			return s.handleTell(ctx, src, dst, body)
-		}
-		if hdr.IsReply() {
-			return s.handleAskReply(ctx, src, dst, gid, hdr.GetErrorCode(), body)
-		} else {
-			return s.handleAskRequest(ctx, src, dst, gid, body)
-		}
-		panic("unreachable")
-	}
-	col, err := s.fragLayer.getCollector(hdr.GroupID(), hdr.IsAsk(), hdr.IsReply(), int(partCount), int(totalSize))
-	if err != nil {
-		return err
-	}
-	if err := col.addPart(int(hdr.GetPartIndex()), body); err != nil {
-		return err
-	}
-	if !col.isComplete() {
-		return nil
-	}
-	defer s.fragLayer.dropCollector(hdr.GroupID())
-	return col.withBuffer(func(buf []byte) error {
+	return s.fragLayer.handlePart(src, gid, partIndex, partCount, totalSize, body, func(buf []byte) error {
 		if hdr.IsAsk() {
 			ctx, cf := context.WithDeadline(ctx, originTime.Add(timeout))
 			defer cf()
@@ -217,14 +219,16 @@ func (s *Swarm) handleAskRequest(ctx context.Context, src, dst p2p.Addr, id Grou
 		Payload: body,
 	})
 	if err != nil {
-		n = copy(respBuf, err.Error())
+		return err
 	}
+	errCode, bufLen := extractErrorCode(n)
 	return s.send(ctx, src, sendParams{
 		isAsk:      true,
 		isReply:    true,
 		originTime: id.OriginTime,
 		counter:    id.Counter,
-		m:          p2p.IOVec{respBuf[:n]},
+		errCode:    errCode,
+		m:          p2p.IOVec{respBuf[:bufLen]},
 	})
 }
 
@@ -233,19 +237,20 @@ func (s *Swarm) handleAskReply(ctx context.Context, src, dst p2p.Addr, id GroupI
 		GroupID: id,
 		Addr:    src.String(),
 	})
-	if ask != nil {
-		ask.complete(body, errCode)
+	if ask == nil {
+		return errors.Errorf("got reply for non existent ask %v", id)
 	}
+	ask.complete(body, errCode)
 	return nil
 }
 
 type sendParams struct {
 	isAsk      bool
 	isReply    bool
+	errCode    uint8
 	counter    uint32
 	originTime PhaseTime32
-
-	timeout uint32
+	timeout    uint32
 
 	m p2p.IOVec
 }
@@ -255,6 +260,7 @@ func (s *Swarm) send(ctx context.Context, dst p2p.Addr, params sendParams) error
 	hdr := Header(hdrBuf[:])
 	hdr.SetIsAsk(params.isAsk)
 	hdr.SetIsReply(params.isReply)
+	hdr.SetErrorCode(params.errCode)
 	hdr.SetCounter(params.counter)
 	hdr.SetOriginTime(params.originTime)
 	hdr.SetTimeout(params.timeout)
@@ -266,7 +272,7 @@ func (s *Swarm) send(ctx context.Context, dst p2p.Addr, params sendParams) error
 	if partSize*partCount < totalSize {
 		partCount++
 	}
-
+	hdr.SetPartIndex(uint16(0))
 	hdr.SetPartCount(uint16(partCount))
 	hdr.SetTotalSize(uint32(totalSize))
 
@@ -276,6 +282,7 @@ func (s *Swarm) send(ctx context.Context, dst p2p.Addr, params sendParams) error
 		msg = append(msg, params.m...)
 		return s.inner.Tell(ctx, dst, msg)
 	}
+
 	whole := p2p.VecBytes(nil, params.m)
 	eg := errgroup.Group{}
 	for i := 0; i < partCount; i++ {
@@ -312,4 +319,13 @@ func getTimeoutMillis(ctx context.Context) uint32 {
 	now := time.Now().UTC()
 	timeout := deadline.Sub(now)
 	return uint32(timeout.Milliseconds())
+}
+
+func extractErrorCode(n int) (uint8, int) {
+	if n >= 0 {
+		return 0, n
+	}
+	// TODO: allow setting of error codes
+	// for now error code is constant, and n is always 0
+	return 0xff, 0
 }

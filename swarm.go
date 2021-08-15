@@ -26,7 +26,11 @@ type Teller interface {
 	MaxIncomingSize() int
 }
 
-type AskHandler func(ctx context.Context, resp []byte, req Message) (int, error)
+// AskHandler is used to generate a response to an Ask
+// The response is written to resp and the number of bytes written is returned.
+// Returning a value < 0 indicates an error.
+// How to interpret values < 0 is up to the Swarm, but it must result in some kind of error returned from the corresponding call to Ask
+type AskHandler func(ctx context.Context, resp []byte, req Message) int
 
 type Asker interface {
 	Ask(ctx context.Context, resp []byte, addr Addr, data IOVec) (int, error)
@@ -35,7 +39,7 @@ type Asker interface {
 
 var _ AskHandler = NoOpAskHandler
 
-func NoOpAskHandler(ctx context.Context, resp []byte, req Message) (int, error) { return 0, nil }
+func NoOpAskHandler(ctx context.Context, resp []byte, req Message) int { return 0 }
 
 type Swarm interface {
 	Teller

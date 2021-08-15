@@ -24,6 +24,11 @@ func TestAskSwarm(t *testing.T, newSwarms func(testing.TB, []p2p.AskSwarm)) {
 		newSwarms(t, xs)
 		TestMultipleAsks(t, xs)
 	})
+	t.Run("ErrorResponse", func(t *testing.T) {
+		xs := make([]p2p.AskSwarm, 2)
+		newSwarms(t, xs)
+		TestErrorResponse(t, xs[0], xs[1])
+	})
 }
 
 func TestMultipleAsks(t *testing.T, xs []p2p.AskSwarm) {
@@ -63,10 +68,10 @@ func TestAsk(t *testing.T, src, dst p2p.AskSwarm) {
 	var actualReqData []byte
 	eg.Go(func() error {
 		respData := []byte("pong")
-		return dst.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message) (int, error) {
+		return dst.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message) int {
 			actualReqDst = req.Dst
 			actualReqData = append([]byte{}, req.Payload...)
-			return copy(resp, respData), nil
+			return copy(resp, respData)
 		})
 	})
 	require.NoError(t, eg.Wait())
@@ -74,4 +79,23 @@ func TestAsk(t *testing.T, src, dst p2p.AskSwarm) {
 	assert.Equal(t, "ping", string(actualReqData))
 	assert.Equal(t, dstAddr, actualReqDst)
 	assert.Equal(t, "pong", string(actualRespData))
+}
+
+func TestErrorResponse(t *testing.T, src, dst p2p.AskSwarm) {
+	ctx := context.Background()
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		return dst.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message) int {
+			return -1
+		})
+	})
+	var callerError error
+	eg.Go(func() error {
+		resp := make([]byte, src.MaxIncomingSize())
+		_, err := src.Ask(ctx, resp, dst.LocalAddrs()[0], p2p.IOVec{})
+		callerError = err
+		return nil
+	})
+	require.NoError(t, eg.Wait())
+	require.NotNil(t, callerError)
 }

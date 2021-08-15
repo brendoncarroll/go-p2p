@@ -68,9 +68,9 @@ func (s *asker) Ask(ctx context.Context, resp []byte, dst p2p.Addr, data p2p.IOV
 func (s *asker) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
 	var done bool
 	for !done {
-		err := s.SecureAskSwarm.ServeAsk(ctx, func(ctx context.Context, resp []byte, m p2p.Message) (int, error) {
+		err := s.SecureAskSwarm.ServeAsk(ctx, func(ctx context.Context, resp []byte, m p2p.Message) int {
 			if !checkAddr(s, s.af, m.Src, false) {
-				return 0, nil
+				return -1
 			}
 			done = true
 			return fn(ctx, resp, m)
