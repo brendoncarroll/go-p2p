@@ -11,6 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Int
 type IntMux interface {
 	Open(c uint64) p2p.Swarm
 }
@@ -27,6 +28,41 @@ type IntSecureAskMux interface {
 	Open(c uint64) p2p.SecureAskSwarm
 }
 
+// Uint32
+type Uint32Mux interface {
+	Open(c uint32) p2p.Swarm
+}
+
+type Uint32AskMux interface {
+	Open(c uint32) p2p.AskSwarm
+}
+
+type Uint32SecureMux interface {
+	Open(c uint32) p2p.SecureSwarm
+}
+
+type Uint32SecureAskMux interface {
+	Open(c uint32) p2p.SecureAskSwarm
+}
+
+// Uint16
+type Uint16Mux interface {
+	Open(c uint16) p2p.Swarm
+}
+
+type Uint16AskMux interface {
+	Open(c uint16) p2p.AskSwarm
+}
+
+type Uint16SecureMux interface {
+	Open(c uint16) p2p.SecureSwarm
+}
+
+type Uint16SecureAskMux interface {
+	Open(c uint16) p2p.SecureAskSwarm
+}
+
+// String
 type StringMux interface {
 	Open(c string) p2p.Swarm
 }
