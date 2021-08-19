@@ -5,11 +5,18 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 )
 
 type Option func(r *Realm)
 
-func WithLogging(w io.Writer) Option {
+func WithLogger(l *logrus.Logger) Option {
+	return func(r *Realm) {
+		r.log = l
+	}
+}
+
+func WithTrafficLogging(w io.Writer) Option {
 	return func(r *Realm) {
 		r.logw = w
 	}

@@ -22,6 +22,7 @@ type Realm struct {
 	clock    clockwork.Clock
 	latency  time.Duration
 	dropRate float64
+	log      *logrus.Logger
 	logw     io.Writer
 	mtu      int
 
@@ -33,6 +34,7 @@ type Realm struct {
 func NewRealm(opts ...Option) *Realm {
 	r := &Realm{
 		clock:  clockwork.NewRealClock(),
+		log:    logrus.StandardLogger(),
 		logw:   ioutil.Discard,
 		mtu:    1 << 20,
 		swarms: make(map[int]*Swarm),
@@ -43,7 +45,7 @@ func NewRealm(opts ...Option) *Realm {
 	return r
 }
 
-func (r *Realm) log(isAsk bool, msg *p2p.Message) {
+func (r *Realm) logTraffic(isAsk bool, msg *p2p.Message) {
 	method := "TELL"
 	if isAsk {
 		method = "ASK_"
@@ -126,7 +128,7 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IO
 	if !s.r.block() {
 		return 0, errors.New("message dropped")
 	}
-	s.r.log(true, &msg)
+	s.r.logTraffic(true, &msg)
 	s2 := s.r.getSwarm(a.N)
 	n, err := s2.asks.Deliver(ctx, resp, msg)
 	if err != nil {
@@ -154,16 +156,16 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	if !s.r.block() {
 		return nil
 	}
-	s.r.log(false, &msg)
+	s.r.logTraffic(false, &msg)
 	s2 := s.r.getSwarm(a.N)
 	if s2 == nil {
-		logrus.Warnf("swarm %v does not exist in same memswarm.Realm", a.N)
+		s.r.log.Warnf("swarm %v does not exist in same memswarm.Realm", a.N)
 		return nil
 	}
 	ctx, cf := context.WithTimeout(ctx, 3*time.Second)
 	defer cf()
-	if err := s2.tells.Deliver(ctx, msg); err != nil {
-		logrus.Warnf("error delivering tell %v -> %v: %v", s.n, a.N, err)
+	if err := s2.tells.Deliver(ctx, msg); err != nil && !p2p.IsErrSwarmClosed(err) {
+		s.r.log.Warnf("memswarm delivering tell %v -> %v: %v", s.n, a.N, err)
 	}
 	return nil
 }
