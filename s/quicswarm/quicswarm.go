@@ -27,12 +27,13 @@ var log = p2p.Logger
 var _ p2p.SecureAskSwarm = &Swarm{}
 
 type Swarm struct {
-	inner   p2p.Swarm
-	mtu     int
-	privKey p2p.PrivateKey
-	pconn   net.PacketConn
-	l       quic.Listener
-	cf      context.CancelFunc
+	inner     p2p.Swarm
+	mtu       int
+	allowFunc func(p2p.Addr) bool
+	privKey   p2p.PrivateKey
+	pconn     net.PacketConn
+	l         quic.Listener
+	cf        context.CancelFunc
 
 	mu        sync.RWMutex
 	sessCache map[sessionKey]quic.Session
@@ -59,12 +60,13 @@ func New(x p2p.Swarm, privKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
 	}
 	ctx, cf := context.WithCancel(context.Background())
 	s := &Swarm{
-		inner:   x,
-		mtu:     DefaultMTU,
-		pconn:   pconn,
-		l:       l,
-		privKey: privKey,
-		cf:      cf,
+		inner:     x,
+		mtu:       DefaultMTU,
+		allowFunc: func(p2p.Addr) bool { return true },
+		pconn:     pconn,
+		l:         l,
+		privKey:   privKey,
+		cf:        cf,
 
 		sessCache: map[sessionKey]quic.Session{},
 		tells:     swarmutil.NewTellHub(),
@@ -151,14 +153,13 @@ func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
 }
 
 func (s *Swarm) Close() (retErr error) {
-	s.tells.CloseWithError(p2p.ErrSwarmClosed)
-	s.asks.CloseWithError(p2p.ErrSwarmClosed)
-	// this should also close the inner swarm
-	if err := s.l.Close(); retErr == nil {
-		retErr = err
-	}
+	var el swarmutil.ErrList
 	s.cf()
-	return retErr
+	s.tells.CloseWithError(p2p.ErrClosed)
+	s.asks.CloseWithError(p2p.ErrClosed)
+	el.Do(s.l.Close)
+	el.Do(s.inner.Close)
+	return el.Err()
 }
 
 func (s *Swarm) LocalAddrs() (ret []p2p.Addr) {
@@ -247,6 +248,9 @@ func (s *Swarm) serve(ctx context.Context) {
 		addr, err := remoteAddrFromSession(sess)
 		if err != nil {
 			log.Warn(err)
+			continue
+		}
+		if !s.allowFunc(addr) {
 			continue
 		}
 		s.putSession(addr, sess, false)

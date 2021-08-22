@@ -1,14 +1,17 @@
 package p2p
 
-import "errors"
+import (
+	"errors"
+	"net"
+)
 
 var (
 	ErrMTUExceeded = errors.New("payload is larger than swarms MTU")
-	ErrSwarmClosed = errors.New("swarm closed")
+	ErrClosed      = net.ErrClosed
 )
 
-func IsErrSwarmClosed(err error) bool {
-	return errors.Is(err, ErrSwarmClosed)
+func IsErrClosed(err error) bool {
+	return errors.Is(err, ErrClosed)
 }
 
 func IsErrMTUExceeded(err error) bool {

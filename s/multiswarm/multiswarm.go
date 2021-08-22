@@ -44,7 +44,7 @@ func NewSecureAsk(m map[string]p2p.SecureAskSwarm) p2p.SecureAskSwarm {
 	ctx := context.Background()
 	go ms.recvLoops(ctx)
 	go func() {
-		if err := ma.serveLoops(ctx); err != nil && err != p2p.ErrSwarmClosed {
+		if err := ma.serveLoops(ctx); err != nil && err != p2p.ErrClosed {
 			log.Error(err)
 		}
 	}()
@@ -152,7 +152,7 @@ func (mt multiSwarm) Close() error {
 			log.Error(err2)
 		}
 	}
-	mt.tells.CloseWithError(p2p.ErrSwarmClosed)
+	mt.tells.CloseWithError(p2p.ErrClosed)
 	return err
 }
 

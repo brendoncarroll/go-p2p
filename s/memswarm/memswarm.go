@@ -164,7 +164,7 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	}
 	ctx, cf := context.WithTimeout(ctx, 3*time.Second)
 	defer cf()
-	if err := s2.tells.Deliver(ctx, msg); err != nil && !p2p.IsErrSwarmClosed(err) {
+	if err := s2.tells.Deliver(ctx, msg); err != nil && !p2p.IsErrClosed(err) {
 		s.r.log.Warnf("memswarm delivering tell %v -> %v: %v", s.n, a.N, err)
 	}
 	return nil
@@ -197,8 +197,8 @@ func (s *Swarm) Close() error {
 	s.isClosed = true
 	s.mu.Unlock()
 	s.r.removeSwarm(s)
-	s.asks.CloseWithError(p2p.ErrSwarmClosed)
-	s.tells.CloseWithError(p2p.ErrSwarmClosed)
+	s.asks.CloseWithError(p2p.ErrClosed)
+	s.tells.CloseWithError(p2p.ErrClosed)
 	return nil
 }
 
@@ -206,7 +206,7 @@ func (s *Swarm) checkClosed() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.isClosed {
-		return p2p.ErrSwarmClosed
+		return p2p.ErrClosed
 	}
 	return nil
 }

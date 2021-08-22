@@ -121,8 +121,8 @@ func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
 
 func (s *Swarm) Close() error {
 	s.fragLayer.Close()
-	s.asks.CloseWithError(p2p.ErrSwarmClosed)
-	s.tells.CloseWithError(p2p.ErrSwarmClosed)
+	s.asks.CloseWithError(p2p.ErrClosed)
+	s.tells.CloseWithError(p2p.ErrClosed)
 	return s.inner.Close()
 }
 

@@ -92,8 +92,8 @@ func (s *Swarm) LocalAddrs() []p2p.Addr {
 }
 
 func (s *Swarm) Close() error {
-	s.tellHub.CloseWithError(p2p.ErrSwarmClosed)
-	s.askHub.CloseWithError(p2p.ErrSwarmClosed)
+	s.tellHub.CloseWithError(p2p.ErrClosed)
+	s.askHub.CloseWithError(p2p.ErrClosed)
 	return s.l.Close()
 }
 

@@ -112,13 +112,13 @@ func newMuxCore(swarm p2p.Swarm, mf muxFunc, dmf demuxFunc) *muxCore {
 		mc.secure = secure
 	}
 	go func() {
-		if err := mc.recvLoop(ctx); err != nil && err != p2p.ErrSwarmClosed {
+		if err := mc.recvLoop(ctx); err != nil && !p2p.IsErrClosed(err) {
 			log.Error(err)
 		}
 	}()
 	if mc.asker != nil {
 		go func() {
-			if err := mc.serveLoop(ctx); err != nil && err != p2p.ErrSwarmClosed {
+			if err := mc.serveLoop(ctx); err != nil && !p2p.IsErrClosed(err) {
 				log.Error(err)
 			}
 		}()
@@ -283,8 +283,8 @@ func (ms *muxedSwarm) Close() error {
 	ms.isClosed = true
 	ms.mu.Unlock()
 	ms.m.deleteSwarm(ms.cid)
-	ms.tellHub.CloseWithError(p2p.ErrSwarmClosed)
-	ms.askHub.CloseWithError(p2p.ErrSwarmClosed)
+	ms.tellHub.CloseWithError(p2p.ErrClosed)
+	ms.askHub.CloseWithError(p2p.ErrClosed)
 	return nil
 }
 
@@ -292,7 +292,7 @@ func (ms *muxedSwarm) checkClosed() error {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 	if ms.isClosed {
-		return p2p.ErrSwarmClosed
+		return p2p.ErrClosed
 	}
 	return nil
 }
