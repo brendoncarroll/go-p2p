@@ -92,10 +92,6 @@ A secure swarm supporting `Asks` built on the SSH protocol (TCP based).
 - **UDP Swarm**
 An insecure swarm, included mainly as a building block.
 
-- **UPnP Swarm**
-Creates and manages NAT mappings for addresses behind a IPv4 with a NAT table, using UPnP.
-Applies the mappings to values returned from `LocalAddr`
-
 - **Fragmenting Swarm**
 A higher order swarm which increases the MTU of an underlying swarm by breaking apart messages,
 and assembling them on the other side.
