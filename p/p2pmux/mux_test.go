@@ -28,23 +28,19 @@ func TestStringMux(t *testing.T) {
 	var recvFoo, recvBar string
 	eg := errgroup.Group{}
 	eg.Go(func() error {
-		buf := make([]byte, m1foo.MaxIncomingSize())
-		var src, dst p2p.Addr
-		n, err := m1foo.Receive(ctx, &src, &dst, buf)
-		if err != nil {
+		var msg p2p.Message
+		if err := p2p.Receive(ctx, m1foo, &msg); err != nil {
 			return err
 		}
-		recvFoo = string(buf[:n])
+		recvFoo = string(msg.Payload)
 		return nil
 	})
 	eg.Go(func() error {
-		buf := make([]byte, m1bar.MaxIncomingSize())
-		var src, dst p2p.Addr
-		n, err := m1bar.Receive(ctx, &src, &dst, buf)
-		if err != nil {
+		var msg p2p.Message
+		if err := p2p.Receive(ctx, m1bar, &msg); err != nil {
 			return err
 		}
-		recvBar = string(buf[:n])
+		recvBar = string(msg.Payload)
 		return nil
 	})
 
@@ -76,23 +72,19 @@ func TestVarintMux(t *testing.T) {
 	var recvFoo, recvBar string
 	eg := errgroup.Group{}
 	eg.Go(func() error {
-		buf := make([]byte, m1foo.MaxIncomingSize())
-		var src, dst p2p.Addr
-		n, err := m1foo.Receive(ctx, &src, &dst, buf)
-		if err != nil {
+		var msg p2p.Message
+		if err := p2p.Receive(ctx, m1foo, &msg); err != nil {
 			return err
 		}
-		recvFoo = string(buf[:n])
+		recvFoo = string(msg.Payload)
 		return nil
 	})
 	eg.Go(func() error {
-		buf := make([]byte, m1bar.MaxIncomingSize())
-		var src, dst p2p.Addr
-		n, err := m1bar.Receive(ctx, &src, &dst, buf)
-		if err != nil {
+		var msg p2p.Message
+		if err := p2p.Receive(ctx, m1bar, &msg); err != nil {
 			return err
 		}
-		recvBar = string(buf[:n])
+		recvBar = string(msg.Payload)
 		return nil
 	})
 

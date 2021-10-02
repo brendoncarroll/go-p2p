@@ -104,8 +104,8 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return err
 }
 
-func (s *Swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	return s.tells.Receive(ctx, src, dst, buf)
+func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+	return s.tells.Receive(ctx, th)
 }
 
 func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {

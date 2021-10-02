@@ -19,12 +19,13 @@ import (
 )
 
 type Realm struct {
-	clock    clockwork.Clock
-	latency  time.Duration
-	dropRate float64
-	log      *logrus.Logger
-	logw     io.Writer
-	mtu      int
+	clock         clockwork.Clock
+	latency       time.Duration
+	dropRate      float64
+	log           *logrus.Logger
+	logw          io.Writer
+	mtu           int
+	bufferedTells int
 
 	mu     sync.RWMutex
 	n      int
@@ -33,11 +34,12 @@ type Realm struct {
 
 func NewRealm(opts ...Option) *Realm {
 	r := &Realm{
-		clock:  clockwork.NewRealClock(),
-		log:    logrus.StandardLogger(),
-		logw:   ioutil.Discard,
-		mtu:    1 << 20,
-		swarms: make(map[int]*Swarm),
+		clock:         clockwork.NewRealClock(),
+		log:           logrus.StandardLogger(),
+		logw:          ioutil.Discard,
+		mtu:           1 << 20,
+		swarms:        make(map[int]*Swarm),
+		bufferedTells: 0,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -79,7 +81,7 @@ func (r *Realm) NewSwarmWithKey(privateKey p2p.PrivateKey) *Swarm {
 		n:          n,
 		privateKey: privateKey,
 
-		tells: swarmutil.NewTellHub(),
+		tells: make(chan p2p.Message, r.bufferedTells),
 		asks:  swarmutil.NewAskHub(),
 	}
 	r.swarms[n] = s
@@ -105,7 +107,7 @@ type Swarm struct {
 	n          int
 	privateKey p2p.PrivateKey
 
-	tells *swarmutil.TellHub
+	tells chan p2p.Message
 	asks  *swarmutil.AskHub
 
 	mu       sync.RWMutex
@@ -164,14 +166,23 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	}
 	ctx, cf := context.WithTimeout(ctx, 3*time.Second)
 	defer cf()
-	if err := s2.tells.Deliver(ctx, msg); err != nil && !p2p.IsErrClosed(err) {
-		s.r.log.Warnf("memswarm delivering tell %v -> %v: %v", s.n, a.N, err)
+	select {
+	case <-ctx.Done():
+		s.r.log.Warnf("memswarm delivering tell %v -> %v: %v", s.n, a.N, ctx.Err())
+		return nil
+	case s2.tells <- msg:
+		return nil
 	}
-	return nil
 }
 
-func (s *Swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	return s.tells.Receive(ctx, src, dst, buf)
+func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case msg := <-s.tells:
+		th(msg)
+		return nil
+	}
 }
 
 func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
@@ -198,7 +209,6 @@ func (s *Swarm) Close() error {
 	s.mu.Unlock()
 	s.r.removeSwarm(s)
 	s.asks.CloseWithError(p2p.ErrClosed)
-	s.tells.CloseWithError(p2p.ErrClosed)
 	return nil
 }
 

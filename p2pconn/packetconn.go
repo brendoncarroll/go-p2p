@@ -39,12 +39,12 @@ func (c *packetConn) WriteTo(p []byte, to net.Addr) (int, error) {
 func (c *packetConn) ReadFrom(p []byte) (n int, from net.Addr, err error) {
 	ctx, cf := c.getReadContext()
 	defer cf()
-	var src, dst p2p.Addr
-	n, err = c.swarm.Receive(ctx, &src, &dst, p)
-	if err != nil {
+	if err := c.swarm.Receive(ctx, func(m p2p.Message) {
+		from = Addr{Swarm: c.swarm, Addr: m.Src}
+		n = copy(p, m.Payload)
+	}); err != nil {
 		return 0, nil, err
 	}
-	from = Addr{Swarm: c.swarm, Addr: src}
 	return n, from, nil
 }
 

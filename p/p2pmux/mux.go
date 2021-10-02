@@ -127,31 +127,31 @@ func newMuxCore(swarm p2p.Swarm, mf muxFunc, dmf demuxFunc) *muxCore {
 }
 
 func (mc *muxCore) recvLoop(ctx context.Context) error {
-	buf := make([]byte, mc.swarm.MaxIncomingSize())
 	for {
-		var src, dst p2p.Addr
-		n, err := mc.swarm.Receive(ctx, &src, &dst, buf)
-		if err != nil {
+		if err := mc.swarm.Receive(ctx, func(m p2p.Message) {
+			if err := mc.handleRecv(ctx, m); err != nil {
+				logrus.Warn(err)
+			}
+		}); err != nil {
 			return err
 		}
-		if err := func() error {
-			cid, body, err := mc.demuxFunc(buf[:n])
-			if err != nil {
-				return errors.Wrapf(err, "error demultiplexing: ")
-			}
-			s, err := mc.getSwarm(cid)
-			if err != nil {
-				return err
-			}
-			return s.tellHub.Deliver(ctx, p2p.Message{
-				Src:     src,
-				Dst:     dst,
-				Payload: body,
-			})
-		}(); err != nil {
-			logrus.Warn(err)
-		}
 	}
+}
+
+func (mc *muxCore) handleRecv(ctx context.Context, m p2p.Message) error {
+	cid, body, err := mc.demuxFunc(m.Payload)
+	if err != nil {
+		return errors.Wrapf(err, "error demultiplexing: ")
+	}
+	s, err := mc.getSwarm(cid)
+	if err != nil {
+		return err
+	}
+	return s.tellHub.Deliver(ctx, p2p.Message{
+		Src:     m.Src,
+		Dst:     m.Dst,
+		Payload: body,
+	})
 }
 
 func (mc *muxCore) serveLoop(ctx context.Context) error {
@@ -247,8 +247,8 @@ func (ms *muxedSwarm) Tell(ctx context.Context, dst p2p.Addr, data p2p.IOVec) er
 	return ms.m.tell(ctx, ms.cid, dst, data)
 }
 
-func (ms *muxedSwarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	return ms.tellHub.Receive(ctx, src, dst, buf)
+func (ms *muxedSwarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+	return ms.tellHub.Receive(ctx, th)
 }
 
 func (ms *muxedSwarm) Ask(ctx context.Context, resp []byte, dst p2p.Addr, data p2p.IOVec) (int, error) {

@@ -75,8 +75,8 @@ func (mt multiSwarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) er
 	return t.Tell(ctx, dst.Addr, data)
 }
 
-func (mt multiSwarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	return mt.tells.Receive(ctx, src, dst, buf)
+func (mt multiSwarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+	return mt.tells.Receive(ctx, th)
 }
 
 func (mt multiSwarm) recvLoops(ctx context.Context) error {
@@ -85,19 +85,14 @@ func (mt multiSwarm) recvLoops(ctx context.Context) error {
 		tname := tname
 		t := t
 		eg.Go(func() error {
-			buf := make([]byte, t.MaxIncomingSize())
 			for {
-				var src, dst p2p.Addr
-				n, err := t.Receive(ctx, &src, &dst, buf)
-				if err != nil {
-					return err
-				}
-				msg := p2p.Message{
-					Src:     Addr{Transport: tname, Addr: src},
-					Dst:     Addr{Transport: tname, Addr: dst},
-					Payload: buf[:n],
-				}
-				if err := mt.tells.Deliver(ctx, msg); err != nil {
+				if err := t.Receive(ctx, func(m p2p.Message) {
+					mt.tells.Deliver(ctx, p2p.Message{
+						Src:     Addr{Transport: tname, Addr: m.Src},
+						Dst:     Addr{Transport: tname, Addr: m.Dst},
+						Payload: m.Payload,
+					})
+				}); err != nil {
 					return err
 				}
 			}

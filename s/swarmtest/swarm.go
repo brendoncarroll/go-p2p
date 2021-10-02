@@ -172,13 +172,11 @@ func TestTellMTU(t *testing.T, a, b p2p.Swarm) {
 		return a.Tell(ctx, b.LocalAddrs()[0], p2p.IOVec{buf})
 	})
 	eg.Go(func() error {
-		buf := make([]byte, b.MaxIncomingSize())
-		var src, dst p2p.Addr
-		n, err := b.Receive(ctx, &src, &dst, buf)
+		msg, err := readMessage(ctx, b)
 		if err != nil {
 			return err
 		}
-		received = buf[:n]
+		received = msg.Payload
 		return nil
 	})
 	require.NoError(t, eg.Wait())
@@ -211,15 +209,16 @@ func CloseSecureSwarms(t testing.TB, xs []p2p.SecureSwarm) {
 }
 
 func readMessage(ctx context.Context, s p2p.Swarm) (p2p.Message, error) {
-	var src, dst p2p.Addr
-	buf := make([]byte, s.MaxIncomingSize())
-	n, err := s.Receive(ctx, &src, &dst, buf)
+	var mCopy p2p.Message
+	err := s.Receive(ctx, func(m p2p.Message) {
+		mCopy = p2p.Message{
+			Src:     m.Src,
+			Dst:     m.Dst,
+			Payload: append([]byte{}, m.Payload...),
+		}
+	})
 	if err != nil {
 		return p2p.Message{}, nil
 	}
-	return p2p.Message{
-		Src:     src,
-		Dst:     dst,
-		Payload: buf[:n],
-	}, nil
+	return mCopy, nil
 }

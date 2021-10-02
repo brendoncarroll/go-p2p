@@ -48,7 +48,7 @@ func newSwarm(x p2p.Swarm, mtu int) *swarm {
 		msgIDs: make(map[string]uint32),
 		tells:  swarmutil.NewTellHub(),
 	}
-	go s.recvLoop(ctx)
+	go s.recvLoops(ctx, runtime.GOMAXPROCS(0))
 	go s.cleanupLoop(ctx)
 	return s
 }
@@ -93,32 +93,25 @@ func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return eg.Wait()
 }
 
-func (s *swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	return s.tells.Receive(ctx, src, dst, buf)
+func (s *swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+	return s.tells.Receive(ctx, th)
 }
 
 func (s *swarm) MaxIncomingSize() int {
 	return s.mtu
 }
 
-func (s *swarm) recvLoop(ctx context.Context) error {
+func (s *swarm) recvLoops(ctx context.Context, numWorkers int) error {
 	eg, ctx := errgroup.WithContext(ctx)
-	N := runtime.GOMAXPROCS(0)
-	for i := 0; i < N; i++ {
+	for i := 0; i < numWorkers; i++ {
 		eg.Go(func() error {
-			buf := make([]byte, s.Swarm.MaxIncomingSize())
 			for {
-				var src, dst p2p.Addr
-				n, err := s.Swarm.Receive(ctx, &src, &dst, buf)
-				if err != nil {
-					return err
-				}
-				if err := s.handleTell(ctx, p2p.Message{
-					Src:     src,
-					Dst:     dst,
-					Payload: buf[:n],
+				if err := s.Swarm.Receive(ctx, func(m p2p.Message) {
+					if err := s.handleTell(ctx, m); err != nil {
+						logrus.Error(err)
+					}
 				}); err != nil {
-					logrus.Error(err)
+					return err
 				}
 			}
 		})
