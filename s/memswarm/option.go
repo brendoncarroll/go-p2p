@@ -48,3 +48,9 @@ func WithMTU(x int) Option {
 		r.mtu = x
 	}
 }
+
+func WithBufferedTells(n int) Option {
+	return func(r *Realm) {
+		r.bufferedTells = n
+	}
+}

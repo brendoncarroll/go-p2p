@@ -36,15 +36,14 @@ func (s *swarm) Tell(ctx context.Context, dst p2p.Addr, data p2p.IOVec) error {
 	return s.Swarm.Tell(ctx, s.downward(dst), data)
 }
 
-func (s *swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	var src2, dst2 p2p.Addr
-	n, err := s.Swarm.Receive(ctx, &src2, &dst2, buf)
-	if err != nil {
-		return 0, err
-	}
-	*src = s.upward(src2)
-	*dst = s.upward(dst2)
-	return n, nil
+func (s *swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+	return s.Swarm.Receive(ctx, func(m p2p.Message) {
+		th(p2p.Message{
+			Src:     s.upward(m.Src),
+			Dst:     s.upward(m.Dst),
+			Payload: m.Payload,
+		})
+	})
 }
 
 func (s *swarm) LocalAddrs() []p2p.Addr {

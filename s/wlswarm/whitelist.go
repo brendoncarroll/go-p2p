@@ -39,16 +39,18 @@ func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return errors.New("address unreachable")
 }
 
-func (s *swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	for {
-		n, err := s.SecureSwarm.Receive(ctx, src, dst, buf)
-		if err != nil {
-			return 0, err
-		}
-		if checkAddr(s, s.af, *src, false) {
-			return n, err
+func (s *swarm) Receive(ctx context.Context, fn p2p.TellHandler) error {
+	for called := false; !called; {
+		if err := s.SecureSwarm.Receive(ctx, func(m p2p.Message) {
+			if checkAddr(s, s.af, m.Src, false) {
+				called = true
+				fn(m)
+			}
+		}); err != nil {
+			return err
 		}
 	}
+	return nil
 }
 
 var _ p2p.Asker = &asker{}

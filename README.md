@@ -19,7 +19,7 @@ The core abstraction is the `Swarm`. Which represents a group of nodes which can
 ```
 type Swarm interface {
     Tell(ctx context.Context, dst Addr, data []byte) error
-    Receive(ctx context.Context, src, dst, *Addr, buf []byte) (int, error)
+    Receive(ctx context.Context, fn func(Message)) error
 
     ParseAddr(data []byte) (Addr, error)
     LocalAddrs() []Addr

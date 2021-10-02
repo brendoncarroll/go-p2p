@@ -34,12 +34,11 @@ func TestFragment(t *testing.T) {
 	done := make(chan struct{})
 	go func() error {
 		defer close(done)
-		var src, dst p2p.Addr
-		n, err := b.Receive(ctx, &src, &dst, buf)
-		if err != nil {
+		var msg p2p.Message
+		if err := p2p.Receive(ctx, b, &msg); err != nil {
 			return err
 		}
-		buf = buf[:n]
+		buf = msg.Payload
 		return nil
 	}()
 

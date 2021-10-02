@@ -47,17 +47,16 @@ var testConnectCmd = &cobra.Command{
 
 		go func() error {
 			ctx := context.TODO()
-			buf := make([]byte, s3.MaxIncomingSize())
+			var msg p2p.Message
 			for {
-				var src, dst p2p.Addr
-				n, err := s3.Receive(ctx, &src, &dst, buf)
-				if err != nil {
+				if err := p2p.Receive(ctx, s3, &msg); err != nil {
 					return err
 				}
-				if err := s3.Tell(ctx, src, p2p.IOVec{buf[:n]}); err != nil {
+				src, dst := msg.Src, msg.Dst
+				if err := s3.Tell(ctx, src, p2p.IOVec{msg.Payload}); err != nil {
 					return err
 				}
-				log.Println("MSG:", src, "->", dst, " ", buf[:n])
+				log.Printf("MSG: %v -> %v : %q", src, dst, msg.Payload)
 			}
 		}()
 
@@ -71,6 +70,5 @@ var testConnectCmd = &cobra.Command{
 			}
 			time.Sleep(time.Second)
 		}
-		return nil
 	},
 }

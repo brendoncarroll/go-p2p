@@ -111,8 +111,8 @@ func (s *Swarm) Tell(ctx context.Context, dst p2p.Addr, msg p2p.IOVec) error {
 	})
 }
 
-func (s *Swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	return s.tells.Receive(ctx, src, dst, buf)
+func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+	return s.tells.Receive(ctx, th)
 }
 
 func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
@@ -161,15 +161,13 @@ func (s *Swarm) recvLoops(ctx context.Context, n int) error {
 }
 
 func (s *Swarm) recvLoop(ctx context.Context) error {
-	buf := make([]byte, s.inner.MaxIncomingSize())
 	for {
-		var src, dst p2p.Addr
-		n, err := s.inner.Receive(ctx, &src, &dst, buf)
-		if err != nil {
+		if err := s.inner.Receive(ctx, func(m p2p.Message) {
+			if err := s.handleMessage(ctx, m.Src, m.Dst, m.Payload); err != nil {
+				s.log.Errorf("got %v while handling message from %v", err, m.Src)
+			}
+		}); err != nil {
 			return err
-		}
-		if err := s.handleMessage(ctx, src, dst, buf[:n]); err != nil {
-			s.log.Errorf("got %v while handling message from %v", err, src)
 		}
 	}
 }

@@ -14,8 +14,6 @@ const (
 	TheoreticalMTU = (1 << 16) - 1
 )
 
-var log = p2p.Logger
-
 var _ interface {
 	p2p.Swarm
 } = &Swarm{}
@@ -58,14 +56,18 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return err
 }
 
-func (s *Swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	n, udpAddr, err := s.conn.ReadFromUDP(buf)
+func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+	buf := [TheoreticalMTU]byte{}
+	n, udpAddr, err := s.conn.ReadFromUDP(buf[:])
 	if err != nil {
-		return 0, err
+		return err
 	}
-	*src = Addr(*udpAddr)
-	*dst = s.LocalAddrs()[0]
-	return n, nil
+	th(p2p.Message{
+		Src:     Addr(*udpAddr),
+		Dst:     Addr(*s.conn.LocalAddr().(*net.UDPAddr)),
+		Payload: buf[:n],
+	})
+	return nil
 }
 
 func (s *Swarm) LocalAddrs() []p2p.Addr {

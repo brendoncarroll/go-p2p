@@ -2,38 +2,46 @@ package p2p
 
 import (
 	"context"
-	"io"
 	"net"
 
 	"github.com/pkg/errors"
 )
 
 type Message struct {
-	Dst, Src Addr
+	Src, Dst Addr
 	Payload  []byte
 }
+
+type TellHandler = func(Message)
 
 type Teller interface {
 	// Tell sends a message containing data to dst
 	// Tell returns an error if the message cannot be set in flight.
 	// A nil error does not guarentee delivery of the message.
-	Tell(ctx context.Context, dst Addr, data IOVec) error
+	// None of the buffers in v will be modified.
+	Tell(ctx context.Context, dst Addr, v IOVec) error
+
 	// Recv blocks until the context is cancelled or 1 message is recieved.
-	// The contents of message are written into src, dst and buf; the number of bytes written to buf is returned.
-	// If buf is too small Recv returns io.ErrShortBuffer
-	Receive(ctx context.Context, src, dst *Addr, buf []byte) (int, error)
-	// MaxIncomingSize returns the minimum size a buffer must be so that Recv never returns io.ErrShortBuffer
-	MaxIncomingSize() int
+	// fn is called with the message, which may be used until fn returns.
+	// None of the message's fields may be accessed outside of fn.
+	// All of the message's fields may be modified inside fn. A message is only ever delivered to one place,
+	// so the message will never be accessed concurrently or after the call to fn.
+	Receive(ctx context.Context, fn TellHandler) error
 }
 
 // AskHandler is used to generate a response to an Ask
 // The response is written to resp and the number of bytes written is returned.
 // Returning a value < 0 indicates an error.
 // How to interpret values < 0 is up to the Swarm, but it must result in some kind of error returned from the corresponding call to Ask
-type AskHandler func(ctx context.Context, resp []byte, req Message) int
+type AskHandler = func(ctx context.Context, resp []byte, req Message) int
 
 type Asker interface {
-	Ask(ctx context.Context, resp []byte, addr Addr, data IOVec) (int, error)
+	// Ask sends req to addr, and writes the response to resp.
+	// The number of bytes written to resp is returned, or an error.
+	// If resp is too short for the response: io.ErrShortBuffer is returned.
+	Ask(ctx context.Context, resp []byte, addr Addr, req IOVec) (int, error)
+	// ServeAsk calls fn to serve a single ask request, it returns an error if anything went wrong.
+	// Return values < 0 from fn will not result in an error returned from ServeAsk
 	ServeAsk(ctx context.Context, fn AskHandler) error
 }
 
@@ -41,6 +49,9 @@ var _ AskHandler = NoOpAskHandler
 
 func NoOpAskHandler(ctx context.Context, resp []byte, req Message) int { return 0 }
 
+// Swarm represents a single node's view of an address space for nodes.
+// Nodes have their own position(s) or address(es) in the swarm.
+// Nodes can send and receive messages to and from other nodes in the Swarm.
 type Swarm interface {
 	Teller
 
@@ -54,6 +65,8 @@ type Swarm interface {
 	Close() error
 	// ParseAddr attempts to parse an address from data
 	ParseAddr(data []byte) (Addr, error)
+	// MaxIncomingSize returns the minimum size the payload of an incoming message could be
+	MaxIncomingSize() int
 }
 
 type AskSwarm interface {
@@ -130,12 +143,20 @@ func DiscardAsks(ctx context.Context, a Asker) error {
 
 func DiscardTells(ctx context.Context, t Teller) error {
 	for {
-		var src, dst Addr
-		if _, err := t.Receive(ctx, &src, &dst, nil); err != nil {
-			if err == io.ErrShortBuffer {
-				continue
-			}
+		if err := t.Receive(ctx, func(m Message) {}); err != nil {
 			return err
 		}
 	}
+}
+
+// Receive is convenience function which sets m to be a message received from t.
+// m must be non-nil.
+// m.Payload will be truncated (x = x[:0]), and then the message payload will be appended (x = append(x, payload...))
+// This is useful if the caller wants their own copy of the message, instead of borrowing the swarm's temporarily.
+func Receive(ctx context.Context, t Teller, m *Message) error {
+	return t.Receive(ctx, func(m2 Message) {
+		m.Src = m2.Src
+		m.Dst = m2.Dst
+		m.Payload = append(m.Payload[:0], m2.Payload...)
+	})
 }

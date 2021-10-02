@@ -93,8 +93,8 @@ func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return eg.Wait()
 }
 
-func (s *swarm) Receive(ctx context.Context, src, dst *p2p.Addr, buf []byte) (int, error) {
-	return s.tells.Receive(ctx, src, dst, buf)
+func (s *swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+	return s.tells.Receive(ctx, th)
 }
 
 func (s *swarm) MaxIncomingSize() int {
@@ -106,20 +106,19 @@ func (s *swarm) recvLoop(ctx context.Context) error {
 	N := runtime.GOMAXPROCS(0)
 	for i := 0; i < N; i++ {
 		eg.Go(func() error {
-			buf := make([]byte, s.Swarm.MaxIncomingSize())
 			for {
-				var src, dst p2p.Addr
-				n, err := s.Swarm.Receive(ctx, &src, &dst, buf)
-				if err != nil {
+				if err := s.Swarm.Receive(ctx, func(m p2p.Message) {
+					if err := s.handleTell(ctx, p2p.Message{
+						Src:     m.Src,
+						Dst:     m.Dst,
+						Payload: m.Payload,
+					}); err != nil {
+						logrus.Error(err)
+					}
+				}); err != nil {
 					return err
 				}
-				if err := s.handleTell(ctx, p2p.Message{
-					Src:     src,
-					Dst:     dst,
-					Payload: buf[:n],
-				}); err != nil {
-					logrus.Error(err)
-				}
+
 			}
 		})
 	}
