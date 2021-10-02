@@ -22,18 +22,18 @@ import (
 
 const DefaultMTU = 1 << 20
 
-var log = p2p.Logger
-
 var _ p2p.SecureAskSwarm = &Swarm{}
 
 type Swarm struct {
-	inner     p2p.Swarm
-	mtu       int
-	allowFunc func(p2p.Addr) bool
-	privKey   p2p.PrivateKey
-	pconn     net.PacketConn
-	l         quic.Listener
-	cf        context.CancelFunc
+	inner         p2p.Swarm
+	mtu           int
+	fingerprinter p2p.Fingerprinter
+	allowFunc     func(p2p.Addr) bool
+	privKey       p2p.PrivateKey
+	log           *logrus.Logger
+	pconn         net.PacketConn
+	l             quic.Listener
+	cf            context.CancelFunc
 
 	mu        sync.RWMutex
 	sessCache map[sessionKey]quic.Session
@@ -53,20 +53,16 @@ func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option) (*Swarm, err
 // New creates a new swarm on top of x, using privKey for authentication
 func New(x p2p.Swarm, privKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
 	pconn := connWrapper{p2pconn.NewPacketConn(x)}
-	tlsConfig := generateServerTLS(privKey)
-	l, err := quic.Listen(pconn, tlsConfig, generateQUICConfig())
-	if err != nil {
-		return nil, err
-	}
 	ctx, cf := context.WithCancel(context.Background())
 	s := &Swarm{
-		inner:     x,
-		mtu:       DefaultMTU,
-		allowFunc: func(p2p.Addr) bool { return true },
-		pconn:     pconn,
-		l:         l,
-		privKey:   privKey,
-		cf:        cf,
+		inner:         x,
+		mtu:           DefaultMTU,
+		fingerprinter: p2p.DefaultFingerprinter,
+		allowFunc:     func(p2p.Addr) bool { return true },
+		log:           logrus.StandardLogger(),
+		pconn:         pconn,
+		privKey:       privKey,
+		cf:            cf,
 
 		sessCache: map[sessionKey]quic.Session{},
 		tells:     swarmutil.NewTellHub(),
@@ -75,6 +71,12 @@ func New(x p2p.Swarm, privKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
 	for _, opt := range opts {
 		opt(s)
 	}
+	tlsConfig := s.generateServerTLS(privKey)
+	l, err := quic.Listen(pconn, tlsConfig, generateQUICConfig())
+	if err != nil {
+		return nil, err
+	}
+	s.l = l
 	go s.serve(ctx)
 	return s, nil
 }
@@ -113,7 +115,7 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IO
 	if p2p.VecSize(data) > s.mtu {
 		return 0, p2p.ErrMTUExceeded
 	}
-	log := log.WithFields(logrus.Fields{
+	log := s.log.WithFields(logrus.Fields{
 		"remote_addr": dst,
 	})
 	var n int
@@ -173,7 +175,7 @@ func (s *Swarm) LocalAddrs() (ret []p2p.Addr) {
 }
 
 func (s *Swarm) LocalID() p2p.PeerID {
-	return p2p.NewPeerID(s.privKey.Public())
+	return s.fingerprinter(s.privKey.Public())
 }
 
 func (s *Swarm) MTU(context.Context, p2p.Addr) int {
@@ -221,7 +223,7 @@ func (s *Swarm) withSession(ctx context.Context, dst Addr, fn func(sess quic.Ses
 	if err != nil {
 		return err
 	}
-	peerAddr, err := remoteAddrFromSession(sess)
+	peerAddr, err := s.remoteAddrFromSession(sess)
 	if err != nil {
 		return err
 	}
@@ -229,7 +231,7 @@ func (s *Swarm) withSession(ctx context.Context, dst Addr, fn func(sess quic.Ses
 		return errors.Errorf("wrong peer HAVE: %v WANT: %v", peerAddr.ID, dst.ID)
 	}
 	s.putSession(peerAddr, sess, true)
-	log.WithFields(logrus.Fields{
+	s.log.WithFields(logrus.Fields{
 		"remote_addr": peerAddr,
 	}).Debug("session established via dial")
 	go s.handleSession(context.Background(), sess, peerAddr, true)
@@ -241,20 +243,20 @@ func (s *Swarm) serve(ctx context.Context) {
 		sess, err := s.l.Accept(ctx)
 		if err != nil {
 			if err != context.Canceled {
-				log.Error(err)
+				s.log.Error(err)
 			}
 			return
 		}
-		addr, err := remoteAddrFromSession(sess)
+		addr, err := s.remoteAddrFromSession(sess)
 		if err != nil {
-			log.Warn(err)
+			s.log.Warn(err)
 			continue
 		}
 		if !s.allowFunc(addr) {
 			continue
 		}
 		s.putSession(addr, sess, false)
-		log.WithFields(logrus.Fields{
+		s.log.WithFields(logrus.Fields{
 			"remote_addr": addr,
 		}).Debug("session established via listen")
 		go s.handleSession(ctx, sess, addr, false)
@@ -276,14 +278,14 @@ func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, src Addr, 
 	})
 	if err := eg.Wait(); quicErr(err) != nil && err != context.Canceled {
 		if err := sess.CloseWithError(1, err.Error()); err != nil {
-			logrus.Error(err)
+			s.log.Error(err)
 		}
 	}
 	sess.CloseWithError(0, "")
 }
 
 func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr Addr) error {
-	log := log.WithFields(logrus.Fields{"remote_addr": srcAddr})
+	log := s.log.WithFields(logrus.Fields{"remote_addr": srcAddr})
 	for {
 		stream, err := sess.AcceptStream(ctx)
 		if err != nil {
@@ -299,7 +301,7 @@ func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr Addr)
 }
 
 func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstAddr Addr) error {
-	log := log.WithFields(logrus.Fields{"remote_addr": srcAddr})
+	log := s.log.WithFields(logrus.Fields{"remote_addr": srcAddr})
 	reqData := make([]byte, s.mtu)
 	n, err := readFrame(stream, reqData, s.mtu)
 	if err != nil {
@@ -335,7 +337,7 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr Addr
 			lr := io.LimitReader(stream, int64(s.mtu))
 			data, err := ioutil.ReadAll(lr)
 			if err != nil {
-				log.Error(err)
+				s.log.Error(err)
 				return
 			}
 			m := p2p.Message{
@@ -344,7 +346,7 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr Addr
 				Payload: data,
 			}
 			if err := s.tells.Deliver(ctx, m); err != nil {
-				log.Errorf("during tell delivery: %v", err)
+				s.log.Errorf("during tell delivery: %v", err)
 			}
 		}()
 	}
@@ -365,7 +367,7 @@ func (s *Swarm) makeLocalAddr(x net.Addr) Addr {
 	}
 }
 
-func remoteAddrFromSession(x quic.Session) (Addr, error) {
+func (s *Swarm) remoteAddrFromSession(x quic.Session) (Addr, error) {
 	tlsState := x.ConnectionState().TLS
 	if len(tlsState.PeerCertificates) < 1 {
 		return Addr{}, errors.New("no certificates")
@@ -373,7 +375,7 @@ func remoteAddrFromSession(x quic.Session) (Addr, error) {
 
 	cert := tlsState.PeerCertificates[0]
 	pubKey := cert.PublicKey
-	id := p2p.NewPeerID(pubKey)
+	id := s.fingerprinter(pubKey)
 
 	raddr := x.RemoteAddr().(p2pconn.Addr)
 	return Addr{
@@ -393,9 +395,9 @@ func generateClientTLS(privKey p2p.PrivateKey) *tls.Config {
 	}
 }
 
-func generateServerTLS(privKey p2p.PrivateKey) *tls.Config {
+func (s *Swarm) generateServerTLS(privKey p2p.PrivateKey) *tls.Config {
 	cert := swarmutil.GenerateSelfSigned(privKey)
-	localID := p2p.NewPeerID(privKey.Public())
+	localID := s.fingerprinter(privKey.Public())
 	return &tls.Config{
 		Certificates:       []tls.Certificate{cert},
 		NextProtos:         []string{"p2p"},

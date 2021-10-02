@@ -10,7 +10,7 @@ import (
 
 var log = p2p.Logger
 
-type AllowFunc = func(p2p.PeerID) bool
+type AllowFunc = func(addr p2p.Addr) bool
 
 var _ p2p.SecureSwarm = &swarm{}
 
@@ -86,31 +86,27 @@ func (s *asker) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
 
 // checkAddr is called inside TellHandler
 func checkAddr(sec p2p.Secure, af AllowFunc, addr p2p.Addr, isSend bool) bool {
-	pubKey := p2p.LookupPublicKeyInHandler(sec, addr)
-	peerID := p2p.NewPeerID(pubKey)
-	if !af(peerID) {
+	if !af(addr) {
 		if isSend {
-			logAttemptSend(peerID, addr)
+			logAttemptSend(addr)
 		} else {
-			logReceive(peerID, addr)
+			logReceive(addr)
 		}
 		return false
 	}
 	return true
 }
 
-func logAttemptSend(id p2p.PeerID, addr p2p.Addr) {
+func logAttemptSend(addr p2p.Addr) {
 	data, _ := addr.MarshalText()
 	log.WithFields(logrus.Fields{
-		"peer_id": id,
-		"addr":    string(data),
+		"addr": string(data),
 	}).Warn("tried to send message to peer not in whitelist")
 }
 
-func logReceive(id p2p.PeerID, addr p2p.Addr) {
+func logReceive(addr p2p.Addr) {
 	data, _ := addr.MarshalText()
 	log.WithFields(logrus.Fields{
-		"peer_id": id,
-		"addr":    string(data),
+		"addr": string(data),
 	}).Warn("recieved message from peer not in whitelist")
 }

@@ -8,17 +8,21 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+// PeerID is a identifier cryptographically related to a public key
 type PeerID [32]byte
 
-func ZeroPeerID() PeerID {
-	return PeerID{}
-}
+// Fingerprinter is the type of functions which create PeerIDs from PublicKeys
+type Fingerprinter func(PublicKey) PeerID
 
-func NewPeerID(pubKey PublicKey) PeerID {
+func DefaultFingerprinter(pubKey PublicKey) PeerID {
 	data := MarshalPublicKey(pubKey)
 	id := PeerID{}
 	sha3.ShakeSum256(id[:], data)
 	return id
+}
+
+func ZeroPeerID() PeerID {
+	return PeerID{}
 }
 
 func (a PeerID) Equals(b PeerID) bool {

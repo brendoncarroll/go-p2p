@@ -16,3 +16,9 @@ func WithWhilelist(f func(p2p.Addr) bool) Option {
 		s.allowFunc = f
 	}
 }
+
+func WithFingerprinter(fp p2p.Fingerprinter) Option {
+	return func(s *Swarm) {
+		s.fingerprinter = fp
+	}
+}

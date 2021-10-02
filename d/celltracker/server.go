@@ -144,7 +144,7 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id2 := p2p.NewPeerID(pubKey)
+	id2 := p2p.DefaultFingerprinter(pubKey)
 	if !id2.Equals(id) {
 		err = errors.New("public key does not match id")
 		log.Error(err)
@@ -209,7 +209,7 @@ func (s *Server) loadCell(id p2p.PeerID) *serverCell {
 }
 
 func (s *Server) loadOrStoreCell(publicKey ed25519.PublicKey) *serverCell {
-	id := p2p.NewPeerID(publicKey)
+	id := p2p.DefaultFingerprinter(publicKey)
 	c := &serverCell{
 		publicKey: publicKey,
 	}
