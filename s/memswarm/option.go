@@ -50,6 +50,9 @@ func WithMTU(x int) Option {
 }
 
 func WithBufferedTells(n int) Option {
+	if n < 0 {
+		panic("n < 0")
+	}
 	return func(r *Realm) {
 		r.bufferedTells = n
 	}

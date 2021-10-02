@@ -30,15 +30,13 @@ func TestFragment(t *testing.T) {
 	a := New(r.NewSwarm(), mtu)
 	b := New(r.NewSwarm(), mtu)
 
-	buf := make([]byte, b.MaxIncomingSize())
+	var recv p2p.Message
 	done := make(chan struct{})
 	go func() error {
 		defer close(done)
-		var msg p2p.Message
-		if err := p2p.Receive(ctx, b, &msg); err != nil {
+		if err := p2p.Receive(ctx, b, &recv); err != nil {
 			return err
 		}
-		buf = msg.Payload
 		return nil
 	}()
 
@@ -48,5 +46,5 @@ func TestFragment(t *testing.T) {
 	}
 	require.NoError(t, a.Tell(ctx, b.LocalAddrs()[0], p2p.IOVec{send}))
 	<-done
-	require.Equal(t, send, buf)
+	require.Equal(t, send, recv.Payload)
 }

@@ -48,7 +48,7 @@ func newSwarm(x p2p.Swarm, mtu int) *swarm {
 		msgIDs: make(map[string]uint32),
 		tells:  swarmutil.NewTellHub(),
 	}
-	go s.recvLoop(ctx)
+	go s.recvLoops(ctx, runtime.GOMAXPROCS(0))
 	go s.cleanupLoop(ctx)
 	return s
 }
@@ -101,24 +101,18 @@ func (s *swarm) MaxIncomingSize() int {
 	return s.mtu
 }
 
-func (s *swarm) recvLoop(ctx context.Context) error {
+func (s *swarm) recvLoops(ctx context.Context, numWorkers int) error {
 	eg, ctx := errgroup.WithContext(ctx)
-	N := runtime.GOMAXPROCS(0)
-	for i := 0; i < N; i++ {
+	for i := 0; i < numWorkers; i++ {
 		eg.Go(func() error {
 			for {
 				if err := s.Swarm.Receive(ctx, func(m p2p.Message) {
-					if err := s.handleTell(ctx, p2p.Message{
-						Src:     m.Src,
-						Dst:     m.Dst,
-						Payload: m.Payload,
-					}); err != nil {
+					if err := s.handleTell(ctx, m); err != nil {
 						logrus.Error(err)
 					}
 				}); err != nil {
 					return err
 				}
-
 			}
 		})
 	}
