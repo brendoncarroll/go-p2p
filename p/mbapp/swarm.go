@@ -161,13 +161,13 @@ func (s *Swarm) recvLoops(ctx context.Context, n int) error {
 }
 
 func (s *Swarm) recvLoop(ctx context.Context) error {
+	var m p2p.Message
 	for {
-		if err := s.inner.Receive(ctx, func(m p2p.Message) {
-			if err := s.handleMessage(ctx, m.Src, m.Dst, m.Payload); err != nil {
-				s.log.Errorf("got %v while handling message from %v", err, m.Src)
-			}
-		}); err != nil {
+		if err := p2p.Receive(ctx, s.inner, &m); err != nil {
 			return err
+		}
+		if err := s.handleMessage(ctx, m.Src, m.Dst, m.Payload); err != nil {
+			s.log.Errorf("got %v while handling message from %v", err, m.Src)
 		}
 	}
 }
