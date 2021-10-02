@@ -39,7 +39,7 @@ func NewRealm(opts ...Option) *Realm {
 		logw:          ioutil.Discard,
 		mtu:           1 << 20,
 		swarms:        make(map[int]*Swarm),
-		bufferedTells: 1,
+		bufferedTells: 0,
 	}
 	for _, opt := range opts {
 		opt(r)
