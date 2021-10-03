@@ -2,9 +2,9 @@ package p2pke
 
 import (
 	"encoding/binary"
-	"encoding/json"
 
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 const MaxNonce = (1 << 31) - 1
@@ -25,62 +25,51 @@ const (
 	RespToInit
 )
 
-type InitHello struct {
-	CipherSuites []string `json:"cipher_suites"`
+func (d Direction) String() string {
+	switch d {
+	case InitToResp:
+		return "INIT->RESP"
+	case RespToInit:
+		return "RESP->INIT"
+	default:
+		panic("unknown direction")
+	}
 }
 
-type RespHello struct {
-	CipherSuite string    `json:"cipher_suite"`
-	AuthProof   AuthProof `json:"auth_proof"`
-}
-
-type InitDone struct {
-	AuthProof AuthProof `json:"auth_proof"`
-}
-
-type AuthProof struct {
-	KeyX509 []byte `json:"key_x509"`
-	Sig     []byte `json:"sig"`
-}
-
-type HandshakeError struct {
-	CipherSuites []string `json:"cipher_suites"`
-}
-
-func marshal(out []byte, x interface{}) []byte {
-	data, err := json.Marshal(x)
+func marshal(out []byte, x proto.Message) []byte {
+	data, err := proto.Marshal(x)
 	if err != nil {
 		panic(err)
 	}
 	return append(out, data...)
 }
 
-func unmarshal(data []byte, x interface{}) error {
-	return json.Unmarshal(data, x)
+func unmarshal(data []byte, x proto.Message) error {
+	return proto.Unmarshal(data, x)
 }
 
-func parseInitHello(x []byte) (*InitHello, error) {
-	var h InitHello
-	if err := unmarshal(x, &h); err != nil {
+func parseInitHello(data []byte) (*InitHello, error) {
+	x := &InitHello{}
+	if err := unmarshal(data, x); err != nil {
 		return nil, err
 	}
-	return &h, nil
+	return x, nil
 }
 
-func parseRespHello(x []byte) (*RespHello, error) {
-	var h RespHello
-	if err := unmarshal(x, &h); err != nil {
+func parseRespHello(data []byte) (*RespHello, error) {
+	x := &RespHello{}
+	if err := unmarshal(data, x); err != nil {
 		return nil, err
 	}
-	return &h, nil
+	return x, nil
 }
 
 func parseInitDone(data []byte) (*InitDone, error) {
-	var x InitDone
-	if err := unmarshal(data, &x); err != nil {
+	x := &InitDone{}
+	if err := unmarshal(data, x); err != nil {
 		return nil, err
 	}
-	return &x, nil
+	return x, nil
 }
 
 type Message []byte

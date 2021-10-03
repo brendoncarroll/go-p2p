@@ -64,7 +64,7 @@ func (s *Session) sendInit() {
 	s.hs = hs
 
 	msg := newMessage(InitToResp, 0)
-	msg, _, _, err = s.hs.WriteMessage(msg, marshal(nil, InitHello{
+	msg, _, _, err = s.hs.WriteMessage(msg, marshal(nil, &InitHello{
 		CipherSuites: cipherSuiteNames,
 	}))
 	if err != nil {
@@ -102,7 +102,7 @@ func (s *Session) sendRespHello() {
 	cb := s.hs.ChannelBinding()
 	msg, cs1, cs2, err := s.hs.WriteMessage(msg, marshal(nil, &RespHello{
 		CipherSuite: cipherSuiteNames[0],
-		AuthProof:   s.makeAuthProof(cb),
+		AuthClaim:   s.makeAuthClaim(cb),
 	}))
 	if err != nil {
 		panic(err)
@@ -122,11 +122,11 @@ func (s *Session) deliverRespHello(msg Message) error {
 	if err != nil {
 		return err
 	}
-	pubKey, err := p2p.ParsePublicKey(respHello.AuthProof.KeyX509)
+	pubKey, err := p2p.ParsePublicKey(respHello.AuthClaim.KeyX509)
 	if err != nil {
 		return err
 	}
-	if err := p2p.Verify(pubKey, purpose, cb, respHello.AuthProof.Sig); err != nil {
+	if err := p2p.Verify(pubKey, purpose, cb, respHello.AuthClaim.Sig); err != nil {
 		return err
 	}
 	s.cipherOut, s.cipherIn = pickCS(s.isInit, cs1, cs2)
@@ -137,10 +137,10 @@ func (s *Session) deliverRespHello(msg Message) error {
 }
 
 func (s *Session) sendInitDone() {
-	authProof := s.makeAuthProof(s.hs.ChannelBinding())
+	authClaim := s.makeAuthClaim(s.hs.ChannelBinding())
 	msg := newMessage(s.outgoingDirection(), nonceInitDone)
-	out := s.cipherOut.Encrypt(msg, nonceInitDone, msg, marshal(nil, InitDone{
-		AuthProof: authProof,
+	out := s.cipherOut.Encrypt(msg, nonceInitDone, msg, marshal(nil, &InitDone{
+		AuthClaim: authClaim,
 	}))
 	s.send(out)
 }
@@ -157,12 +157,12 @@ func (s *Session) deliverInitDone(msg Message) error {
 	if err != nil {
 		return err
 	}
-	pubKey, err := p2p.ParsePublicKey(initDone.AuthProof.KeyX509)
+	pubKey, err := p2p.ParsePublicKey(initDone.AuthClaim.KeyX509)
 	if err != nil {
 		return err
 	}
 	cb := s.hs.ChannelBinding()
-	if err := p2p.Verify(pubKey, purpose, cb, initDone.AuthProof.Sig); err != nil {
+	if err := p2p.Verify(pubKey, purpose, cb, initDone.AuthClaim.Sig); err != nil {
 		return err
 	}
 	s.remoteKey = pubKey
@@ -239,12 +239,12 @@ func (s *Session) outgoingDirection() Direction {
 	}
 }
 
-func (s *Session) makeAuthProof(cb []byte) AuthProof {
+func (s *Session) makeAuthClaim(cb []byte) *AuthClaim {
 	sig, err := p2p.Sign(nil, s.privateKey, purpose, cb)
 	if err != nil {
 		panic(err)
 	}
-	return AuthProof{
+	return &AuthClaim{
 		KeyX509: p2p.MarshalPublicKey(s.privateKey.Public()),
 		Sig:     sig,
 	}
