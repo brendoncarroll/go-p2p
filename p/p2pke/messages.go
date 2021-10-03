@@ -12,7 +12,7 @@ const MaxNonce = (1 << 31) - 1
 const (
 	nonceInitHello     = 0
 	nonceRespHello     = 1
-	nonceAuthProof     = 2
+	nonceInitDone      = 2
 	noncePostHandshake = 16
 )
 
@@ -27,18 +27,24 @@ const (
 
 type InitHello struct {
 	CipherSuites []string `json:"cipher_suites"`
-	PSKHash      []byte   `json:"psk_hash,omitempty"`
 }
 
 type RespHello struct {
 	CipherSuite string    `json:"cipher_suite"`
-	PSKUsed     bool      `json:"psk_used"`
 	AuthProof   AuthProof `json:"auth_proof"`
+}
+
+type InitDone struct {
+	AuthProof AuthProof `json:"auth_proof"`
 }
 
 type AuthProof struct {
 	KeyX509 []byte `json:"key_x509"`
 	Sig     []byte `json:"sig"`
+}
+
+type HandshakeError struct {
+	CipherSuites []string `json:"cipher_suites"`
 }
 
 func marshal(out []byte, x interface{}) []byte {
@@ -69,12 +75,12 @@ func parseRespHello(x []byte) (*RespHello, error) {
 	return &h, nil
 }
 
-func parseAuthProof(x []byte) (*AuthProof, error) {
-	var ap AuthProof
-	if err := unmarshal(x, &ap); err != nil {
+func parseInitDone(data []byte) (*InitDone, error) {
+	var x InitDone
+	if err := unmarshal(data, &x); err != nil {
 		return nil, err
 	}
-	return &ap, nil
+	return &x, nil
 }
 
 type Message []byte
@@ -92,6 +98,12 @@ func ParseMessage(x []byte) (Message, error) {
 		return nil, errors.Errorf("p2pke: too short to be message")
 	}
 	return x, nil
+}
+
+func (m Message) GetNonce() uint32 {
+	x := binary.BigEndian.Uint32(m[:4])
+	x &= 0x7FFF_FFFF
+	return x
 }
 
 func (m Message) SetNonce(n uint32) {
@@ -127,13 +139,7 @@ func (m Message) SetDirection(dir Direction) {
 	binary.BigEndian.PutUint32(m[:4], y)
 }
 
-func (m Message) GetNonce() uint32 {
-	x := binary.BigEndian.Uint32(m[:4])
-	x &= 0x7FFF_FFFF
-	return x
-}
-
-func (m Message) NonceBytes() []byte {
+func (m Message) HeaderBytes() []byte {
 	return m[:4]
 }
 

@@ -26,14 +26,30 @@ type Session struct {
 	rp                  *replay.Filter
 }
 
-func NewSession(isInit bool, privateKey p2p.PrivateKey, sendFunc Sender) *Session {
+type Params struct {
+	IsInit     bool
+	PrivateKey p2p.PrivateKey
+	Send       Sender
+	Logger     *logrus.Logger
+}
+
+func NewSession(params Params) *Session {
+	if params.Logger == nil {
+		params.Logger = logrus.StandardLogger()
+	}
 	s := &Session{
-		privateKey: privateKey,
-		isInit:     isInit,
-		send:       sendFunc,
-		log:        logrus.StandardLogger(),
+		privateKey: params.PrivateKey,
+		isInit:     params.IsInit,
+		send:       params.Send,
+		log:        params.Logger,
 	}
 	return s
+}
+
+func (s *Session) StartHandshake() {
+	if s.isInit {
+		s.sendInit()
+	}
 }
 
 func (s *Session) sendInit() {
@@ -50,7 +66,6 @@ func (s *Session) sendInit() {
 	msg := newMessage(InitToResp, 0)
 	msg, _, _, err = s.hs.WriteMessage(msg, marshal(nil, InitHello{
 		CipherSuites: cipherSuiteNames,
-		PSKHash:      nil,
 	}))
 	if err != nil {
 		panic(err)
@@ -69,12 +84,12 @@ func (s *Session) deliverInitHello(msg Message) error {
 		panic(err)
 	}
 	s.hs = hs
-	helloBytes, _, _, err := hs.ReadMessage(nil, msg.Body())
+	payload, _, _, err := hs.ReadMessage(nil, msg.Body())
 	if err != nil {
 		return err
 	}
 	// TODO: use initHello
-	_, err = parseInitHello(helloBytes)
+	_, err = parseInitHello(payload)
 	if err != nil {
 		return err
 	}
@@ -87,7 +102,6 @@ func (s *Session) sendRespHello() {
 	cb := s.hs.ChannelBinding()
 	msg, cs1, cs2, err := s.hs.WriteMessage(msg, marshal(nil, &RespHello{
 		CipherSuite: cipherSuiteNames[0],
-		PSKUsed:     false,
 		AuthProof:   s.makeAuthProof(cb),
 	}))
 	if err != nil {
@@ -118,35 +132,37 @@ func (s *Session) deliverRespHello(msg Message) error {
 	s.cipherOut, s.cipherIn = pickCS(s.isInit, cs1, cs2)
 	s.remoteKey = pubKey
 	s.nonce = noncePostHandshake
-	s.sendAuthProof()
+	s.sendInitDone()
 	return nil
 }
 
-func (s *Session) sendAuthProof() {
+func (s *Session) sendInitDone() {
 	authProof := s.makeAuthProof(s.hs.ChannelBinding())
-	msg := newMessage(s.outgoingDirection(), nonceAuthProof)
-	out := s.cipherOut.Encrypt(msg, nonceAuthProof, msg, marshal(nil, authProof))
+	msg := newMessage(s.outgoingDirection(), nonceInitDone)
+	out := s.cipherOut.Encrypt(msg, nonceInitDone, msg, marshal(nil, InitDone{
+		AuthProof: authProof,
+	}))
 	s.send(out)
 }
 
-func (s *Session) deliverAuthProof(msg Message) error {
+func (s *Session) deliverInitDone(msg Message) error {
 	if s.cipherIn == nil {
-		return errors.Errorf("auth proof too early")
+		return errors.Errorf("initDone too early")
 	}
-	ptext, err := s.cipherIn.Decrypt(nil, uint64(msg.GetNonce()), msg.NonceBytes(), msg.Body())
+	ptext, err := s.cipherIn.Decrypt(nil, uint64(msg.GetNonce()), msg.HeaderBytes(), msg.Body())
 	if err != nil {
 		return err
 	}
-	authProof, err := parseAuthProof(ptext)
+	initDone, err := parseInitDone(ptext)
 	if err != nil {
 		return err
 	}
-	pubKey, err := p2p.ParsePublicKey(authProof.KeyX509)
+	pubKey, err := p2p.ParsePublicKey(initDone.AuthProof.KeyX509)
 	if err != nil {
 		return err
 	}
 	cb := s.hs.ChannelBinding()
-	if err := p2p.Verify(pubKey, purpose, cb, authProof.Sig); err != nil {
+	if err := p2p.Verify(pubKey, purpose, cb, initDone.AuthProof.Sig); err != nil {
 		return err
 	}
 	s.remoteKey = pubKey
@@ -170,7 +186,7 @@ func (s *Session) Deliver(out []byte, incoming []byte) ([]byte, error) {
 		case 1:
 			return nil, s.deliverRespHello(msg)
 		case 2:
-			return nil, s.deliverAuthProof(msg)
+			return nil, s.deliverInitDone(msg)
 		default:
 			s.log.Warnf("p2pke: received data before handshake has completed. nonce=%v", nonce)
 			return nil, nil
@@ -180,7 +196,7 @@ func (s *Session) Deliver(out []byte, incoming []byte) ([]byte, error) {
 			s.log.Warnf("p2pke: late handshake message. nonce=%v", nonce)
 			return nil, nil
 		}
-		out, err := s.cipherIn.Decrypt(out, uint64(nonce), msg.NonceBytes(), msg.Body())
+		out, err := s.cipherIn.Decrypt(out, uint64(nonce), msg.HeaderBytes(), msg.Body())
 		if err != nil {
 			return nil, err
 		}
@@ -220,14 +236,6 @@ func (s *Session) outgoingDirection() Direction {
 		return InitToResp
 	} else {
 		return RespToInit
-	}
-}
-
-func (s *Session) incomingDirection() Direction {
-	if s.isInit {
-		return RespToInit
-	} else {
-		return InitToResp
 	}
 }
 
