@@ -1,6 +1,8 @@
 package p2pke
 
 import (
+	"time"
+
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/flynn/noise"
 	"github.com/pkg/errors"
@@ -8,13 +10,18 @@ import (
 	"golang.zx2c4.com/wireguard/replay"
 )
 
+const (
+	MaxSessionDuration = 1 * time.Minute
+	Overhead           = 4 + 16
+)
+
 type Sender func([]byte)
 
 type Session struct {
 	privateKey p2p.PrivateKey
-	send       Sender
 	isInit     bool
 	log        *logrus.Logger
+	createdAt  time.Time
 
 	// handshake
 	hs        *noise.HandshakeState
@@ -26,33 +33,33 @@ type Session struct {
 	rp                  *replay.Filter
 }
 
-type Params struct {
+type SessionParams struct {
 	IsInit     bool
 	PrivateKey p2p.PrivateKey
-	Send       Sender
 	Logger     *logrus.Logger
+	Now        time.Time
 }
 
-func NewSession(params Params) *Session {
+func NewSession(params SessionParams) *Session {
 	if params.Logger == nil {
 		params.Logger = logrus.StandardLogger()
 	}
 	s := &Session{
 		privateKey: params.PrivateKey,
 		isInit:     params.IsInit,
-		send:       params.Send,
 		log:        params.Logger,
+		createdAt:  params.Now,
 	}
 	return s
 }
 
-func (s *Session) StartHandshake() {
+func (s *Session) StartHandshake(send Sender) {
 	if s.isInit {
-		s.sendInit()
+		s.sendInit(send)
 	}
 }
 
-func (s *Session) sendInit() {
+func (s *Session) sendInit(send Sender) {
 	hs, err := noise.NewHandshakeState(noise.Config{
 		Initiator:   s.isInit,
 		Pattern:     noise.HandshakeNN,
@@ -70,10 +77,10 @@ func (s *Session) sendInit() {
 	if err != nil {
 		panic(err)
 	}
-	s.send(msg)
+	send(msg)
 }
 
-func (s *Session) deliverInitHello(msg Message) error {
+func (s *Session) deliverInitHello(msg Message, send Sender) error {
 	// TODO: select cipher suite
 	hs, err := noise.NewHandshakeState(noise.Config{
 		Initiator:   false,
@@ -93,11 +100,11 @@ func (s *Session) deliverInitHello(msg Message) error {
 	if err != nil {
 		return err
 	}
-	s.sendRespHello()
+	s.sendRespHello(send)
 	return nil
 }
 
-func (s *Session) sendRespHello() {
+func (s *Session) sendRespHello(send Sender) {
 	msg := newMessage(RespToInit, 1)
 	cb := s.hs.ChannelBinding()
 	msg, cs1, cs2, err := s.hs.WriteMessage(msg, marshal(nil, &RespHello{
@@ -108,16 +115,15 @@ func (s *Session) sendRespHello() {
 		panic(err)
 	}
 	s.cipherOut, s.cipherIn = pickCS(s.isInit, cs1, cs2)
-	s.send(msg)
+	send(msg)
 }
 
-func (s *Session) deliverRespHello(msg Message) error {
+func (s *Session) deliverRespHello(msg Message, send Sender) error {
 	cb := append([]byte{}, s.hs.ChannelBinding()...)
 	helloBytes, cs1, cs2, err := s.hs.ReadMessage(nil, msg.Body())
 	if err != nil {
 		return err
 	}
-	// TODO: use resp hello
 	respHello, err := parseRespHello(helloBytes)
 	if err != nil {
 		return err
@@ -132,17 +138,17 @@ func (s *Session) deliverRespHello(msg Message) error {
 	s.cipherOut, s.cipherIn = pickCS(s.isInit, cs1, cs2)
 	s.remoteKey = pubKey
 	s.nonce = noncePostHandshake
-	s.sendInitDone()
+	s.sendInitDone(send)
 	return nil
 }
 
-func (s *Session) sendInitDone() {
+func (s *Session) sendInitDone(send Sender) {
 	authClaim := s.makeAuthClaim(s.hs.ChannelBinding())
 	msg := newMessage(s.outgoingDirection(), nonceInitDone)
 	out := s.cipherOut.Encrypt(msg, nonceInitDone, msg, marshal(nil, &InitDone{
 		AuthClaim: authClaim,
 	}))
-	s.send(out)
+	send(out)
 }
 
 func (s *Session) deliverInitDone(msg Message) error {
@@ -173,7 +179,10 @@ func (s *Session) deliverInitDone(msg Message) error {
 // Deliver gives the session a message.
 // If there is data in the message it will be returned as a non nil slice, appended to out.
 // If there is not data, then a nil slice, and nil error will be returned.
-func (s *Session) Deliver(out []byte, incoming []byte) ([]byte, error) {
+func (s *Session) Deliver(out []byte, incoming []byte, now time.Time, send Sender) ([]byte, error) {
+	if err := s.checkExpired(now); err != nil {
+		return nil, err
+	}
 	msg, err := ParseMessage(incoming)
 	if err != nil {
 		return nil, err
@@ -182,9 +191,9 @@ func (s *Session) Deliver(out []byte, incoming []byte) ([]byte, error) {
 	if s.remoteKey == nil {
 		switch nonce {
 		case 0:
-			return nil, s.deliverInitHello(msg)
+			return nil, s.deliverInitHello(msg, send)
 		case 1:
-			return nil, s.deliverRespHello(msg)
+			return nil, s.deliverRespHello(msg, send)
 		case 2:
 			return nil, s.deliverInitDone(msg)
 		default:
@@ -207,7 +216,10 @@ func (s *Session) Deliver(out []byte, incoming []byte) ([]byte, error) {
 	}
 }
 
-func (s *Session) Send(ptext []byte) error {
+func (s *Session) Send(ptext []byte, now time.Time, send Sender) error {
+	if err := s.checkExpired(now); err != nil {
+		return err
+	}
 	if s.cipherOut == nil {
 		return errors.Errorf("handshake has not completed")
 	}
@@ -215,7 +227,7 @@ func (s *Session) Send(ptext []byte) error {
 	s.nonce++
 	msg := newMessage(s.outgoingDirection(), nonce)
 	msg = s.cipherOut.Encrypt(msg, uint64(nonce), msg, ptext)
-	s.send(msg)
+	send(msg)
 	return nil
 }
 
@@ -248,6 +260,13 @@ func (s *Session) makeAuthClaim(cb []byte) *AuthClaim {
 		KeyX509: p2p.MarshalPublicKey(s.privateKey.Public()),
 		Sig:     sig,
 	}
+}
+
+func (s *Session) checkExpired(now time.Time) error {
+	if now.Sub(s.createdAt) > MaxSessionDuration {
+		return ErrSessionExpired{}
+	}
+	return nil
 }
 
 func pickCS(initiator bool, cs1, cs2 *noise.CipherState) (outCipher, inCipher noise.Cipher) {

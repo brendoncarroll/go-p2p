@@ -10,9 +10,11 @@ import (
 const MaxNonce = (1 << 31) - 1
 
 const (
-	nonceInitHello     = 0
-	nonceRespHello     = 1
-	nonceInitDone      = 2
+	nonceInitHello   = 0
+	nonceRespHello   = 1
+	nonceInitDone    = 2
+	nonceRespHSError = 3
+
 	noncePostHandshake = 16
 )
 
@@ -34,6 +36,20 @@ func (d Direction) String() string {
 	default:
 		panic("unknown direction")
 	}
+}
+
+func IsInitHello(x []byte) bool {
+	msg, err := ParseMessage(x)
+	return err == nil && msg.GetNonce() == nonceInitHello
+}
+
+func IsRepoHello(x []byte) bool {
+	msg, err := ParseMessage(x)
+	return err == nil && msg.GetNonce() == nonceRespHello
+}
+
+func IsHello(x []byte) bool {
+	return IsInitHello(x) || IsRepoHello(x)
 }
 
 func marshal(out []byte, x proto.Message) []byte {
