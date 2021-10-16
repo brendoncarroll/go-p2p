@@ -218,7 +218,7 @@ func readMessage(ctx context.Context, s p2p.Swarm) (p2p.Message, error) {
 		}
 	})
 	if err != nil {
-		return p2p.Message{}, nil
+		return p2p.Message{}, err
 	}
 	return mCopy, nil
 }

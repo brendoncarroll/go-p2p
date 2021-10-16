@@ -8,6 +8,7 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/p/p2pke"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
@@ -37,22 +38,32 @@ func New(inner p2p.Swarm, privateKey p2p.PrivateKey, opts ...Option) *Swarm {
 		privateKey:    privateKey,
 		fingerprinter: p2p.DefaultFingerprinter,
 		log:           logrus.StandardLogger(),
-
-		hub:   swarmutil.NewTellHub(),
-		store: newStore(privateKey),
+		hub:           swarmutil.NewTellHub(),
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
 	s.localID = s.fingerprinter(privateKey.Public())
+	s.store = newStore(func(addr Addr) *p2pke.Conn {
+		checkKey := func(p2p.PublicKey) error { return nil }
+		if addr.ID != (p2p.PeerID{}) {
+			checkKey = func(x p2p.PublicKey) error {
+				return checkPublicKey(s.fingerprinter, addr.ID, x)
+			}
+		}
+		return p2pke.NewConn(s.privateKey, checkKey)
+	})
 	go s.recvLoops(context.Background(), runtime.GOMAXPROCS(0))
 	return s
 }
 
 func (s *Swarm) Tell(ctx context.Context, dst p2p.Addr, v p2p.IOVec) error {
+	if p2p.VecSize(v) > s.MTU(ctx, dst) {
+		return p2p.ErrMTUExceeded
+	}
 	dst2 := dst.(Addr)
-	return s.store.withConn(addrKey(dst2), func(c *p2pke.Conn) error {
-		return c.Send(ctx, p2p.VecBytes(nil, v), s.getSender(ctx, dst))
+	return s.withConn(ctx, dst2, func(c *p2pke.Conn) error {
+		return c.Send(ctx, p2p.VecBytes(nil, v), s.getSender(ctx, dst2.Addr))
 	})
 }
 
@@ -79,11 +90,14 @@ func (s *Swarm) PublicKey() p2p.PublicKey {
 func (s *Swarm) LookupPublicKey(ctx context.Context, dst p2p.Addr) (p2p.PublicKey, error) {
 	dst2 := dst.(Addr)
 	var ret p2p.PublicKey
-	if err := s.store.withConn(addrKey(dst2), func(conn *p2pke.Conn) error {
+	if err := s.withConn(ctx, dst2, func(conn *p2pke.Conn) error {
 		ret = conn.RemoteKey()
 		return nil
 	}); err != nil {
 		return nil, err
+	}
+	if ret == nil {
+		return nil, p2p.ErrPublicKeyNotFound
 	}
 	return ret, nil
 }
@@ -100,6 +114,25 @@ func (s *Swarm) MaxIncomingSize() int {
 func (s *Swarm) Close() error {
 	s.hub.CloseWithError(p2p.ErrClosed)
 	return s.inner.Close()
+}
+
+func (s *Swarm) withConn(ctx context.Context, addr Addr, fn func(*p2pke.Conn) error) error {
+	shouldDelete := false
+	defer func() {
+		if shouldDelete {
+			s.store.delete(addr)
+		}
+	}()
+	return s.store.withConn(addr, func(c *p2pke.Conn) error {
+		if err := c.WaitReady(ctx, s.getSender(ctx, addr.Addr)); err != nil {
+			return err
+		}
+		if err := checkPublicKey(s.fingerprinter, addr.ID, c.RemoteKey()); err != nil {
+			shouldDelete = true
+			return err
+		}
+		return fn(c)
+	})
 }
 
 func (s *Swarm) recvLoops(ctx context.Context, numWorkers int) error {
@@ -121,14 +154,15 @@ func (s *Swarm) recvLoops(ctx context.Context, numWorkers int) error {
 }
 
 func (s *Swarm) handleMessage(ctx context.Context, msg p2p.Message) error {
-	return s.store.withConn(addrKey(msg.Src), func(conn *p2pke.Conn) error {
+	return s.store.withConn(Addr{Addr: msg.Src}, func(conn *p2pke.Conn) error {
 		out, err := conn.Deliver(ctx, nil, msg.Payload, s.getSender(ctx, msg.Src))
 		if err != nil {
 			return err
 		}
 		if out != nil {
+			srcID := s.fingerprinter(conn.RemoteKey())
 			return s.hub.Deliver(ctx, p2p.Message{
-				Src:     Addr{ID: s.fingerprinter(conn.RemoteKey()), Addr: msg.Src},
+				Src:     Addr{ID: srcID, Addr: msg.Src},
 				Dst:     Addr{ID: s.localID, Addr: msg.Dst},
 				Payload: out,
 			})
@@ -147,10 +181,11 @@ func (s *Swarm) getSender(ctx context.Context, dst p2p.Addr) p2pke.Sender {
 	}
 }
 
-func addrKey(x p2p.Addr) string {
-	data, err := x.MarshalText()
-	if err != nil {
-		panic(err)
+func checkPublicKey(fp p2p.Fingerprinter, id p2p.PeerID, x p2p.PublicKey) error {
+	have := fp(x)
+	want := id
+	if have != want {
+		return errors.Errorf("wrong peer id HAVE: %v WANT: %v", have, want)
 	}
-	return string(data)
+	return nil
 }
