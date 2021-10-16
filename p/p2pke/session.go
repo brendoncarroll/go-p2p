@@ -1,12 +1,15 @@
 package p2pke
 
 import (
+	"crypto/rand"
+	"io"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/flynn/noise"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/blake2b"
 	"golang.zx2c4.com/wireguard/replay"
 )
 
@@ -21,7 +24,7 @@ type Session struct {
 	privateKey p2p.PrivateKey
 	isInit     bool
 	log        *logrus.Logger
-	createdAt  time.Time
+	expiresAt  time.Time
 
 	// handshake
 	hs        *noise.HandshakeState
@@ -48,18 +51,20 @@ func NewSession(params SessionParams) *Session {
 		privateKey: params.PrivateKey,
 		isInit:     params.IsInit,
 		log:        params.Logger,
-		createdAt:  params.Now,
+		expiresAt:  params.Now.Add(MaxSessionDuration),
+		rp:         &replay.Filter{},
 	}
 	return s
 }
 
-func (s *Session) StartHandshake(send Sender) {
+func (s *Session) StartHandshake(out []byte) []byte {
 	if s.isInit {
-		s.sendInit(send)
+		return s.sendInit(out)
 	}
+	return nil
 }
 
-func (s *Session) sendInit(send Sender) {
+func (s *Session) sendInit(out []byte) []byte {
 	hs, err := noise.NewHandshakeState(noise.Config{
 		Initiator:   s.isInit,
 		Pattern:     noise.HandshakeNN,
@@ -77,10 +82,10 @@ func (s *Session) sendInit(send Sender) {
 	if err != nil {
 		panic(err)
 	}
-	send(msg)
+	return append(out, msg...)
 }
 
-func (s *Session) deliverInitHello(msg Message, send Sender) error {
+func (s *Session) deliverInitHello(out []byte, msg Message) ([]byte, error) {
 	// TODO: select cipher suite
 	hs, err := noise.NewHandshakeState(noise.Config{
 		Initiator:   false,
@@ -93,18 +98,17 @@ func (s *Session) deliverInitHello(msg Message, send Sender) error {
 	s.hs = hs
 	payload, _, _, err := hs.ReadMessage(nil, msg.Body())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// TODO: use initHello
 	_, err = parseInitHello(payload)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	s.sendRespHello(send)
-	return nil
+	return s.sendRespHello(out), nil
 }
 
-func (s *Session) sendRespHello(send Sender) {
+func (s *Session) sendRespHello(out []byte) []byte {
 	msg := newMessage(RespToInit, 1)
 	cb := s.hs.ChannelBinding()
 	msg, cs1, cs2, err := s.hs.WriteMessage(msg, marshal(nil, &RespHello{
@@ -115,40 +119,43 @@ func (s *Session) sendRespHello(send Sender) {
 		panic(err)
 	}
 	s.cipherOut, s.cipherIn = pickCS(s.isInit, cs1, cs2)
-	send(msg)
+	return append(out, msg...)
 }
 
-func (s *Session) deliverRespHello(msg Message, send Sender) error {
+func (s *Session) deliverRespHello(out []byte, msg Message) ([]byte, error) {
 	cb := append([]byte{}, s.hs.ChannelBinding()...)
 	helloBytes, cs1, cs2, err := s.hs.ReadMessage(nil, msg.Body())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	respHello, err := parseRespHello(helloBytes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	pubKey, err := p2p.ParsePublicKey(respHello.AuthClaim.KeyX509)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := p2p.Verify(pubKey, purpose, cb, respHello.AuthClaim.Sig); err != nil {
-		return err
+	xof := s.makeAuthClaimXOF()
+	if _, err := xof.Write(cb); err != nil {
+		return nil, err
+	}
+	if err := p2p.VerifyXOF(pubKey, xof, respHello.AuthClaim.Sig); err != nil {
+		return nil, err
 	}
 	s.cipherOut, s.cipherIn = pickCS(s.isInit, cs1, cs2)
 	s.remoteKey = pubKey
 	s.nonce = noncePostHandshake
-	s.sendInitDone(send)
-	return nil
+	return s.sendInitDone(out), nil
 }
 
-func (s *Session) sendInitDone(send Sender) {
+func (s *Session) sendInitDone(out []byte) []byte {
 	authClaim := s.makeAuthClaim(s.hs.ChannelBinding())
 	msg := newMessage(s.outgoingDirection(), nonceInitDone)
-	out := s.cipherOut.Encrypt(msg, nonceInitDone, msg, marshal(nil, &InitDone{
+	msg = s.cipherOut.Encrypt(msg, nonceInitDone, msg, marshal(nil, &InitDone{
 		AuthClaim: authClaim,
 	}))
-	send(out)
+	return append(out, msg...)
 }
 
 func (s *Session) deliverInitDone(msg Message) error {
@@ -157,7 +164,7 @@ func (s *Session) deliverInitDone(msg Message) error {
 	}
 	ptext, err := s.cipherIn.Decrypt(nil, uint64(msg.GetNonce()), msg.HeaderBytes(), msg.Body())
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "delivering initDone")
 	}
 	initDone, err := parseInitDone(ptext)
 	if err != nil {
@@ -168,7 +175,11 @@ func (s *Session) deliverInitDone(msg Message) error {
 		return err
 	}
 	cb := s.hs.ChannelBinding()
-	if err := p2p.Verify(pubKey, purpose, cb, initDone.AuthClaim.Sig); err != nil {
+	xof := s.makeAuthClaimXOF()
+	if _, err := xof.Write(cb); err != nil {
+		return err
+	}
+	if err := p2p.VerifyXOF(pubKey, xof, initDone.AuthClaim.Sig); err != nil {
 		return err
 	}
 	s.remoteKey = pubKey
@@ -179,56 +190,69 @@ func (s *Session) deliverInitDone(msg Message) error {
 // Deliver gives the session a message.
 // If there is data in the message it will be returned as a non nil slice, appended to out.
 // If there is not data, then a nil slice, and nil error will be returned.
-func (s *Session) Deliver(out []byte, incoming []byte, now time.Time, send Sender) ([]byte, error) {
+//
+// out, isApp err := s.Deliver(out, incoming, now)
+// if err != nil {
+// 		// handle err
+// }
+// if !isApp && len(out) > 0 {
+//
+// } else if isApp {
+//
+// }
+func (s *Session) Deliver(out []byte, incoming []byte, now time.Time) (bool, []byte, error) {
 	if err := s.checkExpired(now); err != nil {
-		return nil, err
+		return false, nil, err
 	}
 	msg, err := ParseMessage(incoming)
 	if err != nil {
-		return nil, err
+		return false, nil, err
 	}
 	nonce := msg.GetNonce()
 	if s.remoteKey == nil {
+		var ret []byte
+		var err error
 		switch nonce {
 		case 0:
-			return nil, s.deliverInitHello(msg, send)
+			ret, err = s.deliverInitHello(out, msg)
 		case 1:
-			return nil, s.deliverRespHello(msg, send)
+			ret, err = s.deliverRespHello(out, msg)
 		case 2:
-			return nil, s.deliverInitDone(msg)
+			err = s.deliverInitDone(msg)
 		default:
 			s.log.Warnf("p2pke: received data before handshake has completed. nonce=%v", nonce)
-			return nil, nil
+			return false, nil, nil
 		}
+		return false, ret, err
 	} else {
 		if nonce < noncePostHandshake {
 			s.log.Warnf("p2pke: late handshake message. nonce=%v", nonce)
-			return nil, nil
+			return false, nil, nil
 		}
 		out, err := s.cipherIn.Decrypt(out, uint64(nonce), msg.HeaderBytes(), msg.Body())
 		if err != nil {
-			return nil, err
+			return false, nil, errors.Wrapf(err, "decryption failure nonce=%v", nonce)
 		}
 		if !s.rp.ValidateCounter(uint64(nonce), MaxNonce) {
-			return nil, nil
+			return false, nil, nil
 		}
-		return out, nil
+		return true, out, nil
 	}
 }
 
-func (s *Session) Send(ptext []byte, now time.Time, send Sender) error {
+func (s *Session) Send(out, ptext []byte, now time.Time) ([]byte, error) {
 	if err := s.checkExpired(now); err != nil {
-		return err
+		return nil, err
 	}
 	if s.cipherOut == nil {
-		return errors.Errorf("handshake has not completed")
+		return nil, errors.Errorf("handshake has not completed")
 	}
 	nonce := s.nonce
 	s.nonce++
 	msg := newMessage(s.outgoingDirection(), nonce)
-	msg = s.cipherOut.Encrypt(msg, uint64(nonce), msg, ptext)
-	send(msg)
-	return nil
+	out = append(out, msg...)
+	out = s.cipherOut.Encrypt(out, uint64(nonce), msg, ptext)
+	return out, nil
 }
 
 func (s *Session) IsReady() bool {
@@ -237,6 +261,10 @@ func (s *Session) IsReady() bool {
 
 func (s *Session) RemoteKey() p2p.PublicKey {
 	return s.remoteKey
+}
+
+func (s *Session) ExpiresAt() time.Time {
+	return s.expiresAt
 }
 
 func (s *Session) Close() error {
@@ -252,7 +280,11 @@ func (s *Session) outgoingDirection() Direction {
 }
 
 func (s *Session) makeAuthClaim(cb []byte) *AuthClaim {
-	sig, err := p2p.Sign(nil, s.privateKey, purpose, cb)
+	xof := s.makeAuthClaimXOF()
+	if _, err := xof.Write(cb); err != nil {
+		panic(err)
+	}
+	sig, err := p2p.SignXOF(nil, s.privateKey, rand.Reader, xof)
 	if err != nil {
 		panic(err)
 	}
@@ -263,10 +295,25 @@ func (s *Session) makeAuthClaim(cb []byte) *AuthClaim {
 }
 
 func (s *Session) checkExpired(now time.Time) error {
-	if now.Sub(s.createdAt) > MaxSessionDuration {
+	if now.After(s.expiresAt) {
 		return ErrSessionExpired{}
 	}
 	return nil
+}
+
+// makeAuthClaimXOF creates an XOF and writes the auth claim purpose to it
+// then returns it.
+// The XOF will be created using the same cryptographic primitive used for the handshake.
+// Right now, that will always be blake2b.
+func (s *Session) makeAuthClaimXOF() io.ReadWriter {
+	xof, err := blake2b.NewXOF(blake2b.OutputLengthUnknown, nil)
+	if err != nil {
+		panic(err)
+	}
+	if _, err := xof.Write([]byte(purpose)); err != nil {
+		panic(err)
+	}
+	return xof
 }
 
 func pickCS(initiator bool, cs1, cs2 *noise.CipherState) (outCipher, inCipher noise.Cipher) {

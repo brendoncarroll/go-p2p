@@ -13,5 +13,5 @@ func (e ErrNoCommonSuite) Error() string {
 type ErrSessionExpired struct{}
 
 func (e ErrSessionExpired) Error() string {
-	return fmt.Sprintf("p2pke: session expired")
+	return "p2pke: session expired"
 }
