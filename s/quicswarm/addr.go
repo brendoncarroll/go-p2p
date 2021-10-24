@@ -38,6 +38,10 @@ func (a Addr) MarshalText() ([]byte, error) {
 }
 
 func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
+	return ParseAddr(s.inner, data)
+}
+
+func ParseAddr(inner p2p.Swarm, data []byte) (p2p.Addr, error) {
 	parts := bytes.SplitN(data, []byte("@"), 2)
 	if len(parts) < 2 {
 		return nil, errors.Errorf("address must contain @")
@@ -46,7 +50,7 @@ func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	if err := a.ID.UnmarshalText(parts[0]); err != nil {
 		return nil, err
 	}
-	innerAddr, err := s.inner.ParseAddr(parts[1])
+	innerAddr, err := inner.ParseAddr(parts[1])
 	if err != nil {
 		return nil, err
 	}
