@@ -11,6 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/blake2b"
 	"golang.zx2c4.com/wireguard/replay"
+	"golang.zx2c4.com/wireguard/tai64n"
 )
 
 const (
@@ -27,8 +28,9 @@ type Session struct {
 	expiresAt  time.Time
 
 	// handshake
-	hs        *noise.HandshakeState
-	remoteKey p2p.PublicKey
+	hs            *noise.HandshakeState
+	initHelloTime tai64n.Timestamp
+	remoteKey     p2p.PublicKey
 
 	// ciphers
 	cipherOut, cipherIn noise.Cipher
@@ -74,10 +76,12 @@ func (s *Session) sendInit(out []byte) []byte {
 		panic(err)
 	}
 	s.hs = hs
-
+	s.initHelloTime = tai64n.Now()
 	msg := newMessage(InitToResp, 0)
 	msg, _, _, err = s.hs.WriteMessage(msg, marshal(nil, &InitHello{
-		CipherSuites: cipherSuiteNames,
+		CipherSuites:    cipherSuiteNames,
+		TimestampTai64N: s.initHelloTime[:],
+		AuthClaim:       s.makeTAI64NAuthClaim(s.initHelloTime),
 	}))
 	if err != nil {
 		panic(err)
@@ -100,11 +104,20 @@ func (s *Session) deliverInitHello(out []byte, msg Message) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// TODO: use initHello
-	_, err = parseInitHello(payload)
+	hello, err := parseInitHello(payload)
 	if err != nil {
 		return nil, err
 	}
+	if len(hello.TimestampTai64N) != tai64n.TimestampSize {
+		return nil, errors.Errorf("invalid timestamp %x", hello.TimestampTai64N)
+	}
+	if hello.AuthClaim == nil {
+		return nil, errors.Errorf("InitHello missing auth claim")
+	}
+	if err := s.verifyAuthClaim(hello.AuthClaim, hello.TimestampTai64N); err != nil {
+		return nil, errors.Wrapf(err, "validating InitHello")
+	}
+	s.initHelloTime = timestampFromBytes(hello.TimestampTai64N)
 	return s.sendRespHello(out), nil
 }
 
@@ -113,7 +126,7 @@ func (s *Session) sendRespHello(out []byte) []byte {
 	cb := s.hs.ChannelBinding()
 	msg, cs1, cs2, err := s.hs.WriteMessage(msg, marshal(nil, &RespHello{
 		CipherSuite: cipherSuiteNames[0],
-		AuthClaim:   s.makeAuthClaim(cb),
+		AuthClaim:   s.makeChannelAuthClaim(cb),
 	}))
 	if err != nil {
 		panic(err)
@@ -150,7 +163,7 @@ func (s *Session) deliverRespHello(out []byte, msg Message) ([]byte, error) {
 }
 
 func (s *Session) sendInitDone(out []byte) []byte {
-	authClaim := s.makeAuthClaim(s.hs.ChannelBinding())
+	authClaim := s.makeChannelAuthClaim(s.hs.ChannelBinding())
 	msg := newMessage(s.outgoingDirection(), nonceInitDone)
 	msg = s.cipherOut.Encrypt(msg, nonceInitDone, msg, marshal(nil, &InitDone{
 		AuthClaim: authClaim,
@@ -191,7 +204,7 @@ func (s *Session) deliverInitDone(msg Message) error {
 // If there is data in the message it will be returned as a non nil slice, appended to out.
 // If there is not data, then a nil slice, and nil error will be returned.
 //
-// out, isApp err := s.Deliver(out, incoming, now)
+// isApp, out, err := s.Deliver(out, incoming, now)
 // if err != nil {
 // 		// handle err
 // }
@@ -267,6 +280,10 @@ func (s *Session) ExpiresAt() time.Time {
 	return s.expiresAt
 }
 
+func (s *Session) InitHelloTime() tai64n.Timestamp {
+	return s.initHelloTime
+}
+
 func (s *Session) Close() error {
 	return nil
 }
@@ -279,9 +296,24 @@ func (s *Session) outgoingDirection() Direction {
 	}
 }
 
-func (s *Session) makeAuthClaim(cb []byte) *AuthClaim {
+func (s *Session) makeChannelAuthClaim(cb []byte) *AuthClaim {
 	xof := s.makeAuthClaimXOF()
 	if _, err := xof.Write(cb); err != nil {
+		panic(err)
+	}
+	sig, err := p2p.SignXOF(nil, s.privateKey, rand.Reader, xof)
+	if err != nil {
+		panic(err)
+	}
+	return &AuthClaim{
+		KeyX509: p2p.MarshalPublicKey(s.privateKey.Public()),
+		Sig:     sig,
+	}
+}
+
+func (s *Session) makeTAI64NAuthClaim(timestamp tai64n.Timestamp) *AuthClaim {
+	xof := s.makeAuthClaimXOF()
+	if _, err := xof.Write(timestamp[:]); err != nil {
 		panic(err)
 	}
 	sig, err := p2p.SignXOF(nil, s.privateKey, rand.Reader, xof)
@@ -316,6 +348,18 @@ func (s *Session) makeAuthClaimXOF() io.ReadWriter {
 	return xof
 }
 
+func (s *Session) verifyAuthClaim(ac *AuthClaim, data []byte) error {
+	pubKey, err := p2p.ParsePublicKey(ac.KeyX509)
+	if err != nil {
+		return err
+	}
+	xof := s.makeAuthClaimXOF()
+	if _, err := xof.Write(data); err != nil {
+		return err
+	}
+	return p2p.VerifyXOF(pubKey, xof, ac.Sig)
+}
+
 func pickCS(initiator bool, cs1, cs2 *noise.CipherState) (outCipher, inCipher noise.Cipher) {
 	if !initiator {
 		cs1, cs2 = cs2, cs1
@@ -323,4 +367,10 @@ func pickCS(initiator bool, cs1, cs2 *noise.CipherState) (outCipher, inCipher no
 	outCipher = cs1.Cipher()
 	inCipher = cs2.Cipher()
 	return outCipher, inCipher
+}
+
+func timestampFromBytes(x []byte) tai64n.Timestamp {
+	y := tai64n.Timestamp{}
+	copy(y[:], x)
+	return y
 }
