@@ -44,14 +44,14 @@ func New(inner p2p.Swarm, privateKey p2p.PrivateKey, opts ...Option) *Swarm {
 		opt(s)
 	}
 	s.localID = s.fingerprinter(privateKey.Public())
-	s.store = newStore(func(addr Addr) *p2pke.Conn {
+	s.store = newStore(func(addr Addr) *p2pke.Channel {
 		checkKey := func(p2p.PublicKey) error { return nil }
 		if addr.ID != (p2p.PeerID{}) {
 			checkKey = func(x p2p.PublicKey) error {
 				return checkPublicKey(s.fingerprinter, addr.ID, x)
 			}
 		}
-		return p2pke.NewConn(s.privateKey, checkKey)
+		return p2pke.NewChannel(s.privateKey, checkKey)
 	})
 	go s.recvLoops(context.Background(), runtime.GOMAXPROCS(0))
 	return s
@@ -62,7 +62,7 @@ func (s *Swarm) Tell(ctx context.Context, dst p2p.Addr, v p2p.IOVec) error {
 		return p2p.ErrMTUExceeded
 	}
 	dst2 := dst.(Addr)
-	return s.withConn(ctx, dst2, func(c *p2pke.Conn) error {
+	return s.withConn(ctx, dst2, func(c *p2pke.Channel) error {
 		return c.Send(ctx, p2p.VecBytes(nil, v), s.getSender(ctx, dst2.Addr))
 	})
 }
@@ -90,7 +90,7 @@ func (s *Swarm) PublicKey() p2p.PublicKey {
 func (s *Swarm) LookupPublicKey(ctx context.Context, dst p2p.Addr) (p2p.PublicKey, error) {
 	dst2 := dst.(Addr)
 	var ret p2p.PublicKey
-	if err := s.withConn(ctx, dst2, func(conn *p2pke.Conn) error {
+	if err := s.withConn(ctx, dst2, func(conn *p2pke.Channel) error {
 		ret = conn.RemoteKey()
 		return nil
 	}); err != nil {
@@ -116,14 +116,14 @@ func (s *Swarm) Close() error {
 	return s.inner.Close()
 }
 
-func (s *Swarm) withConn(ctx context.Context, addr Addr, fn func(*p2pke.Conn) error) error {
+func (s *Swarm) withConn(ctx context.Context, addr Addr, fn func(*p2pke.Channel) error) error {
 	shouldDelete := false
 	defer func() {
 		if shouldDelete {
 			s.store.delete(addr)
 		}
 	}()
-	return s.store.withConn(addr, func(c *p2pke.Conn) error {
+	return s.store.withConn(addr, func(c *p2pke.Channel) error {
 		if err := c.WaitReady(ctx, s.getSender(ctx, addr.Addr)); err != nil {
 			return err
 		}
@@ -154,7 +154,7 @@ func (s *Swarm) recvLoops(ctx context.Context, numWorkers int) error {
 }
 
 func (s *Swarm) handleMessage(ctx context.Context, msg p2p.Message) error {
-	return s.store.withConn(Addr{Addr: msg.Src}, func(conn *p2pke.Conn) error {
+	return s.store.withConn(Addr{Addr: msg.Src}, func(conn *p2pke.Channel) error {
 		out, err := conn.Deliver(ctx, nil, msg.Payload, s.getSender(ctx, msg.Src))
 		if err != nil {
 			return err

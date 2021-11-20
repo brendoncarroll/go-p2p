@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestConn(t *testing.T) {
+func TestChannel(t *testing.T) {
 	ctx := context.Background()
-	c1, c2 := newConnPair(t)
+	c1, c2 := newChannelPair(t)
 	var c1Out, c2Out []string
 	var send1, send2 func([]byte)
 	send1 = func(x []byte) {
@@ -41,8 +41,8 @@ func TestConn(t *testing.T) {
 	require.Equal(t, c2.RemoteKey(), c1.LocalKey())
 }
 
-func newConnPair(t *testing.T) (c1, c2 *Conn) {
-	c1 = NewConn(p2ptest.NewTestKey(t, 0), nil)
-	c2 = NewConn(p2ptest.NewTestKey(t, 1), nil)
+func newChannelPair(t *testing.T) (c1, c2 *Channel) {
+	c1 = NewChannel(p2ptest.NewTestKey(t, 0), nil)
+	c2 = NewChannel(p2ptest.NewTestKey(t, 1), nil)
 	return c1, c2
 }

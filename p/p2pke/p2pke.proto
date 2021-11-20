@@ -4,6 +4,8 @@ option go_package = "github.com/brendoncarroll/go-p2p/p/p2pke";
 
 message InitHello {
     repeated string cipher_suites = 1;
+    bytes timestamp_tai64n = 2;
+    AuthClaim claim = 3;
 }
 
 message RespHello {

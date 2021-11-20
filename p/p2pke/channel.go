@@ -10,24 +10,24 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
-type Conn struct {
+type Channel struct {
 	privateKey        p2p.PrivateKey
-	outbound, inbound *halfConn
+	outbound, inbound *halfChannel
 	keyCell           *keyCell
 }
 
-func NewConn(privateKey p2p.PrivateKey, checkKey func(p2p.PublicKey) error) *Conn {
+func NewChannel(privateKey p2p.PrivateKey, checkKey func(p2p.PublicKey) error) *Channel {
 	if checkKey == nil {
 		checkKey = func(p2p.PublicKey) error { return nil }
 	}
 	kc := &keyCell{checkKey: checkKey}
-	c := &Conn{
+	c := &Channel{
 		privateKey: privateKey,
-		outbound: newHalfConn(SessionParams{
+		outbound: newHalfChannel(SessionParams{
 			PrivateKey: privateKey,
 			IsInit:     true,
 		}, kc.SetKey),
-		inbound: newHalfConn(SessionParams{
+		inbound: newHalfChannel(SessionParams{
 			PrivateKey: privateKey,
 			IsInit:     false,
 		}, kc.SetKey),
@@ -39,7 +39,7 @@ func NewConn(privateKey p2p.PrivateKey, checkKey func(p2p.PublicKey) error) *Con
 // Send will call send with an encrypted message containing x
 // It may also send a handshake message.
 // Send will be called multiple times if a handshake has to be performed.
-func (c *Conn) Send(ctx context.Context, x []byte, send Sender) error {
+func (c *Channel) Send(ctx context.Context, x []byte, send Sender) error {
 	hc, err := c.waitReady(ctx, send)
 	if err != nil {
 		return err
@@ -48,11 +48,11 @@ func (c *Conn) Send(ctx context.Context, x []byte, send Sender) error {
 }
 
 // Deliver decrypts the payload in x if it contains application data, and appends it to out.
-// if err != nil, then an error occured.  The Conn is capable of recovering.
+// if err != nil, then an error occured.  The Channel is capable of recovering.
 // if out != nil, then it is application data.
 // if out == nil, then the message was either invalid or contained a handshake message
 // and there is nothing more for the caller to do.
-func (c *Conn) Deliver(ctx context.Context, out, x []byte, send Sender) ([]byte, error) {
+func (c *Channel) Deliver(ctx context.Context, out, x []byte, send Sender) ([]byte, error) {
 	msg, err := ParseMessage(x)
 	if err != nil {
 		return nil, err
@@ -69,31 +69,31 @@ func (c *Conn) Deliver(ctx context.Context, out, x []byte, send Sender) ([]byte,
 }
 
 // LocalKey returns the public key used by the local party to authenticate.
-// It will correspond to the private key passed to NewConn.
-func (c *Conn) LocalKey() p2p.PublicKey {
+// It will correspond to the private key passed to NewChannel.
+func (c *Channel) LocalKey() p2p.PublicKey {
 	return c.privateKey.Public()
 }
 
 // RemoteKey returns the public key used by the remote party to authenticate.
 // It can be nil, if there has been no successful handshake.
-func (c *Conn) RemoteKey() p2p.PublicKey {
+func (c *Channel) RemoteKey() p2p.PublicKey {
 	return c.keyCell.GetKey()
 }
 
-func (c *Conn) LastReceived() time.Time {
+func (c *Channel) LastReceived() time.Time {
 	return latestTime(c.inbound.LastReceived(), c.outbound.LastReceived())
 }
 
-func (c *Conn) LastSent() time.Time {
+func (c *Channel) LastSent() time.Time {
 	return latestTime(c.inbound.LastSent(), c.outbound.LastSent())
 }
 
-func (c *Conn) WaitReady(ctx context.Context, send Sender) error {
+func (c *Channel) WaitReady(ctx context.Context, send Sender) error {
 	_, err := c.waitReady(ctx, send)
 	return err
 }
 
-func (c *Conn) waitReady(ctx context.Context, send Sender) (*halfConn, error) {
+func (c *Channel) waitReady(ctx context.Context, send Sender) (*halfChannel, error) {
 	c.outbound.start(send)
 	inbound := c.inbound.ReadyChan()
 	outbound := c.outbound.ReadyChan()
@@ -107,7 +107,7 @@ func (c *Conn) waitReady(ctx context.Context, send Sender) (*halfConn, error) {
 	}
 }
 
-type halfConn struct {
+type halfChannel struct {
 	params SessionParams
 	setKey func(p2p.PublicKey) error
 
@@ -120,8 +120,8 @@ type halfConn struct {
 	lastReceived, lastSent time.Time
 }
 
-func newHalfConn(params SessionParams, setKey func(p2p.PublicKey) error) *halfConn {
-	hc := &halfConn{
+func newHalfChannel(params SessionParams, setKey func(p2p.PublicKey) error) *halfChannel {
+	hc := &halfChannel{
 		params: params,
 		ready:  make(chan struct{}),
 		setKey: setKey,
@@ -130,9 +130,9 @@ func newHalfConn(params SessionParams, setKey func(p2p.PublicKey) error) *halfCo
 	return hc
 }
 
-// Send waits until the halfConn is ready, then creates an encrypted message for x
+// Send waits until the halfChannel is ready, then creates an encrypted message for x
 // and calls send.
-func (hc *halfConn) Send(ctx context.Context, x []byte, send Sender) error {
+func (hc *halfChannel) Send(ctx context.Context, x []byte, send Sender) error {
 	hc.mu.Lock()
 	ready := hc.ready
 	hc.mu.Unlock()
@@ -152,7 +152,7 @@ func (hc *halfConn) Send(ctx context.Context, x []byte, send Sender) error {
 	}
 }
 
-func (hc *halfConn) Deliver(out, x []byte, send Sender) ([]byte, error) {
+func (hc *halfChannel) Deliver(out, x []byte, send Sender) ([]byte, error) {
 	var isApp bool
 	if err := func() error {
 		hc.mu.Lock()
@@ -192,27 +192,27 @@ func (hc *halfConn) Deliver(out, x []byte, send Sender) ([]byte, error) {
 	return nil, nil
 }
 
-func (hc *halfConn) ReadyChan() <-chan struct{} {
+func (hc *halfChannel) ReadyChan() <-chan struct{} {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 	return hc.ready
 }
 
-func (hc *halfConn) LastReceived() time.Time {
+func (hc *halfChannel) LastReceived() time.Time {
 	return hc.lastReceived
 }
 
-func (hc *halfConn) LastSent() time.Time {
+func (hc *halfChannel) LastSent() time.Time {
 	return hc.lastSent
 }
 
-func (hc *halfConn) getParams() SessionParams {
+func (hc *halfChannel) getParams() SessionParams {
 	params := hc.params
 	params.Now = time.Now()
 	return params
 }
 
-func (hc *halfConn) reset(m0Hash [32]byte) {
+func (hc *halfChannel) reset(m0Hash [32]byte) {
 	hc.m0Hash = m0Hash
 	if hc.closedReady {
 		hc.closedReady = false
@@ -224,7 +224,7 @@ func (hc *halfConn) reset(m0Hash [32]byte) {
 	hc.initMessage = nil
 }
 
-func (hc *halfConn) start(send Sender) {
+func (hc *halfChannel) start(send Sender) {
 	var data []byte
 	func() {
 		hc.mu.Lock()

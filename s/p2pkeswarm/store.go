@@ -9,21 +9,21 @@ import (
 )
 
 type store struct {
-	newConn func(Addr) *p2pke.Conn
+	newChan func(Addr) *p2pke.Channel
 	mu      sync.RWMutex
-	addrs   map[string]*p2pke.Conn
+	addrs   map[string]*p2pke.Channel
 }
 
-func newStore(newConn func(Addr) *p2pke.Conn) *store {
+func newStore(newChan func(Addr) *p2pke.Channel) *store {
 	return &store{
-		newConn: newConn,
-		addrs:   make(map[string]*p2pke.Conn),
+		newChan: newChan,
+		addrs:   make(map[string]*p2pke.Channel),
 	}
 }
 
 // withLower calls fn with sc.
 // while fn executes, all traffic is gaurenteed to reach the conn passed to fn, there will not be another conn with the same id.
-func (s *store) withConn(x Addr, fn func(c *p2pke.Conn) error) error {
+func (s *store) withConn(x Addr, fn func(c *p2pke.Channel) error) error {
 	conn := s.getOrCreateConn(x.ID, x.Addr)
 	if err := fn(conn); err != nil {
 		return err
@@ -37,7 +37,7 @@ func (s *store) delete(addr Addr) {
 	delete(s.addrs, addrKey(addr.Addr))
 }
 
-func (s *store) getOrCreateConn(id p2p.PeerID, addr p2p.Addr) *p2pke.Conn {
+func (s *store) getOrCreateConn(id p2p.PeerID, addr p2p.Addr) *p2pke.Channel {
 	sid := addrKey(addr)
 	s.mu.RLock()
 	conn, exists := s.addrs[sid]
@@ -46,7 +46,7 @@ func (s *store) getOrCreateConn(id p2p.PeerID, addr p2p.Addr) *p2pke.Conn {
 		s.mu.Lock()
 		conn, exists = s.addrs[sid]
 		if !exists {
-			conn = s.newConn(Addr{ID: id, Addr: addr})
+			conn = s.newChan(Addr{ID: id, Addr: addr})
 			s.addrs[sid] = conn
 		}
 		s.mu.Unlock()

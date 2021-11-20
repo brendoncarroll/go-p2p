@@ -7,6 +7,11 @@ It requires a message based transport to deliver messages between sessions.
 Sessions have a short lifecycle.
 They are bounded both by a maximum number of messages (2^31-1) and a maximum age (1 minute).
 
+## Channels
+Channels are a secure channel between two parties.
+Channels manage creating and recreating sessions as they expire.
+Once a channel has created a session all further sessions must have the same remote key.
+
 ## Wire Format
 This protocol is comprised of messages consisting of a header, and then a message from the noise protocol framework.
 
