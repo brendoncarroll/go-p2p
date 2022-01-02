@@ -23,7 +23,7 @@ type Realm struct {
 	latency       time.Duration
 	dropRate      float64
 	log           *logrus.Logger
-	logw          io.Writer
+	trafficLog    io.Writer
 	mtu           int
 	bufferedTells int
 
@@ -36,7 +36,7 @@ func NewRealm(opts ...Option) *Realm {
 	r := &Realm{
 		clock:         clockwork.NewRealClock(),
 		log:           logrus.StandardLogger(),
-		logw:          ioutil.Discard,
+		trafficLog:    ioutil.Discard,
 		mtu:           1 << 20,
 		swarms:        make(map[int]*Swarm),
 		bufferedTells: 0,
@@ -48,12 +48,14 @@ func NewRealm(opts ...Option) *Realm {
 }
 
 func (r *Realm) logTraffic(isAsk bool, msg *p2p.Message) {
+	if r.trafficLog == ioutil.Discard {
+		return
+	}
 	method := "TELL"
 	if isAsk {
 		method = "ASK_"
 	}
-	s := fmt.Sprintf("%s: %v -> %v : %x\n", method, msg.Src, msg.Dst, msg.Payload)
-	r.logw.Write([]byte(s))
+	fmt.Fprintf(r.trafficLog, "%s: %v -> %v : %x\n", method, msg.Src, msg.Dst, msg.Payload)
 }
 
 func (r *Realm) block() bool {
@@ -161,14 +163,14 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	s.r.logTraffic(false, &msg)
 	s2 := s.r.getSwarm(a.N)
 	if s2 == nil {
-		s.r.log.Warnf("swarm %v does not exist in same memswarm.Realm", a.N)
+		s.r.log.Debugf("swarm %v does not exist in same memswarm.Realm", a.N)
 		return nil
 	}
 	ctx, cf := context.WithTimeout(ctx, 3*time.Second)
 	defer cf()
 	select {
 	case <-ctx.Done():
-		s.r.log.Warnf("memswarm delivering tell %v -> %v: %v", s.n, a.N, ctx.Err())
+		s.r.log.Debugf("memswarm: timeout delivering tell %v -> %v", s.n, a.N)
 		return nil
 	case s2.tells <- msg:
 		return nil

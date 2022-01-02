@@ -18,7 +18,7 @@ func WithLogger(l *logrus.Logger) Option {
 
 func WithTrafficLogging(w io.Writer) Option {
 	return func(r *Realm) {
-		r.logw = w
+		r.trafficLog = w
 	}
 }
 
