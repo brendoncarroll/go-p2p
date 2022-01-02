@@ -59,9 +59,9 @@ func (c *Channel) Deliver(ctx context.Context, out, x []byte, send Sender) ([]by
 	}
 	switch msg.GetDirection() {
 	case InitToResp:
-		out, err = c.inbound.Deliver(out, x, send)
+		out, err = c.inbound.Deliver(ctx, out, x, send)
 	case RespToInit:
-		out, err = c.outbound.Deliver(out, x, send)
+		out, err = c.outbound.Deliver(ctx, out, x, send)
 	default:
 		panic("invalid direction")
 	}
@@ -80,30 +80,41 @@ func (c *Channel) RemoteKey() p2p.PublicKey {
 	return c.keyCell.GetKey()
 }
 
+// LastReceived returns the time that a message was received
 func (c *Channel) LastReceived() time.Time {
 	return latestTime(c.inbound.LastReceived(), c.outbound.LastReceived())
 }
 
+// LastSent returns the time that a message was last sent
 func (c *Channel) LastSent() time.Time {
 	return latestTime(c.inbound.LastSent(), c.outbound.LastSent())
 }
 
+// WaitReady blocks until the either an inbound or outbound session
+// has been established.
+// send is called to send handshake messages.
 func (c *Channel) WaitReady(ctx context.Context, send Sender) error {
 	_, err := c.waitReady(ctx, send)
 	return err
 }
 
 func (c *Channel) waitReady(ctx context.Context, send Sender) (*halfChannel, error) {
-	c.outbound.start(send)
 	inbound := c.inbound.ReadyChan()
 	outbound := c.outbound.ReadyChan()
-	select {
-	case <-inbound:
-		return c.inbound, nil
-	case <-outbound:
-		return c.outbound, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		c.outbound.InitHandshake(send)
+		select {
+		case <-ticker.C:
+			// continue
+		case <-inbound:
+			return c.inbound, nil
+		case <-outbound:
+			return c.outbound, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 }
 
@@ -111,12 +122,14 @@ type halfChannel struct {
 	params SessionParams
 	setKey func(p2p.PublicKey) error
 
-	mu                     sync.Mutex
-	m0Hash                 [32]byte
-	initMessage            []byte
-	s                      *Session
-	closedReady            bool
-	ready                  chan struct{}
+	mu          sync.Mutex
+	m0Hash      [32]byte
+	initMessage []byte
+
+	s           *Session
+	closedReady bool
+	ready       chan struct{}
+
 	lastReceived, lastSent time.Time
 }
 
@@ -152,8 +165,24 @@ func (hc *halfChannel) Send(ctx context.Context, x []byte, send Sender) error {
 	}
 }
 
-func (hc *halfChannel) Deliver(out, x []byte, send Sender) ([]byte, error) {
+func (hc *halfChannel) Deliver(ctx context.Context, out, x []byte, send Sender) ([]byte, error) {
+	// check if this could be an early arriving postHandshake message
+	// and give an oppurtunity for the handshake message to get there first.
+	// In practice this makes the tests less flaky, but there might be a better way to handle this.
+	// Once the connection is established, this won't happen.
+	// It might also be worth limiting the number of these messages that we are delaying.
+	if !hc.IsReady() && IsPostHandshake(x) {
+		timer := time.NewTimer(200 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-hc.ReadyChan():
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	var isApp bool
+	var closeReady chan struct{}
 	if err := func() error {
 		hc.mu.Lock()
 		defer hc.mu.Unlock()
@@ -177,8 +206,13 @@ func (hc *halfChannel) Deliver(out, x []byte, send Sender) ([]byte, error) {
 				hc.reset([32]byte{})
 				return errors.Errorf("keys do not match")
 			}
-			close(hc.ready)
-			hc.closedReady = true
+			// if we need to send anything, don't mark it ready until it has been sent.
+			if len(out) > 0 {
+				closeReady = hc.ready
+			} else {
+				close(hc.ready)
+				hc.closedReady = true
+			}
 		}
 		return nil
 	}(); err != nil {
@@ -188,6 +222,15 @@ func (hc *halfChannel) Deliver(out, x []byte, send Sender) ([]byte, error) {
 		return out, nil
 	} else if len(out) > 0 {
 		send(out)
+	}
+	// after the send we can now close the ready channel
+	if closeReady != nil {
+		hc.mu.Lock()
+		if closeReady == hc.ready && !hc.closedReady {
+			close(hc.ready)
+			hc.closedReady = true
+		}
+		hc.mu.Unlock()
 	}
 	return nil, nil
 }
@@ -204,6 +247,12 @@ func (hc *halfChannel) LastReceived() time.Time {
 
 func (hc *halfChannel) LastSent() time.Time {
 	return hc.lastSent
+}
+
+func (hc *halfChannel) IsReady() bool {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	return hc.closedReady
 }
 
 func (hc *halfChannel) getParams() SessionParams {
@@ -224,17 +273,21 @@ func (hc *halfChannel) reset(m0Hash [32]byte) {
 	hc.initMessage = nil
 }
 
-func (hc *halfChannel) start(send Sender) {
+func (hc *halfChannel) InitHandshake(send Sender) {
+	if !hc.params.IsInit {
+		panic("InitHandshake called on non-initiator session")
+	}
 	var data []byte
 	func() {
 		hc.mu.Lock()
 		defer hc.mu.Unlock()
-		if !hc.s.IsReady() {
-			if hc.initMessage == nil {
-				hc.initMessage = hc.s.StartHandshake(nil)
-			}
-			data = hc.initMessage
+		if hc.s.IsReady() {
+			return
 		}
+		if hc.initMessage == nil {
+			hc.initMessage = hc.s.StartHandshake(nil)
+		}
+		data = hc.initMessage
 	}()
 	if data != nil {
 		send(data)

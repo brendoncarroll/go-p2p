@@ -52,6 +52,11 @@ func IsHello(x []byte) bool {
 	return IsInitHello(x) || IsRepoHello(x)
 }
 
+func IsPostHandshake(x []byte) bool {
+	msg, err := ParseMessage(x)
+	return err == nil && msg.GetNonce() >= noncePostHandshake
+}
+
 func marshal(out []byte, x proto.Message) []byte {
 	data, err := proto.Marshal(x)
 	if err != nil {

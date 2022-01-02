@@ -233,7 +233,7 @@ func (s *Session) Deliver(out []byte, incoming []byte, now time.Time) (bool, []b
 		case 2:
 			err = s.deliverInitDone(msg)
 		default:
-			s.log.Warnf("p2pke: received data before handshake has completed. nonce=%v", nonce)
+			s.log.Warnf("p2pke: received data before handshake has completed. isInit=%v nonce=%v", s.isInit, nonce)
 			return false, nil, nil
 		}
 		return false, ret, err
