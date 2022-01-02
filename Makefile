@@ -10,3 +10,6 @@ testv:
 docker:
 	docker build -t p2putil:latest .
 
+protobuf:
+	cd ./p/p2pke && ./build.sh
+
