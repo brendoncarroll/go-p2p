@@ -16,58 +16,58 @@ import (
 // TestSwarm runs a suite of tests to ensure a Swarm exhibits the correct behaviors
 // newSwarms should fill the passed slice with swarms which can communicate with one another,
 // and register any cleanup on the provided testing.TB
-func TestSwarm(t *testing.T, newSwarms func(testing.TB, []p2p.Swarm)) {
+func TestSwarm[A p2p.Addr](t *testing.T, newSwarms func(testing.TB, []p2p.Swarm[A])) {
 	t.Run("LocalAddrs", func(t *testing.T) {
-		xs := make([]p2p.Swarm, 1)
+		xs := make([]p2p.Swarm[A], 1)
 		newSwarms(t, xs)
 		x := xs[0]
 		TestLocalAddrs(t, x)
 	})
 	t.Run("MarshalParse", func(t *testing.T) {
-		xs := make([]p2p.Swarm, 1)
+		xs := make([]p2p.Swarm[A], 1)
 		newSwarms(t, xs)
 		x := xs[0]
 		TestMarshalParse(t, x)
 	})
 	t.Run("SingleTell", func(t *testing.T) {
-		xs := make([]p2p.Swarm, 2)
+		xs := make([]p2p.Swarm[A], 2)
 		newSwarms(t, xs)
 		TestTell(t, xs[0], xs[1])
 	})
 	t.Run("Tell", func(t *testing.T) {
-		xs := make([]p2p.Swarm, 10)
+		xs := make([]p2p.Swarm[A], 10)
 		newSwarms(t, xs)
 		TestTellAllPairs(t, xs)
 	})
 	t.Run("TellBidirectional", func(t *testing.T) {
-		xs := make([]p2p.Swarm, 2)
+		xs := make([]p2p.Swarm[A], 2)
 		newSwarms(t, xs)
 		a, b := xs[0], xs[1]
 		TestTellBidirectional(t, a, b)
 	})
 	t.Run("TellMTU", func(t *testing.T) {
-		xs := make([]p2p.Swarm, 2)
+		xs := make([]p2p.Swarm[A], 2)
 		newSwarms(t, xs)
 		a, b := xs[0], xs[1]
 		TestTellMTU(t, a, b)
 	})
 }
 
-func TestLocalAddrs(t *testing.T, s p2p.Swarm) {
+func TestLocalAddrs[A p2p.Addr](t *testing.T, s p2p.Swarm[A]) {
 	addrs := s.LocalAddrs()
 	assert.True(t, len(addrs) > 0, "LocalAddrs must return at least 1")
 }
 
-func TestMarshalParse(t *testing.T, s p2p.Swarm) {
+func TestMarshalParse[A p2p.Addr](t *testing.T, s p2p.Swarm[A]) {
 	addr := s.LocalAddrs()[0]
 	data, err := addr.MarshalText()
 	assert.NoError(t, err)
 	addr2, err := s.ParseAddr(data)
 	assert.NoError(t, err)
-	assert.Equal(t, addr, addr2, "Did not parse to same address")
+	assert.Equal(t, &addr, addr2, "Did not parse to same address")
 }
 
-func TestTellAllPairs(t *testing.T, xs []p2p.Swarm) {
+func TestTellAllPairs[A p2p.Addr](t *testing.T, xs []p2p.Swarm[A]) {
 	for i := range xs {
 		for j := range xs {
 			if j != i {
@@ -77,7 +77,7 @@ func TestTellAllPairs(t *testing.T, xs []p2p.Swarm) {
 	}
 }
 
-func TestTell(t *testing.T, src, dst p2p.Swarm) {
+func TestTell[A p2p.Addr](t *testing.T, src, dst p2p.Swarm[A]) {
 	ctx, cf := context.WithTimeout(context.Background(), time.Second)
 	defer cf()
 	payload := genPayload()
@@ -86,7 +86,7 @@ func TestTell(t *testing.T, src, dst p2p.Swarm) {
 	eg.Go(func() error {
 		return src.Tell(ctx, dstAddr, p2p.IOVec{payload})
 	})
-	var recv p2p.Message
+	var recv p2p.Message[A]
 	eg.Go(func() error {
 		var err error
 		recv, err = readMessage(ctx, dst)
@@ -98,7 +98,7 @@ func TestTell(t *testing.T, src, dst p2p.Swarm) {
 	assert.NotNil(t, recv.Src, "SRC addr is nil")
 }
 
-func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
+func TestTellBidirectional[A p2p.Addr](t *testing.T, a, b p2p.Swarm[A]) {
 	const N = 50
 	ctx, cf := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cf()
@@ -128,9 +128,9 @@ func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
 		}
 		return nil
 	})
-	aInbox := []p2p.Message{}
-	bInbox := []p2p.Message{}
-	readIntoMailbox := func(s p2p.Swarm, inbox *[]p2p.Message) error {
+	aInbox := []p2p.Message[A]{}
+	bInbox := []p2p.Message[A]{}
+	readIntoMailbox := func(s p2p.Swarm[A], inbox *[]p2p.Message[A]) error {
 		for i := 0; i < N; i++ {
 			msg, err := readMessage(ctx, s)
 			if err != nil {
@@ -155,7 +155,7 @@ func TestTellBidirectional(t *testing.T, a, b p2p.Swarm) {
 	assert.GreaterOrEqual(t, len(bInbox), passN)
 }
 
-func TestTellMTU(t *testing.T, a, b p2p.Swarm) {
+func TestTellMTU[A p2p.Addr](t *testing.T, a, b p2p.Swarm[A]) {
 	ctx, cf := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cf()
 
@@ -190,35 +190,35 @@ func genPayload() []byte {
 	return []byte(x)
 }
 
-func CloseSwarms(t testing.TB, xs []p2p.Swarm) {
+func CloseSwarms[A p2p.Addr](t testing.TB, xs []p2p.Swarm[A]) {
 	for i := range xs {
 		require.NoError(t, xs[i].Close())
 	}
 }
 
-func CloseAskSwarms(t testing.TB, xs []p2p.AskSwarm) {
+func CloseAskSwarms[A p2p.Addr](t testing.TB, xs []p2p.AskSwarm[A]) {
 	for i := range xs {
 		require.NoError(t, xs[i].Close())
 	}
 }
 
-func CloseSecureSwarms(t testing.TB, xs []p2p.SecureSwarm) {
+func CloseSecureSwarms[A p2p.Addr](t testing.TB, xs []p2p.SecureSwarm[A]) {
 	for i := range xs {
 		require.NoError(t, xs[i].Close())
 	}
 }
 
-func readMessage(ctx context.Context, s p2p.Swarm) (p2p.Message, error) {
-	var mCopy p2p.Message
-	err := s.Receive(ctx, func(m p2p.Message) {
-		mCopy = p2p.Message{
+func readMessage[A p2p.Addr](ctx context.Context, s p2p.Swarm[A]) (p2p.Message[A], error) {
+	var mCopy p2p.Message[A]
+	err := s.Receive(ctx, func(m p2p.Message[A]) {
+		mCopy = p2p.Message[A]{
 			Src:     m.Src,
 			Dst:     m.Dst,
 			Payload: append([]byte{}, m.Payload...),
 		}
 	})
 	if err != nil {
-		return p2p.Message{}, err
+		return p2p.Message[A]{}, err
 	}
 	return mCopy, nil
 }

@@ -3,14 +3,7 @@ package udpswarm
 import (
 	"fmt"
 	"net"
-
-	"github.com/brendoncarroll/go-p2p"
 )
-
-var _ interface {
-	p2p.HasIP
-	p2p.HasUDP
-} = &Addr{}
 
 type Addr net.UDPAddr
 
@@ -53,17 +46,17 @@ func (a Addr) GetIP() net.IP {
 	return a.IP
 }
 
-func (a Addr) MapIP(fn func(net.IP) net.IP) p2p.Addr {
+func (a Addr) MapIP(fn func(net.IP) net.IP) Addr {
 	return Addr{
 		IP:   fn(a.IP),
 		Port: a.Port,
 	}
 }
 
-func (a Addr) GetUDP() net.UDPAddr {
-	return (net.UDPAddr)(a)
-}
-
-func (a Addr) MapUDP(fn func(net.UDPAddr) net.UDPAddr) p2p.Addr {
-	return (Addr)(fn((net.UDPAddr)(a)))
+func ParseAddr(x []byte) (*Addr, error) {
+	var addr Addr
+	if err := addr.UnmarshalText(x); err != nil {
+		return nil, err
+	}
+	return &addr, nil
 }

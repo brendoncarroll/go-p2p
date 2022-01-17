@@ -12,6 +12,10 @@ type Addr interface {
 	String() string
 }
 
+type WrapperAddr[Self, Inner Addr] interface {
+	Unwrap() Inner
+}
+
 type UnwrapAddr interface {
 	Unwrap() Addr
 	Map(func(Addr) Addr) Addr

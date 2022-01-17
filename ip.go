@@ -48,14 +48,16 @@ func FilterIPs(xs []Addr, preds ...func(net.IP) bool) (ys []Addr) {
 	return ys
 }
 
-func ExpandUnspecifiedIPs(xs []Addr) (ys []Addr) {
+type hasIP2[Self Addr] interface {
+	Addr
+	GetIP() net.IP
+	MapIP(func(net.IP)net.IP) Self
+}
+
+// ExpandUnspecifiedIPs will expand 0.0.0.0 into all of IPs on the host.
+func ExpandUnspecifiedIPs[A hasIP2[A]](xs []A) (ys []A) {
 	for _, x := range xs {
-		hasIP, ok := x.(HasIP)
-		if !ok {
-			ys = append(ys, x)
-			continue
-		}
-		ipAddr := hasIP.GetIP()
+		ipAddr := x.GetIP()
 		// Has an IP, check if it's specified
 		if ipAddr.IsUnspecified() {
 			addrs, err := net.InterfaceAddrs()
@@ -70,14 +72,14 @@ func ExpandUnspecifiedIPs(xs []Addr) (ys []Addr) {
 				// case ipNet.IP.IsLinkLocalMulticast():
 				// 	continue
 				default:
-					y := hasIP.MapIP(func(net.IP) net.IP {
+					y := x.MapIP(func(net.IP) net.IP {
 						return ipNet.IP
 					})
 					ys = append(ys, y)
 				}
 			}
 		} else {
-			ys = append(ys, hasIP.(Addr))
+			ys = append(ys, x)
 		}
 	}
 	return ys
