@@ -1,9 +1,8 @@
 package p2pmux
 
 import (
-	"encoding/binary"
-
 	"github.com/brendoncarroll/go-p2p"
+	"encoding/binary"
 	"github.com/pkg/errors"
 )
 
