@@ -12,9 +12,7 @@ type Addr interface {
 	String() string
 }
 
-type WrapperAddr[Self, Inner Addr] interface {
-	Unwrap() Inner
-}
+type AddrParser[A Addr] func([]byte) (*A, error)
 
 type UnwrapAddr interface {
 	Unwrap() Addr
