@@ -10,7 +10,7 @@ import (
 
 func TestSwarm(t *testing.T) {
 	t.Parallel()
-	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
+	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm[Addr]) {
 		r := NewRealm()
 		for i := range xs {
 			xs[i] = r.NewSwarm()
@@ -19,7 +19,7 @@ func TestSwarm(t *testing.T) {
 			swarmtest.CloseSwarms(t, xs)
 		})
 	})
-	swarmtest.TestAskSwarm(t, func(t testing.TB, xs []p2p.AskSwarm) {
+	swarmtest.TestAskSwarm(t, func(t testing.TB, xs []p2p.AskSwarm[Addr]) {
 		r := NewRealm()
 		for i := range xs {
 			xs[i] = r.NewSwarm()
@@ -30,7 +30,7 @@ func TestSwarm(t *testing.T) {
 			}
 		})
 	})
-	swarmtest.TestSecureSwarm(t, func(t testing.TB, xs []p2p.SecureSwarm) {
+	swarmtest.TestSecureSwarm(t, func(t testing.TB, xs []p2p.SecureSwarm[Addr]) {
 		r := NewRealm()
 		for i := range xs {
 			xs[i] = r.NewSwarm()

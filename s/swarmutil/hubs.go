@@ -7,31 +7,31 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 )
 
-type recvReq struct {
-	fn   p2p.TellHandler
+type recvReq[A p2p.Addr] struct {
+	fn   p2p.TellHandler[A]
 	done chan struct{}
 }
 
-type TellHub struct {
-	recvs chan *recvReq
+type TellHub[A p2p.Addr] struct {
+	recvs chan *recvReq[A]
 
 	closeOnce sync.Once
 	closed    chan struct{}
 	err       error
 }
 
-func NewTellHub() *TellHub {
-	return &TellHub{
-		recvs:  make(chan *recvReq),
+func NewTellHub[A p2p.Addr]() *TellHub[A] {
+	return &TellHub[A]{
+		recvs:  make(chan *recvReq[A]),
 		closed: make(chan struct{}),
 	}
 }
 
-func (q *TellHub) Receive(ctx context.Context, fn p2p.TellHandler) error {
+func (q *TellHub[A]) Receive(ctx context.Context, fn p2p.TellHandler[A]) error {
 	if err := q.checkClosed(); err != nil {
 		return err
 	}
-	req := &recvReq{
+	req := &recvReq[A]{
 		fn:   fn,
 		done: make(chan struct{}),
 	}
@@ -57,7 +57,7 @@ func (q *TellHub) Receive(ctx context.Context, fn p2p.TellHandler) error {
 
 // Deliver delivers a message to a caller of Recv
 // If Deliver returns an error it will be from the context expiring.
-func (q *TellHub) Deliver(ctx context.Context, m p2p.Message) error {
+func (q *TellHub[A]) Deliver(ctx context.Context, m p2p.Message[A]) error {
 	// wait for a request
 	select {
 	case <-q.closed:
@@ -72,7 +72,7 @@ func (q *TellHub) Deliver(ctx context.Context, m p2p.Message) error {
 	}
 }
 
-func (q *TellHub) checkClosed() error {
+func (q *TellHub[A]) checkClosed() error {
 	select {
 	case <-q.closed:
 		return q.err
@@ -81,38 +81,38 @@ func (q *TellHub) checkClosed() error {
 	}
 }
 
-func (q *TellHub) CloseWithError(err error) {
+func (q *TellHub[A]) CloseWithError(err error) {
 	q.closeOnce.Do(func() {
 		q.err = err
 		close(q.closed)
 	})
 }
 
-type serveReq struct {
-	fn   p2p.AskHandler
+type serveReq[A p2p.Addr] struct {
+	fn   p2p.AskHandler[A]
 	done chan struct{}
 }
 
-type AskHub struct {
-	reqs chan *serveReq
+type AskHub[A p2p.Addr] struct {
+	reqs chan *serveReq[A]
 
 	closeOnce sync.Once
 	closed    chan struct{}
 	err       error
 }
 
-func NewAskHub() *AskHub {
-	return &AskHub{
-		reqs:   make(chan *serveReq),
+func NewAskHub[A p2p.Addr]() *AskHub[A] {
+	return &AskHub[A]{
+		reqs:   make(chan *serveReq[A]),
 		closed: make(chan struct{}),
 	}
 }
 
-func (q *AskHub) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
+func (q *AskHub[A]) ServeAsk(ctx context.Context, fn p2p.AskHandler[A]) error {
 	if err := q.checkClosed(); err != nil {
 		return err
 	}
-	req := &serveReq{
+	req := &serveReq[A]{
 		fn:   fn,
 		done: make(chan struct{}, 1),
 	}
@@ -128,7 +128,7 @@ func (q *AskHub) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
 	}
 }
 
-func (q *AskHub) Deliver(ctx context.Context, respData []byte, req p2p.Message) (int, error) {
+func (q *AskHub[A]) Deliver(ctx context.Context, respData []byte, req p2p.Message[A]) (int, error) {
 	select {
 	case <-q.closed:
 		return 0, q.err
@@ -141,7 +141,7 @@ func (q *AskHub) Deliver(ctx context.Context, respData []byte, req p2p.Message) 
 	}
 }
 
-func (q *AskHub) checkClosed() error {
+func (q *AskHub[A]) checkClosed() error {
 	select {
 	case <-q.closed:
 		return q.err
@@ -150,7 +150,7 @@ func (q *AskHub) checkClosed() error {
 	}
 }
 
-func (q *AskHub) CloseWithError(err error) {
+func (q *AskHub[A]) CloseWithError(err error) {
 	q.closeOnce.Do(func() {
 		q.err = err
 		close(q.closed)

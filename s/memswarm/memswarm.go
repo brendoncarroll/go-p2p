@@ -47,7 +47,7 @@ func NewRealm(opts ...Option) *Realm {
 	return r
 }
 
-func (r *Realm) logTraffic(isAsk bool, msg *p2p.Message) {
+func (r *Realm) logTraffic(isAsk bool, msg *p2p.Message[Addr]) {
 	if r.trafficLog == ioutil.Discard {
 		return
 	}
@@ -83,8 +83,8 @@ func (r *Realm) NewSwarmWithKey(privateKey p2p.PrivateKey) *Swarm {
 		n:          n,
 		privateKey: privateKey,
 
-		tells: make(chan p2p.Message, r.bufferedTells),
-		asks:  swarmutil.NewAskHub(),
+		tells: make(chan p2p.Message[Addr], r.bufferedTells),
+		asks:  swarmutil.NewAskHub[Addr](),
 	}
 	r.swarms[n] = s
 	return s
@@ -102,26 +102,25 @@ func (r *Realm) getSwarm(i int) *Swarm {
 	return r.swarms[i]
 }
 
-var _ p2p.SecureAskSwarm = &Swarm{}
+var _ p2p.SecureAskSwarm[Addr] = &Swarm{}
 
 type Swarm struct {
 	r          *Realm
 	n          int
 	privateKey p2p.PrivateKey
 
-	tells chan p2p.Message
-	asks  *swarmutil.AskHub
+	tells chan p2p.Message[Addr]
+	asks  *swarmutil.AskHub[Addr]
 
 	mu       sync.RWMutex
 	isClosed bool
 }
 
-func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {
+func (s *Swarm) Ask(ctx context.Context, resp []byte, addr Addr, data p2p.IOVec) (int, error) {
 	if err := s.checkClosed(); err != nil {
 		return 0, err
 	}
-	a := addr.(Addr)
-	msg := p2p.Message{
+	msg := p2p.Message[Addr]{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
 		Payload: p2p.VecBytes(nil, data),
@@ -133,7 +132,7 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IO
 		return 0, errors.New("message dropped")
 	}
 	s.r.logTraffic(true, &msg)
-	s2 := s.r.getSwarm(a.N)
+	s2 := s.r.getSwarm(addr.N)
 	n, err := s2.asks.Deliver(ctx, resp, msg)
 	if err != nil {
 		return 0, err
@@ -144,15 +143,14 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IO
 	return n, nil
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
+func (s *Swarm) Tell(ctx context.Context, addr Addr, data p2p.IOVec) error {
 	if err := s.checkClosed(); err != nil {
 		return err
 	}
-	a := addr.(Addr)
 	if p2p.VecSize(data) > s.r.mtu {
 		return p2p.ErrMTUExceeded
 	}
-	msg := p2p.Message{
+	msg := p2p.Message[Addr]{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
 		Payload: p2p.VecBytes(nil, data),
@@ -161,23 +159,23 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 		return nil
 	}
 	s.r.logTraffic(false, &msg)
-	s2 := s.r.getSwarm(a.N)
+	s2 := s.r.getSwarm(addr.N)
 	if s2 == nil {
-		s.r.log.Debugf("swarm %v does not exist in same memswarm.Realm", a.N)
+		s.r.log.Debugf("swarm %v does not exist in same memswarm.Realm", addr.N)
 		return nil
 	}
 	ctx, cf := context.WithTimeout(ctx, 3*time.Second)
 	defer cf()
 	select {
 	case <-ctx.Done():
-		s.r.log.Debugf("memswarm: timeout delivering tell %v -> %v", s.n, a.N)
+		s.r.log.Debugf("memswarm: timeout delivering tell %v -> %v", s.n, addr.N)
 		return nil
 	case s2.tells <- msg:
 		return nil
 	}
 }
 
-func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler[Addr]) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -187,17 +185,17 @@ func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
 	}
 }
 
-func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
+func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler[Addr]) error {
 	return s.asks.ServeAsk(ctx, fn)
 }
 
-func (s *Swarm) LocalAddrs() []p2p.Addr {
-	return []p2p.Addr{
+func (s *Swarm) LocalAddrs() []Addr {
+	return []Addr{
 		Addr{N: s.n},
 	}
 }
 
-func (s *Swarm) MTU(context.Context, p2p.Addr) int {
+func (s *Swarm) MTU(context.Context, Addr) int {
 	return s.r.mtu
 }
 
@@ -227,11 +225,10 @@ func (s *Swarm) PublicKey() p2p.PublicKey {
 	return s.privateKey.Public()
 }
 
-func (s *Swarm) LookupPublicKey(ctx context.Context, addr p2p.Addr) (p2p.PublicKey, error) {
-	a := addr.(Addr)
+func (s *Swarm) LookupPublicKey(ctx context.Context, addr Addr) (p2p.PublicKey, error) {
 	s.r.mu.RLock()
 	defer s.r.mu.RUnlock()
-	other := s.r.swarms[a.N]
+	other := s.r.swarms[addr.N]
 	if other == nil {
 		return nil, p2p.ErrPublicKeyNotFound
 	}
