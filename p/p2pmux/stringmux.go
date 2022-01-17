@@ -7,70 +7,23 @@ import (
 	"github.com/pkg/errors"
 )
 
-// StringMux
-type stringMux struct {
-	*muxCore
+func NewStringMux[A p2p.Addr](x p2p.Swarm[A]) Mux[A, string] {
+	return mux[A,string]{newMuxCore[A, string](x, stringMuxFunc, stringDemuxFunc)}
 }
 
-func NewStringMux(x p2p.Swarm) StringMux {
-	return &stringMux{
-		muxCore: newMuxCore(x, stringMuxFunc, stringDemuxFunc),
-	}
+func NewStringAskMux[A p2p.Addr](x p2p.AskSwarm[A]) AskMux[A, string] {
+	return askMux[A, string]{newMuxCore[A, string](x, stringMuxFunc, stringDemuxFunc)}
 }
 
-func (m *stringMux) Open(c string) p2p.Swarm {
-	return m.open(c)
+func NewStringSecureMux[A p2p.Addr](x p2p.SecureSwarm[A]) SecureMux[A, string] {	
+	return secureMux[A, string]{newMuxCore[A, string](x, stringMuxFunc, stringDemuxFunc)}
 }
 
-// StringAskMux
-type stringAskMux struct {
-	*muxCore
+func NewStringSecureAskMux[A p2p.Addr](x p2p.SecureAskSwarm[A]) SecureAskMux[A, string] {
+	return secureAskMux[A, string]{newMuxCore[A, string](x, stringMuxFunc, stringDemuxFunc)}
 }
 
-func NewStringAskMux(x p2p.AskSwarm) StringAskMux {
-	return &stringAskMux{
-		muxCore: newMuxCore(x, stringMuxFunc, stringDemuxFunc),
-	}
-}
-
-func (m *stringAskMux) Open(c string) p2p.AskSwarm {
-	return m.open(c)
-}
-
-// StringSecureMux
-type stringSecureMux struct {
-	*muxCore
-}
-
-func NewStringSecureMux(x p2p.SecureSwarm) StringSecureMux {
-	return &stringSecureMux{
-		muxCore: newMuxCore(x, stringMuxFunc, stringDemuxFunc),
-	}
-}
-
-func (m *stringSecureMux) Open(c string) p2p.SecureSwarm {
-	ms := m.open(c)
-	return p2p.ComposeSecureSwarm(ms, m.secure)
-}
-
-// StringSecureAskMux
-type stringSecureAskMux struct {
-	*muxCore
-}
-
-func NewStringSecureAskMux(x p2p.SecureSwarm) StringSecureAskMux {
-	return &stringSecureAskMux{
-		muxCore: newMuxCore(x, stringMuxFunc, stringDemuxFunc),
-	}
-}
-
-func (m *stringSecureAskMux) Open(c string) p2p.SecureAskSwarm {
-	ms := m.open(c)
-	return p2p.ComposeSecureAskSwarm(ms, ms, m.secure)
-}
-
-func stringMuxFunc(cid channelID, x p2p.IOVec) p2p.IOVec {
-	c := cid.(string)
+func stringMuxFunc(c string, x p2p.IOVec) p2p.IOVec {
 	header := make([]byte, binary.MaxVarintLen64+len(c))
 	n := binary.PutUvarint(header, uint64(len(c)))
 	header = header[:n]
@@ -82,7 +35,7 @@ func stringMuxFunc(cid channelID, x p2p.IOVec) p2p.IOVec {
 	return ret
 }
 
-func stringDemuxFunc(x []byte) (channelID, []byte, error) {
+func stringDemuxFunc(x []byte) (string, []byte, error) {
 	chanLength, n := binary.Uvarint(x)
 	if n < 1 {
 		return "", nil, errors.Errorf("stringmux: could not read message")
