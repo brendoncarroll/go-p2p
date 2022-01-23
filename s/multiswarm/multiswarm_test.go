@@ -11,15 +11,15 @@ import (
 
 func TestMultiSwarm(t *testing.T) {
 	t.Parallel()
-	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
+	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm[Addr]) {
 		r1 := memswarm.NewRealm()
 		r2 := memswarm.NewRealm()
 
 		for i := range xs {
 			privKey := p2ptest.NewTestKey(t, i)
-			m := map[string]p2p.SecureAskSwarm{
-				"mem1": r1.NewSwarmWithKey(privKey),
-				"mem2": r2.NewSwarmWithKey(privKey),
+			m := map[string]DynSecureAskSwarm{
+				"mem1": WrapSecureAskSwarm[memswarm.Addr](r1.NewSwarmWithKey(privKey)),
+				"mem2": WrapSecureAskSwarm[memswarm.Addr](r2.NewSwarmWithKey(privKey)),
 			}
 			x := NewSecureAsk(m)
 			xs[i] = x
@@ -28,15 +28,15 @@ func TestMultiSwarm(t *testing.T) {
 			swarmtest.CloseSwarms(t, xs)
 		})
 	})
-	swarmtest.TestAskSwarm(t, func(t testing.TB, xs []p2p.AskSwarm) {
+	swarmtest.TestAskSwarm(t, func(t testing.TB, xs []p2p.AskSwarm[Addr]) {
 		r1 := memswarm.NewRealm()
 		r2 := memswarm.NewRealm()
 
 		for i := range xs {
 			privKey := p2ptest.NewTestKey(t, i)
-			m := map[string]p2p.SecureAskSwarm{
-				"mem1": r1.NewSwarmWithKey(privKey),
-				"mem2": r2.NewSwarmWithKey(privKey),
+			m := map[string]DynSecureAskSwarm{
+				"mem1": WrapSecureAskSwarm[memswarm.Addr](r1.NewSwarmWithKey(privKey)),
+				"mem2": WrapSecureAskSwarm[memswarm.Addr](r2.NewSwarmWithKey(privKey)),
 			}
 			x := NewSecureAsk(m)
 			xs[i] = x
