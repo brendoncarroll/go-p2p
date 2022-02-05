@@ -16,17 +16,17 @@ import (
 
 const Overhead = 3 * binary.MaxVarintLen32
 
-func New(x p2p.Swarm, mtu int) p2p.Swarm {
-	return newSwarm(x, mtu)
+func New[A p2p.Addr](x p2p.Swarm[A], mtu int) p2p.Swarm[A] {
+	return newSwarm[A](x, mtu)
 }
 
-func NewSecure(x p2p.SecureSwarm, mtu int) p2p.SecureSwarm {
-	y := newSwarm(x, mtu)
-	return p2p.ComposeSecureSwarm(y, x)
+func NewSecure[A p2p.Addr](x p2p.SecureSwarm[A], mtu int) p2p.SecureSwarm[A] {
+	y := newSwarm[A](x, mtu)
+	return p2p.ComposeSecureSwarm[A](y, x)
 }
 
-type swarm struct {
-	p2p.Swarm
+type swarm[A p2p.Addr] struct {
+	p2p.Swarm[A]
 	mtu int
 
 	cf context.CancelFunc
@@ -34,26 +34,26 @@ type swarm struct {
 	mu     sync.Mutex
 	aggs   map[aggKey]*aggregator
 	msgIDs map[string]uint32
-	tells  *swarmutil.TellHub
+	tells  *swarmutil.TellHub[A]
 }
 
-func newSwarm(x p2p.Swarm, mtu int) *swarm {
+func newSwarm[A p2p.Addr](x p2p.Swarm[A], mtu int) *swarm[A] {
 	ctx, cf := context.WithCancel(context.Background())
-	s := &swarm{
+	s := &swarm[A]{
 		Swarm: x,
 		mtu:   mtu,
 
 		cf:     cf,
 		aggs:   make(map[aggKey]*aggregator),
 		msgIDs: make(map[string]uint32),
-		tells:  swarmutil.NewTellHub(),
+		tells:  swarmutil.NewTellHub[A](),
 	}
 	go s.recvLoops(ctx, runtime.GOMAXPROCS(0))
 	go s.cleanupLoop(ctx)
 	return s
 }
 
-func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
+func (s *swarm[A]) Tell(ctx context.Context, addr A, data p2p.IOVec) error {
 	if p2p.VecSize(data) > s.mtu {
 		return p2p.ErrMTUExceeded
 	}
@@ -93,20 +93,20 @@ func (s *swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 	return eg.Wait()
 }
 
-func (s *swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+func (s *swarm[A]) Receive(ctx context.Context, th p2p.TellHandler[A]) error {
 	return s.tells.Receive(ctx, th)
 }
 
-func (s *swarm) MaxIncomingSize() int {
+func (s *swarm[A]) MaxIncomingSize() int {
 	return s.mtu
 }
 
-func (s *swarm) recvLoops(ctx context.Context, numWorkers int) error {
+func (s *swarm[A]) recvLoops(ctx context.Context, numWorkers int) error {
 	eg, ctx := errgroup.WithContext(ctx)
 	for i := 0; i < numWorkers; i++ {
 		eg.Go(func() error {
 			for {
-				if err := s.Swarm.Receive(ctx, func(m p2p.Message) {
+				if err := s.Swarm.Receive(ctx, func(m p2p.Message[A]) {
 					if err := s.handleTell(ctx, m); err != nil {
 						logrus.Error(err)
 					}
@@ -122,7 +122,7 @@ func (s *swarm) recvLoops(ctx context.Context, numWorkers int) error {
 }
 
 // handleTell will not retain x.Payload
-func (s *swarm) handleTell(ctx context.Context, x p2p.Message) error {
+func (s *swarm[A]) handleTell(ctx context.Context, x p2p.Message[A]) error {
 	id, part, totalParts, data, err := parseMessage(x.Payload)
 	if err != nil {
 		log := logrus.WithFields(logrus.Fields{"src": x.Src})
@@ -131,7 +131,7 @@ func (s *swarm) handleTell(ctx context.Context, x p2p.Message) error {
 	}
 	// if there is only one part skip creating the aggregator
 	if totalParts == 1 {
-		return s.tells.Deliver(ctx, p2p.Message{
+		return s.tells.Deliver(ctx, p2p.Message[A]{
 			Src:     x.Src,
 			Dst:     x.Dst,
 			Payload: data,
@@ -146,7 +146,7 @@ func (s *swarm) handleTell(ctx context.Context, x p2p.Message) error {
 	}
 	s.mu.Unlock()
 	if agg.addPart(part, totalParts, data) {
-		err = s.tells.Deliver(ctx, p2p.Message{
+		err = s.tells.Deliver(ctx, p2p.Message[A]{
 			Src:     x.Src,
 			Dst:     x.Dst,
 			Payload: agg.assemble(),
@@ -158,16 +158,16 @@ func (s *swarm) handleTell(ctx context.Context, x p2p.Message) error {
 	return err
 }
 
-func (s *swarm) MTU(ctx context.Context, target p2p.Addr) int {
+func (s *swarm[A]) MTU(ctx context.Context, target A) int {
 	return s.mtu
 }
 
-func (s *swarm) Close() error {
+func (s *swarm[A]) Close() error {
 	s.cf()
 	return s.Swarm.Close()
 }
 
-func (s *swarm) cleanupLoop(ctx context.Context) {
+func (s *swarm[A]) cleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
@@ -180,7 +180,7 @@ func (s *swarm) cleanupLoop(ctx context.Context) {
 	}
 }
 
-func (s *swarm) cleanup() {
+func (s *swarm[A]) cleanup() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
