@@ -79,8 +79,6 @@ type StringSecureAskMux interface {
 	Open(c string) p2p.SecureAskSwarm
 }
 
-var log = p2p.Logger
-
 type channelID interface{}
 
 type muxFunc = func(c channelID, x p2p.IOVec) p2p.IOVec
@@ -113,13 +111,13 @@ func newMuxCore(swarm p2p.Swarm, mf muxFunc, dmf demuxFunc) *muxCore {
 	}
 	go func() {
 		if err := mc.recvLoop(ctx); err != nil && !p2p.IsErrClosed(err) {
-			log.Error(err)
+			logrus.Error(err)
 		}
 	}()
 	if mc.asker != nil {
 		go func() {
 			if err := mc.serveLoop(ctx); err != nil && !p2p.IsErrClosed(err) {
-				log.Error(err)
+				logrus.Error(err)
 			}
 		}()
 	}
@@ -174,7 +172,7 @@ func (mc *muxCore) serveLoop(ctx context.Context) error {
 				})
 				return err
 			}(); err != nil {
-				log.Warn(err)
+				logrus.Warn(err)
 				return -1
 			}
 			return respN

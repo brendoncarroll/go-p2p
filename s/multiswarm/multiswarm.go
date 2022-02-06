@@ -11,8 +11,6 @@ import (
 )
 
 var (
-	log = p2p.Logger
-
 	ErrTransportNotExist = errors.New("transport does not exist")
 )
 
@@ -45,7 +43,7 @@ func NewSecureAsk(m map[string]p2p.SecureAskSwarm) p2p.SecureAskSwarm {
 	go ms.recvLoops(ctx)
 	go func() {
 		if err := ma.serveLoops(ctx); err != nil && err != p2p.ErrClosed {
-			log.Error(err)
+			logrus.Error(err)
 		}
 	}()
 	return p2p.ComposeSecureAskSwarm(ms, ma, msec)
@@ -144,7 +142,7 @@ func (mt multiSwarm) Close() error {
 	for _, t := range mt.swarms {
 		if err2 := t.Close(); err2 != nil {
 			err = err2
-			log.Error(err2)
+			logrus.Error(err2)
 		}
 	}
 	mt.tells.CloseWithError(p2p.ErrClosed)
