@@ -22,10 +22,8 @@ import (
 
 const DefaultMTU = 1 << 20
 
-var _ p2p.SecureAskSwarm = &Swarm{}
-
-type Swarm struct {
-	inner         p2p.Swarm
+type Swarm[T p2p.Addr] struct {
+	inner         p2p.Swarm[T]
 	mtu           int
 	fingerprinter p2p.Fingerprinter
 	allowFunc     func(p2p.Addr) bool
@@ -38,23 +36,23 @@ type Swarm struct {
 	mu        sync.RWMutex
 	sessCache map[sessionKey]quic.Session
 
-	tells *swarmutil.TellHub
-	asks  *swarmutil.AskHub
+	tells *swarmutil.TellHub[Addr[T]]
+	asks  *swarmutil.AskHub[Addr[T]]
 }
 
-func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
+func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option[udpswarm.Addr]) (*Swarm[udpswarm.Addr], error) {
 	x, err := udpswarm.New(laddr)
 	if err != nil {
 		return nil, err
 	}
-	return New(x, privKey, opts...)
+	return New[udpswarm.Addr](x, privKey, opts...)
 }
 
 // New creates a new swarm on top of x, using privKey for authentication
-func New(x p2p.Swarm, privKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
+func New[T p2p.Addr](x p2p.Swarm[T], privKey p2p.PrivateKey, opts ...Option[T]) (*Swarm[T], error) {
 	pconn := connWrapper{p2pconn.NewPacketConn(x)}
 	ctx, cf := context.WithCancel(context.Background())
-	s := &Swarm{
+	s := &Swarm[T]{
 		inner:         x,
 		mtu:           DefaultMTU,
 		fingerprinter: p2p.DefaultFingerprinter,
@@ -65,8 +63,8 @@ func New(x p2p.Swarm, privKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
 		cf:            cf,
 
 		sessCache: map[sessionKey]quic.Session{},
-		tells:     swarmutil.NewTellHub(),
-		asks:      swarmutil.NewAskHub(),
+		tells:     swarmutil.NewTellHub[Addr[T]](),
+		asks:      swarmutil.NewAskHub[Addr[T]](),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -81,8 +79,7 @@ func New(x p2p.Swarm, privKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
 	return s, nil
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
-	dst := addr.(Addr)
+func (s *Swarm[T]) Tell(ctx context.Context, dst Addr[T], data p2p.IOVec) error {
 	if p2p.VecSize(data) > s.mtu {
 		return p2p.ErrMTUExceeded
 	}
@@ -101,17 +98,16 @@ func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
 		return err
 	})
 	if isSessionReplaced(err) {
-		return s.Tell(ctx, addr, data)
+		return s.Tell(ctx, dst, data)
 	}
 	return err
 }
 
-func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+func (s *Swarm[T]) Receive(ctx context.Context, th p2p.TellHandler[Addr[T]]) error {
 	return s.tells.Receive(ctx, th)
 }
 
-func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IOVec) (int, error) {
-	dst := addr.(Addr)
+func (s *Swarm[T]) Ask(ctx context.Context, resp []byte, dst Addr[T], data p2p.IOVec) (int, error) {
 	if p2p.VecSize(data) > s.mtu {
 		return 0, p2p.ErrMTUExceeded
 	}
@@ -150,11 +146,11 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, addr p2p.Addr, data p2p.IO
 	return n, nil
 }
 
-func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler) error {
+func (s *Swarm[T]) ServeAsk(ctx context.Context, fn p2p.AskHandler[Addr[T]]) error {
 	return s.asks.ServeAsk(ctx, fn)
 }
 
-func (s *Swarm) Close() (retErr error) {
+func (s *Swarm[T]) Close() (retErr error) {
 	var el swarmutil.ErrList
 	s.cf()
 	s.tells.CloseWithError(p2p.ErrClosed)
@@ -164,9 +160,9 @@ func (s *Swarm) Close() (retErr error) {
 	return el.Err()
 }
 
-func (s *Swarm) LocalAddrs() (ret []p2p.Addr) {
+func (s *Swarm[T]) LocalAddrs() (ret []Addr[T]) {
 	for _, addr := range s.inner.LocalAddrs() {
-		ret = append(ret, Addr{
+		ret = append(ret, Addr[T]{
 			ID:   s.LocalID(),
 			Addr: addr,
 		})
@@ -174,26 +170,25 @@ func (s *Swarm) LocalAddrs() (ret []p2p.Addr) {
 	return ret
 }
 
-func (s *Swarm) LocalID() p2p.PeerID {
+func (s *Swarm[T]) LocalID() p2p.PeerID {
 	return s.fingerprinter(s.privKey.Public())
 }
 
-func (s *Swarm) MTU(context.Context, p2p.Addr) int {
+func (s *Swarm[T]) MTU(context.Context, Addr[T]) int {
 	return s.mtu
 }
 
-func (s *Swarm) MaxIncomingSize() int {
+func (s *Swarm[T]) MaxIncomingSize() int {
 	return s.mtu
 }
 
-func (s *Swarm) PublicKey() p2p.PublicKey {
+func (s *Swarm[T]) PublicKey() p2p.PublicKey {
 	return s.privKey.Public()
 }
 
-func (s *Swarm) LookupPublicKey(ctx context.Context, x p2p.Addr) (p2p.PublicKey, error) {
-	a := x.(Addr)
+func (s *Swarm[T]) LookupPublicKey(ctx context.Context, x Addr[T]) (p2p.PublicKey, error) {
 	var pubKey p2p.PublicKey
-	if err := s.withSession(ctx, a, func(sess quic.Session) error {
+	if err := s.withSession(ctx, x, func(sess quic.Session) error {
 		tlsState := sess.ConnectionState().TLS
 		// ok to panic here on OOB, it is a bug to have a session with
 		// no certificates in the cache.
@@ -206,7 +201,11 @@ func (s *Swarm) LookupPublicKey(ctx context.Context, x p2p.Addr) (p2p.PublicKey,
 	return pubKey, nil
 }
 
-func (s *Swarm) withSession(ctx context.Context, dst Addr, fn func(sess quic.Session) error) error {
+func (s *Swarm[T]) ParseAddr(data []byte) (*Addr[T], error) {
+	return ParseAddr[T](s.inner.ParseAddr, data)
+}
+
+func (s *Swarm[T]) withSession(ctx context.Context, dst Addr[T], fn func(sess quic.Session) error) error {
 	s.mu.Lock()
 	sess, exists := s.sessCache[sessionKey{addr: dst.Key(), outbound: false}]
 	if !exists {
@@ -238,7 +237,7 @@ func (s *Swarm) withSession(ctx context.Context, dst Addr, fn func(sess quic.Ses
 	return fn(sess)
 }
 
-func (s *Swarm) serve(ctx context.Context) {
+func (s *Swarm[T]) serve(ctx context.Context) {
 	for {
 		sess, err := s.l.Accept(ctx)
 		if err != nil {
@@ -263,7 +262,7 @@ func (s *Swarm) serve(ctx context.Context) {
 	}
 }
 
-func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, src Addr, isClient bool) {
+func (s *Swarm[T]) handleSession(ctx context.Context, sess quic.Session, src Addr[T], isClient bool) {
 	defer func() {
 		s.mu.Lock()
 		delete(s.sessCache, sessionKey{addr: src.Key(), outbound: isClient})
@@ -284,7 +283,7 @@ func (s *Swarm) handleSession(ctx context.Context, sess quic.Session, src Addr, 
 	sess.CloseWithError(0, "")
 }
 
-func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr Addr) error {
+func (s *Swarm[T]) handleAsks(ctx context.Context, sess quic.Session, srcAddr Addr[T]) error {
 	log := s.log.WithFields(logrus.Fields{"remote_addr": srcAddr})
 	for {
 		stream, err := sess.AcceptStream(ctx)
@@ -300,7 +299,7 @@ func (s *Swarm) handleAsks(ctx context.Context, sess quic.Session, srcAddr Addr)
 	}
 }
 
-func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstAddr Addr) error {
+func (s *Swarm[T]) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstAddr Addr[T]) error {
 	log := s.log.WithFields(logrus.Fields{"remote_addr": srcAddr})
 	reqData := make([]byte, s.mtu)
 	n, err := readFrame(stream, reqData, s.mtu)
@@ -308,7 +307,7 @@ func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstA
 		return err
 	}
 	log.Debugf("received ask request len=%d", n)
-	m := p2p.Message{
+	m := p2p.Message[Addr[T]]{
 		Dst:     dstAddr,
 		Src:     srcAddr,
 		Payload: reqData[:n],
@@ -327,7 +326,7 @@ func (s *Swarm) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstA
 	return stream.Close()
 }
 
-func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr Addr) error {
+func (s *Swarm[T]) handleTells(ctx context.Context, sess quic.Session, srcAddr Addr[T]) error {
 	for {
 		stream, err := sess.AcceptUniStream(ctx)
 		if err != nil {
@@ -340,7 +339,7 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr Addr
 				s.log.Error(err)
 				return
 			}
-			m := p2p.Message{
+			m := p2p.Message[Addr[T]]{
 				Dst:     s.makeLocalAddr(sess.LocalAddr()),
 				Src:     srcAddr,
 				Payload: data,
@@ -352,7 +351,7 @@ func (s *Swarm) handleTells(ctx context.Context, sess quic.Session, srcAddr Addr
 	}
 }
 
-func (s *Swarm) putSession(addr Addr, newSess quic.Session, isClient bool) {
+func (s *Swarm[T]) putSession(addr Addr[T], newSess quic.Session, isClient bool) {
 	s.mu.Lock()
 	s.sessCache[sessionKey{addr: addr.Key(), outbound: isClient}] = newSess
 	s.mu.Unlock()
@@ -360,25 +359,25 @@ func (s *Swarm) putSession(addr Addr, newSess quic.Session, isClient bool) {
 
 // makeLocalAddr returns an Addr with the LocalID
 // and the inner address from x
-func (s *Swarm) makeLocalAddr(x net.Addr) Addr {
-	return Addr{
+func (s *Swarm[T]) makeLocalAddr(x net.Addr) Addr[T] {
+	return Addr[T]{
 		ID:   s.LocalID(),
-		Addr: x.(p2pconn.Addr).Addr,
+		Addr: x.(p2pconn.Addr[T]).Addr,
 	}
 }
 
-func (s *Swarm) remoteAddrFromSession(x quic.Session) (Addr, error) {
+func (s *Swarm[T]) remoteAddrFromSession(x quic.Session) (Addr[T], error) {
 	tlsState := x.ConnectionState().TLS
 	if len(tlsState.PeerCertificates) < 1 {
-		return Addr{}, errors.New("no certificates")
+		return Addr[T]{}, errors.New("no certificates")
 	}
 
 	cert := tlsState.PeerCertificates[0]
 	pubKey := cert.PublicKey
 	id := s.fingerprinter(pubKey)
 
-	raddr := x.RemoteAddr().(p2pconn.Addr)
-	return Addr{
+	raddr := x.RemoteAddr().(p2pconn.Addr[T])
+	return Addr[T]{
 		ID:   id,
 		Addr: raddr.Addr,
 	}, nil
@@ -395,7 +394,7 @@ func generateClientTLS(privKey p2p.PrivateKey) *tls.Config {
 	}
 }
 
-func (s *Swarm) generateServerTLS(privKey p2p.PrivateKey) *tls.Config {
+func (s *Swarm[T]) generateServerTLS(privKey p2p.PrivateKey) *tls.Config {
 	cert := swarmutil.GenerateSelfSigned(privKey)
 	localID := s.fingerprinter(privKey.Public())
 	return &tls.Config{
