@@ -2,7 +2,6 @@ package sshswarm
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -10,19 +9,14 @@ import (
 	"strconv"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 )
-
-var _ interface {
-	p2p.Addr
-	p2p.HasIP
-	p2p.HasTCP
-} = &Addr{}
 
 type Addr struct {
 	Fingerprint string
 	IP          net.IP
-	Port        int
+	Port        uint16
 }
 
 func NewAddr(publicKey p2p.PublicKey, host string, port int) *Addr {
@@ -38,11 +32,11 @@ func NewAddr(publicKey p2p.PublicKey, host string, port int) *Addr {
 	return &Addr{
 		Fingerprint: id,
 		IP:          ipAddr.IP,
-		Port:        port,
+		Port:        uint16(port),
 	}
 }
 
-func (a *Addr) MarshalText() ([]byte, error) {
+func (a Addr) MarshalText() ([]byte, error) {
 	buf := bytes.Buffer{}
 	fmt.Fprintf(&buf, "%s@%s:%d", a.Fingerprint, a.IP.String(), a.Port)
 	return buf.Bytes(), nil
@@ -50,7 +44,7 @@ func (a *Addr) MarshalText() ([]byte, error) {
 
 var addrRe = regexp.MustCompile(`^([A-z0-9\-_/:]+)@(.+):([0-9]+)$`)
 
-func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
+func ParseAddr(data []byte) (*Addr, error) {
 	a := &Addr{}
 	matches := addrRe.FindSubmatch(data)
 	if len(matches) < 4 {
@@ -66,9 +60,11 @@ func (s *Swarm) ParseAddr(data []byte) (p2p.Addr, error) {
 	if a.IP.To4() != nil {
 		a.IP = a.IP.To4()
 	}
-
-	port, _ := strconv.Atoi(string(matches[3]))
-	a.Port = port
+	port, err := strconv.ParseUint(string(matches[3]), 10, 16)
+	if err != nil {
+		return nil, errors.Wrapf(err, "sshswarm: parsing addr")
+	}
+	a.Port = uint16(port)
 	return a, nil
 }
 
@@ -85,8 +81,8 @@ func (a Addr) GetIP() net.IP {
 	return a.IP
 }
 
-func (a *Addr) MapIP(fn func(net.IP) net.IP) p2p.Addr {
-	return &Addr{
+func (a Addr) MapIP(fn func(net.IP) net.IP) Addr {
+	return Addr{
 		Fingerprint: a.Fingerprint,
 		IP:          fn(a.IP),
 		Port:        a.Port,
@@ -96,15 +92,15 @@ func (a *Addr) MapIP(fn func(net.IP) net.IP) p2p.Addr {
 func (a Addr) GetTCP() net.TCPAddr {
 	return net.TCPAddr{
 		IP:   a.IP,
-		Port: a.Port,
+		Port: int(a.Port),
 	}
 }
 
-func (a *Addr) MapTCP(fn func(net.TCPAddr) net.TCPAddr) p2p.Addr {
+func (a Addr) MapTCP(fn func(net.TCPAddr) net.TCPAddr) p2p.Addr {
 	newTCP := fn(a.GetTCP())
-	return &Addr{
+	return Addr{
 		Fingerprint: a.Fingerprint,
 		IP:          newTCP.IP,
-		Port:        newTCP.Port,
+		Port:        uint16(newTCP.Port),
 	}
 }
