@@ -12,6 +12,7 @@ type Addr interface {
 	String() string
 }
 
+// AddrParser is the type of functions which parse []byte into Addrs
 type AddrParser[A Addr] func([]byte) (*A, error)
 
 type UnwrapAddr interface {
