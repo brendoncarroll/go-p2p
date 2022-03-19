@@ -10,14 +10,13 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/multiswarm"
 	"github.com/brendoncarroll/go-p2p/s/sshswarm"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-var log = p2p.Logger
-
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		log.Fatal(err)
+		logrus.Fatal(err)
 	}
 }
 
@@ -56,7 +55,7 @@ var testConnectCmd = &cobra.Command{
 				if err := s3.Tell(ctx, src, p2p.IOVec{msg.Payload}); err != nil {
 					return err
 				}
-				log.Printf("MSG: %v -> %v : %q", src, dst, msg.Payload)
+				logrus.Printf("MSG: %v -> %v : %q", src, dst, msg.Payload)
 			}
 		}()
 

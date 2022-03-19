@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -23,8 +24,7 @@ type PublicKey = crypto.PublicKey
 func MarshalPublicKey(x PublicKey) []byte {
 	data, err := x509.MarshalPKIXPublicKey(x)
 	if err != nil {
-		log.Infof("%T %+v", x, x)
-		panic(err)
+		panic(fmt.Sprintf("marshaling public key %+v: %T, %v", x, x, err))
 	}
 	return data
 }

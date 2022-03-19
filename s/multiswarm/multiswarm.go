@@ -10,8 +10,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var log = p2p.Logger
-
 var (
 	ErrTransportNotExist = errors.New("transport does not exist")
 )
@@ -65,7 +63,7 @@ func NewSecureAsk(m map[string]DynSecureAskSwarm) p2p.SecureAskSwarm[Addr] {
 	go ms.recvLoops(ctx)
 	go func() {
 		if err := ma.serveLoops(ctx); err != nil && err != p2p.ErrClosed {
-			log.Error(err)
+			logrus.Error(err)
 		}
 	}()
 	return p2p.ComposeSecureAskSwarm[Addr](ms, ma, msec)
@@ -161,7 +159,7 @@ func (mt multiSwarm) Close() error {
 	for _, t := range mt.swarms {
 		if err2 := t.Close(); err2 != nil {
 			err = err2
-			log.Error(err2)
+			logrus.Error(err2)
 		}
 	}
 	mt.tells.CloseWithError(p2p.ErrClosed)
