@@ -7,7 +7,6 @@ import (
 	"github.com/brendoncarroll/go-p2p/p2ptest"
 	"github.com/brendoncarroll/go-p2p/s/memswarm"
 	"github.com/brendoncarroll/go-p2p/s/swarmtest"
-	"github.com/brendoncarroll/go-p2p/s/udpswarm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,16 +46,16 @@ func testSwarm[T p2p.Addr](t *testing.T, baseSwarms func(testing.TB, []p2p.Swarm
 	})
 }
 
-func TestOnUDP(t *testing.T) {
-	t.Parallel()
-	testSwarm(t, func(t testing.TB, xs []p2p.Swarm[udpswarm.Addr]) {
-		for i := range xs {
-			var err error
-			xs[i], err = udpswarm.New("127.0.0.1:")
-			require.NoError(t, err)
-		}
-	})
-}
+// func TestOnUDP(t *testing.T) {
+// 	t.Parallel()
+// 	testSwarm(t, func(t testing.TB, xs []p2p.Swarm[udpswarm.Addr]) {
+// 		for i := range xs {
+// 			var err error
+// 			xs[i], err = udpswarm.New("127.0.0.1:")
+// 			require.NoError(t, err)
+// 		}
+// 	})
+// }
 
 func TestOnMem(t *testing.T) {
 	t.Parallel()

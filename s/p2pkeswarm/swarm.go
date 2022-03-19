@@ -2,9 +2,9 @@ package p2pkeswarm
 
 import (
 	"context"
+	"log"
 	"runtime"
 	"time"
-	"log"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/p/p2pke"
@@ -37,7 +37,7 @@ type Swarm[T p2p.Addr] struct {
 	store *store[T]
 }
 
-func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Option) *Swarm[T] {	
+func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Option) *Swarm[T] {
 	config := swarmConfig{
 		fingerprinter: p2p.DefaultFingerprinter,
 	}
@@ -74,7 +74,7 @@ func (s *Swarm[T]) Tell(ctx context.Context, dst Addr[T], v p2p.IOVec) error {
 	})
 }
 
-func (s *Swarm[T]) Receive(ctx context.Context, th p2p.TellHandler[Addr[T]]) error {
+func (s *Swarm[T]) Receive(ctx context.Context, th func(p2p.Message[Addr[T]])) error {
 	return s.hub.Receive(ctx, th)
 }
 
@@ -159,8 +159,8 @@ func (s *Swarm[T]) recvLoops(ctx context.Context, numWorkers int) error {
 }
 
 func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error {
-	a := Addr[T]{Addr: msg.Src} // Leave ID blank
-	return s.store.withConn(a, func(conn *p2pke.Channel) error {	
+	a := Addr[T]{ID: p2p.PeerID{}, Addr: msg.Src} // Leave ID blank
+	return s.store.withConn(a, func(conn *p2pke.Channel) error {
 		// TODO: panics in here
 		// runtime: found in object at *(0xc000556420+0x8)
 		// object=0xc000556420 s.base()=0xc000556000 s.limit=0xc000557fe0 s.spanclass=10 s.elemsize=48 s.state=mSpanInUse
@@ -183,7 +183,7 @@ func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error 
 		//  *(object+32) = 0xc00002a0a8
 		//  *(object+40) = 0x0
 		// fatal error: found bad pointer in Go heap (incorrect use of unsafe or cgo?)
-		// 
+		//
 		// It's in the callback passed to Receive
 		// github.com/brendoncarroll/go-p2p/s/memswarm.(*Swarm).Receive(0xc0000c6550, {0x14acdf0, 0xc00002a0a8}, 0xc000556420)
 		//         /Users/brendon/src/github.com/brendoncarroll/go-p2p/s/memswarm/memswarm.go:179 +0xb7 fp=0xc00045af28 sp=0xc00045ae70 pc=0x1326e17
@@ -203,7 +203,6 @@ func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error 
 		log.Println("swarm", s)
 		log.Println("store", s.store)
 		log.Printf("message %T", msg)
-		return nil
 		if out != nil {
 			srcID := s.fingerprinter(conn.RemoteKey())
 			return s.hub.Deliver(ctx, p2p.Message[Addr[T]]{

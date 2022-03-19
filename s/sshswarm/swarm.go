@@ -93,11 +93,11 @@ func (s *Swarm) LookupPublicKey(ctx context.Context, x Addr) (p2p.PublicKey, err
 	return c.pubKey.(p2p.PublicKey), nil
 }
 
-func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler[Addr]) error {
+func (s *Swarm) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[Addr]) int) error {
 	return s.askHub.ServeAsk(ctx, fn)
 }
 
-func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler[Addr]) error {
+func (s *Swarm) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
 	return s.tellHub.Receive(ctx, th)
 }
 

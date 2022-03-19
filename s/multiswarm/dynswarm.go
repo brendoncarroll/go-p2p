@@ -2,12 +2,13 @@ package multiswarm
 
 import (
 	"context"
+
 	"github.com/brendoncarroll/go-p2p"
 )
 
 type dynSwarm[T p2p.Addr] struct {
-	swarm p2p.Swarm[T]
-	asker p2p.Asker[T]
+	swarm  p2p.Swarm[T]
+	asker  p2p.Asker[T]
 	secure p2p.Secure[T]
 }
 
@@ -15,11 +16,11 @@ func (ds dynSwarm[T]) Tell(ctx context.Context, dst p2p.Addr, v p2p.IOVec) error
 	return ds.swarm.Tell(ctx, dst.(T), v)
 }
 
-func (ds dynSwarm[T]) Receive(ctx context.Context, fn p2p.TellHandler[p2p.Addr]) error {
+func (ds dynSwarm[T]) Receive(ctx context.Context, fn func(p2p.Message[p2p.Addr])) error {
 	return ds.swarm.Receive(ctx, func(x p2p.Message[T]) {
 		fn(p2p.Message[p2p.Addr]{
-			Src: x.Src,
-			Dst: x.Dst,
+			Src:     x.Src,
+			Dst:     x.Dst,
 			Payload: x.Payload,
 		})
 	})
@@ -49,7 +50,7 @@ func (ds dynSwarm[T]) ParseAddr(data []byte) (*p2p.Addr, error) {
 	return &ret, nil
 }
 
-func(ds dynSwarm[T]) Close() error {
+func (ds dynSwarm[T]) Close() error {
 	return ds.swarm.Close()
 }
 
@@ -57,11 +58,11 @@ func (ds dynSwarm[T]) Ask(ctx context.Context, resp []byte, dst p2p.Addr, req p2
 	return ds.asker.Ask(ctx, resp, dst.(T), req)
 }
 
-func (ds dynSwarm[T]) ServeAsk(ctx context.Context, fn p2p.AskHandler[p2p.Addr]) error {
+func (ds dynSwarm[T]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[p2p.Addr]) int) error {
 	return ds.asker.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message[T]) int {
-		return fn(ctx, resp, p2p.Message[p2p.Addr] {
-			Src: req.Src,
-			Dst: req.Dst,
+		return fn(ctx, resp, p2p.Message[p2p.Addr]{
+			Src:     req.Src,
+			Dst:     req.Dst,
 			Payload: req.Payload,
 		})
 	})

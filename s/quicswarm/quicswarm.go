@@ -13,7 +13,6 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/p2pconn"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
-	"github.com/brendoncarroll/go-p2p/s/udpswarm"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -40,13 +39,13 @@ type Swarm[T p2p.Addr] struct {
 	asks  *swarmutil.AskHub[Addr[T]]
 }
 
-func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option[udpswarm.Addr]) (*Swarm[udpswarm.Addr], error) {
-	x, err := udpswarm.New(laddr)
-	if err != nil {
-		return nil, err
-	}
-	return New[udpswarm.Addr](x, privKey, opts...)
-}
+// func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option[udpswarm.Addr]) (*Swarm[udpswarm.Addr], error) {
+// 	x, err := udpswarm.New(laddr)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return New[udpswarm.Addr](x, privKey, opts...)
+// }
 
 // New creates a new swarm on top of x, using privKey for authentication
 func New[T p2p.Addr](x p2p.Swarm[T], privKey p2p.PrivateKey, opts ...Option[T]) (*Swarm[T], error) {
@@ -103,7 +102,7 @@ func (s *Swarm[T]) Tell(ctx context.Context, dst Addr[T], data p2p.IOVec) error 
 	return err
 }
 
-func (s *Swarm[T]) Receive(ctx context.Context, th p2p.TellHandler[Addr[T]]) error {
+func (s *Swarm[T]) Receive(ctx context.Context, th func(p2p.Message[Addr[T]])) error {
 	return s.tells.Receive(ctx, th)
 }
 
@@ -146,7 +145,7 @@ func (s *Swarm[T]) Ask(ctx context.Context, resp []byte, dst Addr[T], data p2p.I
 	return n, nil
 }
 
-func (s *Swarm[T]) ServeAsk(ctx context.Context, fn p2p.AskHandler[Addr[T]]) error {
+func (s *Swarm[T]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[Addr[T]]) int) error {
 	return s.asks.ServeAsk(ctx, fn)
 }
 
@@ -155,8 +154,8 @@ func (s *Swarm[T]) Close() (retErr error) {
 	s.cf()
 	s.tells.CloseWithError(p2p.ErrClosed)
 	s.asks.CloseWithError(p2p.ErrClosed)
-	el.Do(s.l.Close)
-	el.Do(s.inner.Close)
+	el.Add(s.l.Close())
+	el.Add(s.inner.Close())
 	return el.Err()
 }
 

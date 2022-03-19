@@ -6,11 +6,11 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 )
 
-func New[Above, Below p2p.Addr](x p2p.Swarm[Below], downward func(Above)Below, upward func(Below)Above, parser p2p.AddrParser[Above]) p2p.Swarm[Above] {
-	return newSwarm[Above, Below](x, downward, upward, parser)
+func New[Above, Below p2p.Addr](x p2p.Swarm[Below], downward func(Above) Below, upward func(Below) Above, parser p2p.AddrParser[Above]) p2p.Swarm[Above] {
+	return newSwarm(x, downward, upward, parser)
 }
 
-func NewSecure[Above, Below p2p.Addr](x p2p.SecureSwarm[Below], downward func(Above)Below, upward func(Below)Above, parser p2p.AddrParser[Above]) p2p.SecureSwarm[Above] {
+func NewSecure[Above, Below p2p.Addr](x p2p.SecureSwarm[Below], downward func(Above) Below, upward func(Below) Above, parser p2p.AddrParser[Above]) p2p.SecureSwarm[Above] {
 	return p2p.ComposeSecureSwarm[Above](
 		newSwarm[Above, Below](x, downward, upward, parser),
 		newSecure[Above, Below](x, downward),
@@ -19,16 +19,16 @@ func NewSecure[Above, Below p2p.Addr](x p2p.SecureSwarm[Below], downward func(Ab
 
 type swarm[Above, Below p2p.Addr] struct {
 	p2p.Swarm[Below]
-	downward func(Above) Below
-	upward func(Below)Above
+	downward  func(Above) Below
+	upward    func(Below) Above
 	parseAddr func([]byte) (*Above, error)
 }
 
-func newSwarm[Above, Below p2p.Addr](x p2p.Swarm[Below], downward func(Above)Below, upward func(Below)Above, parser p2p.AddrParser[Above]) *swarm[Above,Below] {
+func newSwarm[Above, Below p2p.Addr](x p2p.Swarm[Below], downward func(Above) Below, upward func(Below) Above, parser p2p.AddrParser[Above]) *swarm[Above, Below] {
 	return &swarm[Above, Below]{
-		Swarm:    x,
-		downward: downward,
-		upward:   upward,
+		Swarm:     x,
+		downward:  downward,
+		upward:    upward,
 		parseAddr: parser,
 	}
 }
@@ -37,7 +37,7 @@ func (s *swarm[Above, Below]) Tell(ctx context.Context, dst Above, data p2p.IOVe
 	return s.Swarm.Tell(ctx, s.downward(dst), data)
 }
 
-func (s *swarm[Above, Below]) Receive(ctx context.Context, th p2p.TellHandler[Above]) error {
+func (s *swarm[Above, Below]) Receive(ctx context.Context, th func(p2p.Message[Above])) error {
 	return s.Swarm.Receive(ctx, func(m p2p.Message[Below]) {
 		th(p2p.Message[Above]{
 			Src:     s.upward(m.Src),
@@ -69,7 +69,7 @@ type secure[Above, Below p2p.Addr] struct {
 	downward func(Above) Below
 }
 
-func newSecure[Above, Below p2p.Addr](x p2p.Secure[Below], downward func(Above)Below) secure[Above, Below] {
+func newSecure[Above, Below p2p.Addr](x p2p.Secure[Below], downward func(Above) Below) secure[Above, Below] {
 	return secure[Above, Below]{
 		Secure:   x,
 		downward: downward,

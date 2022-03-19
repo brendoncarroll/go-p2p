@@ -36,7 +36,7 @@ type Swarm[A p2p.Addr] struct {
 
 func New[A p2p.Addr](x p2p.SecureSwarm[A], mtu int, opts ...Option) *Swarm[A] {
 	config := swarmConfig{
-		log: logrus.StandardLogger(),
+		log:        logrus.StandardLogger(),
 		numWorkers: runtime.GOMAXPROCS(0),
 	}
 	for _, opt := range opts {
@@ -55,7 +55,7 @@ func New[A p2p.Addr](x p2p.SecureSwarm[A], mtu int, opts ...Option) *Swarm[A] {
 		tells:     swarmutil.NewTellHub[A](),
 		asks:      swarmutil.NewAskHub[A](),
 	}
-	s.log.SetLevel(logrus.ErrorLevel)	
+	s.log.SetLevel(logrus.ErrorLevel)
 	go s.recvLoops(ctx, s.numWorkers)
 	return s
 }
@@ -114,11 +114,11 @@ func (s *Swarm[A]) Tell(ctx context.Context, dst A, msg p2p.IOVec) error {
 	})
 }
 
-func (s *Swarm[A]) Receive(ctx context.Context, th p2p.TellHandler[A]) error {
+func (s *Swarm[A]) Receive(ctx context.Context, th func(p2p.Message[A])) error {
 	return s.tells.Receive(ctx, th)
 }
 
-func (s *Swarm[A]) ServeAsk(ctx context.Context, fn p2p.AskHandler[A]) error {
+func (s *Swarm[A]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[A]) int) error {
 	return s.asks.ServeAsk(ctx, fn)
 }
 

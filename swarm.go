@@ -12,7 +12,9 @@ type Message[A Addr] struct {
 	Payload  []byte
 }
 
-type TellHandler[A Addr] func(Message[A])
+// TODO: Add back TellHandler
+// https://github.com/golang/go/issues/46477
+// type TellHandler[A Addr] = func(Message[A])
 
 type Teller[A Addr] interface {
 	// Tell sends a message containing data to dst
@@ -26,14 +28,16 @@ type Teller[A Addr] interface {
 	// None of the message's fields may be accessed outside of fn.
 	// All of the message's fields may be modified inside fn. A message is only ever delivered to one place,
 	// so the message will never be accessed concurrently or after the call to fn.
-	Receive(ctx context.Context, fn TellHandler[A]) error
+	Receive(ctx context.Context, fn func(Message[A])) error
 }
 
 // AskHandler is used to generate a response to an Ask
 // The response is written to resp and the number of bytes written is returned.
 // Returning a value < 0 indicates an error.
 // How to interpret values < 0 is up to the Swarm, but it must result in some kind of error returned from the corresponding call to Ask
-type AskHandler[A Addr] func(ctx context.Context, resp []byte, req Message[A]) int
+// TODO: Add back AskHandler
+// https://github.com/golang/go/issues/46477
+// type AskHandler[A Addr] func(ctx context.Context, resp []byte, req Message[A]) int
 
 type Asker[A Addr] interface {
 	// Ask sends req to addr, and writes the response to resp.
@@ -42,7 +46,7 @@ type Asker[A Addr] interface {
 	Ask(ctx context.Context, resp []byte, addr A, req IOVec) (int, error)
 	// ServeAsk calls fn to serve a single ask request, it returns an error if anything went wrong.
 	// Return values < 0 from fn will not result in an error returned from ServeAsk
-	ServeAsk(ctx context.Context, fn AskHandler[A]) error
+	ServeAsk(ctx context.Context, fn func(ctx context.Context, resp []byte, req Message[A]) int) error
 }
 
 func NoOpAskHandler[A Addr](ctx context.Context, resp []byte, req Message[A]) int { return 0 }

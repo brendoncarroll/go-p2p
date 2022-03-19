@@ -36,7 +36,7 @@ type muxCore[A p2p.Addr, C any] struct {
 	secure    p2p.Secure[A]
 	muxFunc   muxFunc[C]
 	demuxFunc demuxFunc[C]
-	log *logrus.Logger
+	log       *logrus.Logger
 
 	cf     context.CancelFunc
 	swarms sync.Map
@@ -48,7 +48,7 @@ func newMuxCore[A p2p.Addr, C any](swarm p2p.Swarm[A], mf muxFunc[C], dmf demuxF
 		swarm:     swarm,
 		muxFunc:   mf,
 		demuxFunc: dmf,
-		log: logrus.StandardLogger(),
+		log:       logrus.StandardLogger(),
 		cf:        cf,
 	}
 	if asker, ok := swarm.(p2p.Asker[A]); ok {
@@ -169,7 +169,6 @@ func (mc *muxCore[A, C]) deleteSwarm(cid C) {
 	mc.swarms.Delete(cid)
 }
 
-
 type muxedSwarm[A p2p.Addr, C any] struct {
 	cid C
 	m   *muxCore[A, C]
@@ -197,7 +196,7 @@ func (ms *muxedSwarm[A, C]) Tell(ctx context.Context, dst A, data p2p.IOVec) err
 	return ms.m.tell(ctx, ms.cid, dst, data)
 }
 
-func (ms *muxedSwarm[A, C]) Receive(ctx context.Context, th p2p.TellHandler[A]) error {
+func (ms *muxedSwarm[A, C]) Receive(ctx context.Context, th func(p2p.Message[A])) error {
 	return ms.tellHub.Receive(ctx, th)
 }
 
@@ -208,7 +207,7 @@ func (ms *muxedSwarm[A, C]) Ask(ctx context.Context, resp []byte, dst A, data p2
 	return ms.m.ask(ctx, ms.cid, resp, dst, data)
 }
 
-func (ms *muxedSwarm[A, C]) ServeAsk(ctx context.Context, fn p2p.AskHandler[A]) error {
+func (ms *muxedSwarm[A, C]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[A]) int) error {
 	return ms.askHub.ServeAsk(ctx, fn)
 }
 
@@ -232,7 +231,7 @@ func (ms *muxedSwarm[A, C]) LookupPublicKey(ctx context.Context, target A) (p2p.
 	return ms.m.lookupPublicKey(ctx, target)
 }
 
-func (ms *muxedSwarm[A, C]) PublicKey() (p2p.PublicKey) {
+func (ms *muxedSwarm[A, C]) PublicKey() p2p.PublicKey {
 	return ms.m.publicKey()
 }
 

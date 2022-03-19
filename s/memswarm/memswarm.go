@@ -175,7 +175,7 @@ func (s *Swarm) Tell(ctx context.Context, addr Addr, data p2p.IOVec) error {
 	}
 }
 
-func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler[Addr]) error {
+func (s *Swarm) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -185,13 +185,13 @@ func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler[Addr]) error {
 	}
 }
 
-func (s *Swarm) ServeAsk(ctx context.Context, fn p2p.AskHandler[Addr]) error {
+func (s *Swarm) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[Addr]) int) error {
 	return s.asks.ServeAsk(ctx, fn)
 }
 
 func (s *Swarm) LocalAddrs() []Addr {
 	return []Addr{
-		Addr{N: s.n},
+		{N: s.n},
 	}
 }
 

@@ -93,7 +93,7 @@ func (s *swarm[A]) Tell(ctx context.Context, addr A, data p2p.IOVec) error {
 	return eg.Wait()
 }
 
-func (s *swarm[A]) Receive(ctx context.Context, th p2p.TellHandler[A]) error {
+func (s *swarm[A]) Receive(ctx context.Context, th func(p2p.Message[A])) error {
 	return s.tells.Receive(ctx, th)
 }
 

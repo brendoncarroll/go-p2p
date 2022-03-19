@@ -7,13 +7,13 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 )
 
-type recvReq[A p2p.Addr] struct {
-	fn   p2p.TellHandler[A]
+type deliverReq[A p2p.Addr] struct {
+	msg  p2p.Message[A]
 	done chan struct{}
 }
 
 type TellHub[A p2p.Addr] struct {
-	recvs chan *recvReq[A]
+	delivers chan *deliverReq[A]
 
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -22,52 +22,54 @@ type TellHub[A p2p.Addr] struct {
 
 func NewTellHub[A p2p.Addr]() *TellHub[A] {
 	return &TellHub[A]{
-		recvs:  make(chan *recvReq[A]),
-		closed: make(chan struct{}),
+		delivers: make(chan *deliverReq[A]),
+		closed:   make(chan struct{}),
 	}
 }
 
-func (q *TellHub[A]) Receive(ctx context.Context, fn p2p.TellHandler[A]) error {
+func (q *TellHub[A]) Receive(ctx context.Context, fn func(p2p.Message[A])) error {
 	if err := q.checkClosed(); err != nil {
 		return err
-	}
-	req := &recvReq[A]{
-		fn:   fn,
-		done: make(chan struct{}),
 	}
 	select {
 	case <-q.closed:
 		return q.err
-	case q.recvs <- req:
+	case req := <-q.delivers:
 		// non-blocking case
+		defer close(req.done)
+		fn(req.msg)
+		return nil
 	default:
 		// blocking case
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-q.closed:
-			return q.err
-		case q.recvs <- req:
+		case req, ok := <-q.delivers:
+			if !ok {
+				return q.err
+			}
+			defer close(req.done)
+			fn(req.msg)
+			return nil
 		}
 	}
-	// once we get to here we are committed
-	<-req.done
-	return nil
 }
 
 // Deliver delivers a message to a caller of Recv
 // If Deliver returns an error it will be from the context expiring.
 func (q *TellHub[A]) Deliver(ctx context.Context, m p2p.Message[A]) error {
-	// wait for a request
+	req := &deliverReq[A]{
+		msg:  m,
+		done: make(chan struct{}),
+	}
 	select {
 	case <-q.closed:
 		return q.err
 	case <-ctx.Done():
 		return ctx.Err()
-	case req := <-q.recvs:
+	case q.delivers <- req:
 		// once we are here we are committed no using the context
-		defer close(req.done)
-		req.fn(m)
+		<-req.done
 		return nil
 	}
 }
@@ -89,7 +91,9 @@ func (q *TellHub[A]) CloseWithError(err error) {
 }
 
 type serveReq[A p2p.Addr] struct {
-	fn   p2p.AskHandler[A]
+	msg  p2p.Message[A]
+	resp []byte
+	n    int
 	done chan struct{}
 }
 
@@ -108,36 +112,36 @@ func NewAskHub[A p2p.Addr]() *AskHub[A] {
 	}
 }
 
-func (q *AskHub[A]) ServeAsk(ctx context.Context, fn p2p.AskHandler[A]) error {
+func (q *AskHub[A]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[A]) int) error {
 	if err := q.checkClosed(); err != nil {
 		return err
 	}
-	req := &serveReq[A]{
-		fn:   fn,
-		done: make(chan struct{}, 1),
-	}
 	select {
-	case <-q.closed:
-		return q.err
 	case <-ctx.Done():
 		return ctx.Err()
-	case q.reqs <- req:
-		// at this point we are committed
-		<-req.done
+	case <-q.closed:
+		return q.err
+	case req := <-q.reqs:
+		req.n = fn(ctx, req.resp, req.msg)
+		close(req.done)
 		return nil
 	}
 }
 
-func (q *AskHub[A]) Deliver(ctx context.Context, respData []byte, req p2p.Message[A]) (int, error) {
+func (q *AskHub[A]) Deliver(ctx context.Context, respData []byte, msg p2p.Message[A]) (int, error) {
+	req := &serveReq[A]{
+		msg:  msg,
+		resp: respData,
+		done: make(chan struct{}),
+	}
 	select {
-	case <-q.closed:
-		return 0, q.err
 	case <-ctx.Done():
 		return 0, ctx.Err()
-	case serveReq := <-q.reqs:
-		defer close(serveReq.done)
-		n := serveReq.fn(ctx, respData, req)
-		return n, nil
+	case <-q.closed:
+		return 0, q.err
+	case q.reqs <- req:
+		<-req.done
+		return req.n, nil
 	}
 }
 

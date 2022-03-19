@@ -17,8 +17,8 @@ var (
 )
 
 type (
-	DynSwarm p2p.Swarm[p2p.Addr]
-	DynSecureSwarm p2p.SecureSwarm[p2p.Addr]
+	DynSwarm          p2p.Swarm[p2p.Addr]
+	DynSecureSwarm    p2p.SecureSwarm[p2p.Addr]
 	DynSecureAskSwarm p2p.SecureAskSwarm[p2p.Addr]
 )
 
@@ -26,11 +26,11 @@ func WrapSwarm[T p2p.Addr](x p2p.Swarm[T]) DynSwarm {
 	return dynSwarm[T]{swarm: x}
 }
 
-func WrapSecureSwarm[T p2p.Addr] (x p2p.SecureSwarm[T]) DynSecureSwarm {
+func WrapSecureSwarm[T p2p.Addr](x p2p.SecureSwarm[T]) DynSecureSwarm {
 	return dynSwarm[T]{swarm: x, secure: x}
 }
 
-func WrapSecureAskSwarm[T p2p.Addr] (x p2p.SecureAskSwarm[T]) DynSecureAskSwarm {
+func WrapSecureAskSwarm[T p2p.Addr](x p2p.SecureAskSwarm[T]) DynSecureAskSwarm {
 	return dynSwarm[T]{swarm: x, secure: x, asker: x}
 }
 
@@ -94,7 +94,7 @@ func (mt multiSwarm) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
 	return t.Tell(ctx, dst.Addr, data)
 }
 
-func (mt multiSwarm) Receive(ctx context.Context, th p2p.TellHandler[Addr]) error {
+func (mt multiSwarm) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
 	return mt.tells.Receive(ctx, th)
 }
 
@@ -189,7 +189,7 @@ func (ma multiAsker) Ask(ctx context.Context, resp []byte, dst Addr, data p2p.IO
 	return t.Ask(ctx, resp, dst.Addr, data)
 }
 
-func (ma multiAsker) ServeAsk(ctx context.Context, fn p2p.AskHandler[Addr]) error {
+func (ma multiAsker) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[Addr]) int) error {
 	return ma.asks.ServeAsk(ctx, fn)
 }
 
@@ -208,7 +208,7 @@ func (ma multiAsker) serveLoops(ctx context.Context) error {
 						},
 						Dst: Addr{
 							Transport: tname,
-							Addr: msg.Dst,
+							Addr:      msg.Dst,
 						},
 						Payload: msg.Payload,
 					}

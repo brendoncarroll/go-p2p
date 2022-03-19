@@ -53,7 +53,7 @@ func (s *Swarm) Tell(ctx context.Context, a Addr, data p2p.IOVec) error {
 	return err
 }
 
-func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler[Addr]) error {
+func (s *Swarm) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
 	buf := [TheoreticalMTU]byte{}
 	n, udpAddr, err := s.conn.ReadFromUDP(buf[:])
 	if err != nil {
@@ -86,7 +86,7 @@ func (s *Swarm) MaxIncomingSize() int {
 }
 
 func (s *Swarm) ParseAddr(x []byte) (*Addr, error) {
-	return ParseAddr(x)	
+	return ParseAddr(x)
 }
 
 func (s *Swarm) Close() error {
