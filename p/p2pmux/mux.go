@@ -215,7 +215,7 @@ func (ms *muxedSwarm[A, C]) LocalAddrs() []A {
 	return ms.m.swarm.LocalAddrs()
 }
 
-func (ms *muxedSwarm[A, C]) ParseAddr(data []byte) (*A, error) {
+func (ms *muxedSwarm[A, C]) ParseAddr(data []byte) (A, error) {
 	return ms.m.swarm.ParseAddr(data)
 }
 

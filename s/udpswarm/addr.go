@@ -72,10 +72,8 @@ func (a Addr) MapIP(fn func(netip.Addr) netip.Addr) Addr {
 	}
 }
 
-func ParseAddr(x []byte) (*Addr, error) {
+func ParseAddr(x []byte) (Addr, error) {
 	var addr Addr
-	if err := addr.UnmarshalText(x); err != nil {
-		return nil, err
-	}
-	return &addr, nil
+	err := addr.UnmarshalText(x)
+	return addr, err
 }

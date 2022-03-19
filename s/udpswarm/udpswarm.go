@@ -84,7 +84,7 @@ func (s *Swarm) MaxIncomingSize() int {
 	return TheoreticalMTU
 }
 
-func (s *Swarm) ParseAddr(x []byte) (*Addr, error) {
+func (s *Swarm) ParseAddr(x []byte) (Addr, error) {
 	return ParseAddr(x)
 }
 

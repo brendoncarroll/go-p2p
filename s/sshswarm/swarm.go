@@ -136,7 +136,7 @@ func (s *Swarm) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
 	return nil
 }
 
-func (s *Swarm) ParseAddr(data []byte) (*Addr, error) {
+func (s *Swarm) ParseAddr(data []byte) (Addr, error) {
 	return ParseAddr(data)
 }
 

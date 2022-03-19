@@ -43,25 +43,25 @@ func (a Addr[T]) GetPeerID() p2p.PeerID {
 	return a.ID
 }
 
-func ParseAddr[T p2p.Addr](inner p2p.AddrParser[T], data []byte) (*Addr[T], error) {
+func ParseAddr[T p2p.Addr](inner p2p.AddrParser[T], data []byte) (Addr[T], error) {
 	parts := bytes.SplitN(data, []byte("@"), 2)
 	if len(parts) < 2 {
-		return nil, errors.Errorf("no @ in addr")
+		return Addr[T]{}, errors.Errorf("no @ in addr")
 	}
 	id := p2p.PeerID{}
 	if err := id.UnmarshalText(parts[0]); err != nil {
-		return nil, err
+		return Addr[T]{}, err
 	}
 	addr, err := inner(parts[1])
 	if err != nil {
-		return nil, err
+		return Addr[T]{}, err
 	}
-	return &Addr[T]{
+	return Addr[T]{
 		ID:   id,
-		Addr: *addr,
+		Addr: addr,
 	}, nil
 }
 
-func (s *Swarm[T]) ParseAddr(data []byte) (*Addr[T], error) {
+func (s *Swarm[T]) ParseAddr(data []byte) (Addr[T], error) {
 	return ParseAddr(s.inner.ParseAddr, data)
 }

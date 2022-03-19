@@ -21,7 +21,7 @@ type swarm[Above, Below p2p.Addr] struct {
 	p2p.Swarm[Below]
 	downward  func(Above) Below
 	upward    func(Below) Above
-	parseAddr func([]byte) (*Above, error)
+	parseAddr func([]byte) (Above, error)
 }
 
 func newSwarm[Above, Below p2p.Addr](x p2p.Swarm[Below], downward func(Above) Below, upward func(Below) Above, parser p2p.AddrParser[Above]) *swarm[Above, Below] {
@@ -60,7 +60,7 @@ func (s *swarm[Above, Below]) MTU(ctx context.Context, addr Above) int {
 	return s.Swarm.MTU(ctx, s.downward(addr))
 }
 
-func (s *swarm[Above, Below]) ParseAddr(data []byte) (*Above, error) {
+func (s *swarm[Above, Below]) ParseAddr(data []byte) (Above, error) {
 	return s.parseAddr(data)
 }
 

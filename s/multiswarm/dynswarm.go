@@ -7,9 +7,7 @@ import (
 )
 
 type dynSwarm[T p2p.Addr] struct {
-	swarm  p2p.Swarm[T]
-	asker  p2p.Asker[T]
-	secure p2p.Secure[T]
+	swarm p2p.Swarm[T]
 }
 
 func (ds dynSwarm[T]) Tell(ctx context.Context, dst p2p.Addr, v p2p.IOVec) error {
@@ -41,25 +39,24 @@ func (ds dynSwarm[T]) MaxIncomingSize() int {
 	return ds.swarm.MaxIncomingSize()
 }
 
-func (ds dynSwarm[T]) ParseAddr(data []byte) (*p2p.Addr, error) {
-	addr, err := ds.swarm.ParseAddr(data)
-	if err != nil {
-		return nil, err
-	}
-	var ret p2p.Addr = *addr
-	return &ret, nil
+func (ds dynSwarm[T]) ParseAddr(data []byte) (p2p.Addr, error) {
+	return ds.swarm.ParseAddr(data)
 }
 
 func (ds dynSwarm[T]) Close() error {
 	return ds.swarm.Close()
 }
 
-func (ds dynSwarm[T]) Ask(ctx context.Context, resp []byte, dst p2p.Addr, req p2p.IOVec) (int, error) {
-	return ds.asker.Ask(ctx, resp, dst.(T), req)
+type dynAsker[T p2p.Addr] struct {
+	asker p2p.Asker[T]
 }
 
-func (ds dynSwarm[T]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[p2p.Addr]) int) error {
-	return ds.asker.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message[T]) int {
+func (da dynAsker[T]) Ask(ctx context.Context, resp []byte, dst p2p.Addr, req p2p.IOVec) (int, error) {
+	return da.asker.Ask(ctx, resp, dst.(T), req)
+}
+
+func (da dynAsker[T]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[p2p.Addr]) int) error {
+	return da.asker.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message[T]) int {
 		return fn(ctx, resp, p2p.Message[p2p.Addr]{
 			Src:     req.Src,
 			Dst:     req.Dst,
@@ -68,10 +65,14 @@ func (ds dynSwarm[T]) ServeAsk(ctx context.Context, fn func(context.Context, []b
 	})
 }
 
-func (ds dynSwarm[T]) PublicKey() p2p.PublicKey {
+type dynSecure[T p2p.Addr] struct {
+	secure p2p.Secure[T]
+}
+
+func (ds dynSecure[T]) PublicKey() p2p.PublicKey {
 	return ds.secure.PublicKey()
 }
 
-func (ds dynSwarm[T]) LookupPublicKey(ctx context.Context, target p2p.Addr) (p2p.PublicKey, error) {
+func (ds dynSecure[T]) LookupPublicKey(ctx context.Context, target p2p.Addr) (p2p.PublicKey, error) {
 	return ds.secure.LookupPublicKey(ctx, target.(T))
 }

@@ -49,22 +49,22 @@ func (a Addr) MarshalText() ([]byte, error) {
 
 var addrRe = regexp.MustCompile(`^([A-z0-9\-_/:]+)@(.+):([0-9]+)$`)
 
-func ParseAddr(data []byte) (*Addr, error) {
-	a := &Addr{}
+func ParseAddr(data []byte) (Addr, error) {
+	a := Addr{}
 	matches := addrRe.FindSubmatch(data)
 	if len(matches) < 4 {
 		log.Println(matches)
-		return nil, errors.New("could not parse addr")
+		return Addr{}, errors.New("could not parse addr")
 	}
 	a.Fingerprint = string(matches[1])
 	ip, err := netip.ParseAddr(string(matches[2]))
 	if err != nil {
-		return nil, errors.Wrapf(err, "parsing ip")
+		return Addr{}, errors.Wrapf(err, "parsing ip")
 	}
 	a.IP = ip
 	port, err := strconv.ParseUint(string(matches[3]), 10, 16)
 	if err != nil {
-		return nil, errors.Wrapf(err, "sshswarm: parsing addr")
+		return Addr{}, errors.Wrapf(err, "sshswarm: parsing addr")
 	}
 	a.Port = uint16(port)
 	return a, nil

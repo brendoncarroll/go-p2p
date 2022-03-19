@@ -25,11 +25,18 @@ func WrapSwarm[T p2p.Addr](x p2p.Swarm[T]) DynSwarm {
 }
 
 func WrapSecureSwarm[T p2p.Addr](x p2p.SecureSwarm[T]) DynSecureSwarm {
-	return dynSwarm[T]{swarm: x, secure: x}
+	return p2p.ComposeSecureSwarm[p2p.Addr](
+		dynSwarm[T]{swarm: x},
+		dynSecure[T]{secure: x},
+	)
 }
 
 func WrapSecureAskSwarm[T p2p.Addr](x p2p.SecureAskSwarm[T]) DynSecureAskSwarm {
-	return dynSwarm[T]{swarm: x, secure: x, asker: x}
+	return p2p.ComposeSecureAskSwarm[p2p.Addr](
+		dynSwarm[T]{swarm: x},
+		dynAsker[T]{asker: x},
+		dynSecure[T]{secure: x},
+	)
 }
 
 // New creates a swarm with a multiplexed addressed space from
@@ -118,7 +125,7 @@ func (mt multiSwarm) recvLoops(ctx context.Context) error {
 	return eg.Wait()
 }
 
-func (ms multiSwarm) ParseAddr(data []byte) (*Addr, error) {
+func (ms multiSwarm) ParseAddr(data []byte) (Addr, error) {
 	return ms.addrSchema.ParseAddr(data)
 }
 

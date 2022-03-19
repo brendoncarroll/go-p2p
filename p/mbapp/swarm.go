@@ -149,7 +149,7 @@ func (s *Swarm[A]) MaxIncomingSize() int {
 	return s.mtu
 }
 
-func (s *Swarm[A]) ParseAddr(x []byte) (*A, error) {
+func (s *Swarm[A]) ParseAddr(x []byte) (A, error) {
 	return s.inner.ParseAddr(x)
 }
 

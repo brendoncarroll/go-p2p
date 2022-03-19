@@ -66,7 +66,7 @@ type Swarm[A Addr] interface {
 	// It should be called when the swarm is no longer in use.
 	Close() error
 	// ParseAddr attempts to parse an address from data
-	ParseAddr(data []byte) (*A, error)
+	ParseAddr(data []byte) (A, error)
 	// MaxIncomingSize returns the minimum size the payload of an incoming message could be
 	MaxIncomingSize() int
 }

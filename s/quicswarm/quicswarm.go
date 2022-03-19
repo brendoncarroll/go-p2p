@@ -201,7 +201,7 @@ func (s *Swarm[T]) LookupPublicKey(ctx context.Context, x Addr[T]) (p2p.PublicKe
 	return pubKey, nil
 }
 
-func (s *Swarm[T]) ParseAddr(data []byte) (*Addr[T], error) {
+func (s *Swarm[T]) ParseAddr(data []byte) (Addr[T], error) {
 	return ParseAddr[T](s.inner.ParseAddr, data)
 }
 

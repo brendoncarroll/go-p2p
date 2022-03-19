@@ -33,21 +33,21 @@ func (a Addr[T]) MarshalText() ([]byte, error) {
 	return []byte(y), nil
 }
 
-func ParseAddr[T p2p.Addr](inner p2p.AddrParser[T], data []byte) (*Addr[T], error) {
+func ParseAddr[T p2p.Addr](inner p2p.AddrParser[T], data []byte) (Addr[T], error) {
 	parts := bytes.SplitN(data, []byte("@"), 2)
 	if len(parts) < 2 {
-		return nil, errors.Errorf("address must contain @")
+		return Addr[T]{}, errors.Errorf("address must contain @")
 	}
 	a := Addr[T]{}
 	if err := a.ID.UnmarshalText(parts[0]); err != nil {
-		return nil, err
+		return Addr[T]{}, err
 	}
 	innerAddr, err := inner(parts[1])
 	if err != nil {
-		return nil, err
+		return Addr[T]{}, err
 	}
-	a.Addr = *innerAddr
-	return &a, nil
+	a.Addr = innerAddr
+	return a, nil
 }
 
 func (a Addr[T]) GetPeerID() p2p.PeerID {

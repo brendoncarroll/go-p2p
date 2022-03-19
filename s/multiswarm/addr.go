@@ -68,29 +68,29 @@ func NewSchemaFromSecureSwarms(sws map[string]DynSecureSwarm) AddrSchema {
 
 var addrRe = regexp.MustCompile(`^(.+?)://(.+)$`)
 
-type parserFunc = func([]byte) (*p2p.Addr, error)
+type parserFunc = p2p.AddrParser[p2p.Addr]
 
 // AddrSchema is an address scheme for parsing addresses from multiple swarms
 type AddrSchema struct {
 	parsers map[string]parserFunc
 }
 
-func (as AddrSchema) ParseAddr(x []byte) (*Addr, error) {
+func (as AddrSchema) ParseAddr(x []byte) (Addr, error) {
 	groups := addrRe.FindSubmatch(x)
 	if len(groups) != 3 {
-		return nil, errors.New("could not unmarshal")
+		return Addr{}, errors.New("could not unmarshal")
 	}
 	transport := string(groups[1])
 	parser, exists := as.parsers[transport]
 	if !exists {
-		return nil, errors.Errorf("%v does not exist in muiltiswarm.Schema", transport)
+		return Addr{}, errors.Errorf("%v does not exist in muiltiswarm.Schema", transport)
 	}
 	innerAddr, err := parser(groups[2])
 	if err != nil {
-		return nil, err
+		return Addr{}, err
 	}
-	return &Addr{
+	return Addr{
 		Transport: transport,
-		Addr:      *innerAddr,
+		Addr:      innerAddr,
 	}, nil
 }

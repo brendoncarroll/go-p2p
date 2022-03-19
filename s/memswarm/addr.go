@@ -16,14 +16,14 @@ func (a Addr) MarshalText() ([]byte, error) {
 	return []byte(strconv.Itoa(a.N)), nil
 }
 
-func (s *Swarm) ParseAddr(data []byte) (*Addr, error) {
+func (s *Swarm) ParseAddr(data []byte) (Addr, error) {
 	a := Addr{}
 	n, err := strconv.Atoi(string(data))
 	if err != nil {
-		return nil, err
+		return Addr{}, err
 	}
 	a.N = n
-	return &a, nil
+	return a, nil
 }
 
 func (a Addr) String() string {

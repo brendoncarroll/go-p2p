@@ -64,7 +64,7 @@ func TestMarshalParse[A p2p.Addr](t *testing.T, s p2p.Swarm[A]) {
 	assert.NoError(t, err)
 	addr2, err := s.ParseAddr(data)
 	assert.NoError(t, err)
-	assert.Equal(t, &addr, addr2, "Did not parse to same address")
+	assert.Equal(t, addr, addr2, "Did not parse to same address")
 }
 
 func TestTellAllPairs[A p2p.Addr](t *testing.T, xs []p2p.Swarm[A]) {
