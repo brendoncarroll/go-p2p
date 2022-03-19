@@ -1,25 +1,26 @@
 package p2pmux
 
 import (
-	"github.com/brendoncarroll/go-p2p"
 	"encoding/binary"
+
+	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
 )
 
 func NewUint16Mux[A p2p.Addr, C any](x p2p.Swarm[A]) Mux[A, uint16] {
-	return mux[A, uint16]{newMuxCore[A, uint16](x, uint16MuxFunc, uint16DemuxFunc)}
+	return mux[A, uint16]{newMuxCore(x, uint16MuxFunc, uint16DemuxFunc)}
 }
 
 func NewUint16AskMux[A p2p.Addr, C any](x p2p.Swarm[A]) AskMux[A, uint16] {
-	return askMux[A, uint16]{newMuxCore[A, uint16](x, uint16MuxFunc, uint16DemuxFunc)}
+	return askMux[A, uint16]{newMuxCore(x, uint16MuxFunc, uint16DemuxFunc)}
 }
 
 func NewUint16SecureMux[A p2p.Addr, C any](x p2p.Swarm[A]) SecureMux[A, uint16] {
-	return secureMux[A, uint16]{newMuxCore[A, uint16](x, uint16MuxFunc, uint16DemuxFunc)}
+	return secureMux[A, uint16]{newMuxCore(x, uint16MuxFunc, uint16DemuxFunc)}
 }
 
 func NewUint16SecureAskMux[A p2p.Addr, C any](x p2p.Swarm[A]) SecureAskMux[A, uint16] {
-	return secureAskMux[A, uint16]{newMuxCore[A, uint16](x, uint16MuxFunc, uint16DemuxFunc)}
+	return secureAskMux[A, uint16]{newMuxCore(x, uint16MuxFunc, uint16DemuxFunc)}
 }
 
 func uint16MuxFunc(c uint16, x p2p.IOVec) p2p.IOVec {

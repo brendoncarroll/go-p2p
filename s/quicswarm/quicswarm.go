@@ -13,6 +13,7 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/p2pconn"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"github.com/brendoncarroll/go-p2p/s/udpswarm"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -39,13 +40,13 @@ type Swarm[T p2p.Addr] struct {
 	asks  *swarmutil.AskHub[Addr[T]]
 }
 
-// func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option[udpswarm.Addr]) (*Swarm[udpswarm.Addr], error) {
-// 	x, err := udpswarm.New(laddr)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return New[udpswarm.Addr](x, privKey, opts...)
-// }
+func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option[udpswarm.Addr]) (*Swarm[udpswarm.Addr], error) {
+	x, err := udpswarm.New(laddr)
+	if err != nil {
+		return nil, err
+	}
+	return New[udpswarm.Addr](x, privKey, opts...)
+}
 
 // New creates a new swarm on top of x, using privKey for authentication
 func New[T p2p.Addr](x p2p.Swarm[T], privKey p2p.PrivateKey, opts ...Option[T]) (*Swarm[T], error) {
