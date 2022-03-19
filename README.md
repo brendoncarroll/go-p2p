@@ -1,19 +1,12 @@
 # P2P
 A Library for writing Peer-to-Peer applications.
 
-It seems most peer-to-peer libraries go to great lengths to provide a reliable stream abstraction over as many different transports as possible.
-This makes them unsuitable for building protocols over lossy mediums (UDP, IP, ethernet).
+Many peer-to-peer libraries go to great lengths to provide a reliable stream abstraction over as many different transports as possible.
+That makes them unsuitable for modeling protocols over lossy mediums (UDP, IP, ethernet).
+This library takes a message oriented approach instead of a stream oriented approach.
+Unreliable, fire-and-forget communication is provided using `Tell` and `Receive` methods.
+Reliable request-response communication is provided using `Ask` and `ServeAsk` methods.
 
-It is also the wrong abstraction for the job.  Almost no protocols are actually stream based.
-Reliable streams are just used to create reliable request-response abstractions in most cases.
-Many protocols are built on reliable request-response abstractions.
-It is a valuable primitive to have.
-
-This library takes a message based approach instead of a stream based approach.
-Messages can either be unreliable, or reliable and (therefore) require a response.
-These two kinds of communication are represented by the `Tell` and `Ask` methods respectively.
-
-## Design
 The core abstraction is the `Swarm`. Which represents a group of nodes which can send messages to one another.
 
 ```
@@ -39,8 +32,6 @@ The power of the `Swarm` abstraction is exemplified by the fact we merely call s
 
 `Swarms` provide a `Tell` method, which makes a best effort to send the message payload to the destination.
 It will error if the message cannot be set in flight, but does not guarantee the transmision of the message if the error is nil.
-
-The interface ends up resembling a hybrid between the server in `http` and the `PacketConn` interface from `net`
 
 ## Directory Organization 
 
