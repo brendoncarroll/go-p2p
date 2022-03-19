@@ -48,20 +48,20 @@ func (s *Swarm) Tell(ctx context.Context, a Addr, data p2p.IOVec) error {
 	if p2p.VecSize(data) > s.MTU(ctx, a) {
 		return p2p.ErrMTUExceeded
 	}
-	a2 := (net.UDPAddr)(a)
+	a2 := a.AsNetAddr()
 	_, err := s.conn.WriteToUDP(p2p.VecBytes(nil, data), &a2)
 	return err
 }
 
 func (s *Swarm) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
 	buf := [TheoreticalMTU]byte{}
-	n, udpAddr, err := s.conn.ReadFromUDP(buf[:])
+	n, remoteAddr, err := s.conn.ReadFromUDP(buf[:])
 	if err != nil {
 		return err
 	}
 	th(p2p.Message[Addr]{
-		Src:     Addr(*udpAddr),
-		Dst:     Addr(*s.conn.LocalAddr().(*net.UDPAddr)),
+		Src:     FromNetAddr(*remoteAddr),
+		Dst:     FromNetAddr(*s.conn.LocalAddr().(*net.UDPAddr)),
 		Payload: buf[:n],
 	})
 	return nil
@@ -69,8 +69,7 @@ func (s *Swarm) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
 
 func (s *Swarm) LocalAddrs() []Addr {
 	laddr := s.conn.LocalAddr().(*net.UDPAddr)
-	a := (*Addr)(laddr)
-	return p2p.ExpandUnspecifiedIPs([]Addr{*a})
+	return p2p.ExpandUnspecifiedIPs([]Addr{FromNetAddr(*laddr)})
 }
 
 func (s *Swarm) MTU(ctx context.Context, addr Addr) int {

@@ -24,7 +24,7 @@ func newStore[T p2p.Addr](newChan func(Addr[T]) *p2pke.Channel) *store[T] {
 // withLower calls fn with sc.
 // while fn executes, all traffic is gaurenteed to reach the conn passed to fn, there will not be another conn with the same id.
 func (s *store[T]) withConn(x Addr[T], fn func(c *p2pke.Channel) error) error {
-	conn := s.getOrCreateConn(x.ID, x.Addr)
+	conn := s.getOrCreateConn(x.ID, x.Addr.(T))
 	if err := fn(conn); err != nil {
 		return err
 	}

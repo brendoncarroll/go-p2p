@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -63,9 +64,13 @@ func (s *Swarm) MaxIncomingSize() int {
 func (s *Swarm) LocalAddrs() []Addr {
 	pubKey := s.signer.PublicKey()
 	laddr := s.l.Addr().(*net.TCPAddr)
+	ip, ok := netip.AddrFromSlice(laddr.IP)
+	if !ok {
+		panic(laddr)
+	}
 	x := Addr{
 		Fingerprint: ssh.FingerprintSHA256(pubKey),
-		IP:          laddr.IP,
+		IP:          ip,
 		Port:        uint16(laddr.Port),
 	}
 	ys := p2p.ExpandUnspecifiedIPs([]Addr{x})

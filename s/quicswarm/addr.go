@@ -10,8 +10,9 @@ import (
 )
 
 type Addr[T p2p.Addr] struct {
-	ID   p2p.PeerID
-	Addr T
+	ID p2p.PeerID
+	// TODO: changing this to type T causes internal compiler errors in Go 1.18
+	Addr p2p.Addr
 }
 
 func (a Addr[T]) Key() string {
@@ -54,13 +55,13 @@ func (a Addr[T]) GetPeerID() p2p.PeerID {
 }
 
 func (a Addr[T]) Unwrap() T {
-	return a.Addr
+	return a.Addr.(T)
 }
 
 func (a Addr[T]) Map(fn func(T) T) Addr[T] {
 	return Addr[T]{
 		ID:   a.ID,
-		Addr: fn(a.Addr),
+		Addr: fn(a.Addr.(T)),
 	}
 }
 

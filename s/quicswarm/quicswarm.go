@@ -215,7 +215,7 @@ func (s *Swarm[T]) withSession(ctx context.Context, dst Addr[T], fn func(sess qu
 		return fn(sess)
 	}
 
-	raddr := p2pconn.NewAddr(s.inner, dst.Addr)
+	raddr := p2pconn.NewAddr(s.inner, dst.Addr.(T))
 	host := ""
 	sess, err := quic.DialContext(ctx, s.pconn, raddr, host, generateClientTLS(s.privKey), generateQUICConfig())
 	if err != nil {

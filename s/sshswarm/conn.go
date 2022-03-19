@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net"
+	"net/netip"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
@@ -41,7 +42,7 @@ func newServer(s *Swarm, netConn net.Conn) (*Conn, error) {
 	}
 
 	raddr := sconn.RemoteAddr().(*net.TCPAddr)
-	rip := raddr.IP
+	rip, _ := netip.AddrFromSlice(raddr.IP)
 	port := raddr.Port
 
 	c := &Conn{
@@ -53,7 +54,7 @@ func newServer(s *Swarm, netConn net.Conn) (*Conn, error) {
 		},
 		localAddr: Addr{
 			Fingerprint: ssh.FingerprintSHA256(s.signer.PublicKey()),
-			IP:          netConn.LocalAddr().(*net.TCPAddr).IP,
+			IP:          s.LocalAddrs()[0].IP,
 			Port:        uint16(netConn.LocalAddr().(*net.TCPAddr).Port),
 		},
 		shutdown: make(chan struct{}),

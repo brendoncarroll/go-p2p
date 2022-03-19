@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"regexp"
 	"strconv"
 
@@ -15,7 +16,7 @@ import (
 
 type Addr struct {
 	Fingerprint string
-	IP          net.IP
+	IP          netip.Addr
 	Port        uint16
 }
 
@@ -29,9 +30,13 @@ func NewAddr(publicKey p2p.PublicKey, host string, port int) *Addr {
 	if err != nil {
 		panic(err)
 	}
+	ip, ok := netip.AddrFromSlice(ipAddr.IP)
+	if !ok {
+		panic(ip)
+	}
 	return &Addr{
 		Fingerprint: id,
-		IP:          ipAddr.IP,
+		IP:          ip,
 		Port:        uint16(port),
 	}
 }
@@ -52,14 +57,11 @@ func ParseAddr(data []byte) (*Addr, error) {
 		return nil, errors.New("could not parse addr")
 	}
 	a.Fingerprint = string(matches[1])
-	if ip := net.ParseIP(string(matches[2])); ip == nil {
-		return nil, errors.New("could not parse ip")
-	} else {
-		a.IP = ip
+	ip, err := netip.ParseAddr(string(matches[2]))
+	if err != nil {
+		return nil, errors.Wrapf(err, "parsing ip")
 	}
-	if a.IP.To4() != nil {
-		a.IP = a.IP.To4()
-	}
+	a.IP = ip
 	port, err := strconv.ParseUint(string(matches[3]), 10, 16)
 	if err != nil {
 		return nil, errors.Wrapf(err, "sshswarm: parsing addr")
@@ -77,11 +79,11 @@ func (a Addr) Key() string {
 	return string(data)
 }
 
-func (a Addr) GetIP() net.IP {
+func (a Addr) GetIP() netip.Addr {
 	return a.IP
 }
 
-func (a Addr) MapIP(fn func(net.IP) net.IP) Addr {
+func (a Addr) MapIP(fn func(netip.Addr) netip.Addr) Addr {
 	return Addr{
 		Fingerprint: a.Fingerprint,
 		IP:          fn(a.IP),
@@ -91,16 +93,20 @@ func (a Addr) MapIP(fn func(net.IP) net.IP) Addr {
 
 func (a Addr) GetTCP() net.TCPAddr {
 	return net.TCPAddr{
-		IP:   a.IP,
+		IP:   a.IP.AsSlice(),
 		Port: int(a.Port),
 	}
 }
 
 func (a Addr) MapTCP(fn func(net.TCPAddr) net.TCPAddr) p2p.Addr {
 	newTCP := fn(a.GetTCP())
+	ip, ok := netip.AddrFromSlice(newTCP.IP)
+	if !ok {
+		panic(ip)
+	}
 	return Addr{
 		Fingerprint: a.Fingerprint,
-		IP:          newTCP.IP,
+		IP:          ip,
 		Port:        uint16(newTCP.Port),
 	}
 }

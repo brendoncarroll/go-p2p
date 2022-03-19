@@ -2,7 +2,6 @@ package p2pkeswarm
 
 import (
 	"context"
-	"log"
 	"runtime"
 	"time"
 
@@ -70,7 +69,7 @@ func (s *Swarm[T]) Tell(ctx context.Context, dst Addr[T], v p2p.IOVec) error {
 		return p2p.ErrMTUExceeded
 	}
 	return s.withConn(ctx, dst, func(c *p2pke.Channel) error {
-		return c.Send(ctx, p2p.VecBytes(nil, v), s.getSender(ctx, dst.Addr))
+		return c.Send(ctx, p2p.VecBytes(nil, v), s.getSender(ctx, dst.Addr.(T)))
 	})
 }
 
@@ -109,7 +108,7 @@ func (s *Swarm[T]) LookupPublicKey(ctx context.Context, dst Addr[T]) (p2p.Public
 }
 
 func (s *Swarm[T]) MTU(ctx context.Context, target Addr[T]) int {
-	return s.inner.MTU(ctx, target.Addr) - p2pke.Overhead
+	return s.inner.MTU(ctx, target.Addr.(T)) - p2pke.Overhead
 }
 
 func (s *Swarm[T]) MaxIncomingSize() int {
@@ -129,7 +128,7 @@ func (s *Swarm[T]) withConn(ctx context.Context, addr Addr[T], fn func(*p2pke.Ch
 		}
 	}()
 	return s.store.withConn(addr, func(c *p2pke.Channel) error {
-		if err := c.WaitReady(ctx, s.getSender(ctx, addr.Addr)); err != nil {
+		if err := c.WaitReady(ctx, s.getSender(ctx, addr.Addr.(T))); err != nil {
 			return err
 		}
 		if err := checkPublicKey(s.fingerprinter, addr.ID, c.RemoteKey()); err != nil {
@@ -161,48 +160,10 @@ func (s *Swarm[T]) recvLoops(ctx context.Context, numWorkers int) error {
 func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error {
 	a := Addr[T]{ID: p2p.PeerID{}, Addr: msg.Src} // Leave ID blank
 	return s.store.withConn(a, func(conn *p2pke.Channel) error {
-		// TODO: panics in here
-		// runtime: found in object at *(0xc000556420+0x8)
-		// object=0xc000556420 s.base()=0xc000556000 s.limit=0xc000557fe0 s.spanclass=10 s.elemsize=48 s.state=mSpanInUse
-		//  *(object+0) = 0x135d5e0
-		// runtime: pointer 0xc000377f50 to unallocated span span.base()=0xc000370000 span.limit=0xc000378000 span.state=0
-		// runtime: found in object at *(0xc000556420+0x8)
-		// object=0xc000556420 s.base()=0xc000556000 s.limit=0xc000557fe0 s.spanclass=10 s.elemsize=48 s.state=mSpanInUse
-		//  *(object+0) = 0x135d5e0
-		//  *(object+8) = 0xc000377f50 <==
-		//  *(object+16) = 0xc00009f7a0
-		//  *(object+24) = 0x14acdf0
-		//  *(object+32) = 0xc00002a0a8
-		//  *(object+40) = 0x0
-		// fatal error: found bad pointer in Go heap (incorrect use of unsafe or cgo?)
-		// object=0xc000556420 s.base()=0xc000556000 s.limit=0xc000557fe0 s.spanclass=10 s.elemsize=48 s.state=mSpanInUse
-		//  *(object+0) = 0x135d5e0
-		//  *(object+8) = 0xc000377f50 <==
-		//  *(object+16) = 0xc00009f7a0
-		//  *(object+24) = 0x14acdf0
-		//  *(object+32) = 0xc00002a0a8
-		//  *(object+40) = 0x0
-		// fatal error: found bad pointer in Go heap (incorrect use of unsafe or cgo?)
-		//
-		// It's in the callback passed to Receive
-		// github.com/brendoncarroll/go-p2p/s/memswarm.(*Swarm).Receive(0xc0000c6550, {0x14acdf0, 0xc00002a0a8}, 0xc000556420)
-		//         /Users/brendon/src/github.com/brendoncarroll/go-p2p/s/memswarm/memswarm.go:179 +0xb7 fp=0xc00045af28 sp=0xc00045ae70 pc=0x1326e17
-		// github.com/brendoncarroll/go-p2p/s/p2pkeswarm.(*Swarm[...]).recvLoops.func1()
-		//         /Users/brendon/src/github.com/brendoncarroll/go-p2p/s/p2pkeswarm/swarm.go:148 +0xcd fp=0xc00045af78 sp=0xc00045af28 pc=0x135d5ad
-		// golang.org/x/sync/errgroup.(*Group).Go.func1()
-		//         /Users/brendon/go/pkg/mod/golang.org/x/sync@v0.0.0-20210220032951-036812b2e83c/errgroup/errgroup.go:57 +0x67 fp=0xc00045afe0 sp=0xc00045af78 pc=0x1325327
-		// runtime.goexit()
-		//         /Users/brendon/sdk/go1.18rc1/src/runtime/asm_amd64.s:1571 +0x1 fp=0xc00045afe8 sp=0xc00045afe0 pc=0x10699a1
-		// created by golang.org/x/sync/errgroup.(*Group).Go
-		//         /Users/brendon/go/pkg/mod/golang.org/x/sync@v0.0.0-20210220032951-036812b2e83c/errgroup/errgroup.go:54 +0x8d
 		out, err := conn.Deliver(ctx, nil, msg.Payload, s.getSender(ctx, msg.Src))
 		if err != nil {
 			return err
 		}
-		// TODO: remove these.
-		log.Println("swarm", s)
-		log.Println("store", s.store)
-		log.Printf("message %T", msg)
 		if out != nil {
 			srcID := s.fingerprinter(conn.RemoteKey())
 			return s.hub.Deliver(ctx, p2p.Message[Addr[T]]{

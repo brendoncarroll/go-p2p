@@ -1,23 +1,26 @@
 package p2p
 
-import "net"
+import (
+	"net"
+	"net/netip"
+)
 
 type HasIP interface {
-	GetIP() net.IP
-	MapIP(func(net.IP) net.IP) Addr
+	GetIP() netip.Addr
+	MapIP(func(netip.Addr) netip.Addr) Addr
 }
 
-func ExtractIP(x Addr) net.IP {
+func ExtractIP(x Addr) (netip.Addr, bool) {
 	if hasIP, ok := x.(HasIP); ok {
-		return hasIP.GetIP()
+		return hasIP.GetIP(), true
 	}
 	if unwrap, ok := x.(UnwrapAddr); ok {
 		return ExtractIP(unwrap.Unwrap())
 	}
-	return nil
+	return netip.Addr{}, false
 }
 
-func MapIP(x Addr, fn func(net.IP) net.IP) Addr {
+func MapIP(x Addr, fn func(netip.Addr) netip.Addr) Addr {
 	if x, ok := x.(HasIP); ok {
 		return x.MapIP(fn)
 	}
@@ -29,11 +32,11 @@ func MapIP(x Addr, fn func(net.IP) net.IP) Addr {
 	return x
 }
 
-func FilterIPs(xs []Addr, preds ...func(net.IP) bool) (ys []Addr) {
+func FilterIPs(xs []Addr, preds ...func(netip.Addr) bool) (ys []Addr) {
 	for _, x := range xs {
-		ip := ExtractIP(x)
+		ip, ok := ExtractIP(x)
 		keep := true
-		if ip != nil {
+		if ok {
 			for _, pred := range preds {
 				if !pred(ip) {
 					keep = false
@@ -50,8 +53,8 @@ func FilterIPs(xs []Addr, preds ...func(net.IP) bool) (ys []Addr) {
 
 type hasIP2[Self Addr] interface {
 	Addr
-	GetIP() net.IP
-	MapIP(func(net.IP)net.IP) Self
+	GetIP() netip.Addr
+	MapIP(func(netip.Addr) netip.Addr) Self
 }
 
 // ExpandUnspecifiedIPs will expand 0.0.0.0 into all of IPs on the host.
@@ -72,8 +75,9 @@ func ExpandUnspecifiedIPs[A hasIP2[A]](xs []A) (ys []A) {
 				// case ipNet.IP.IsLinkLocalMulticast():
 				// 	continue
 				default:
-					y := x.MapIP(func(net.IP) net.IP {
-						return ipNet.IP
+					y := x.MapIP(func(netip.Addr) netip.Addr {
+						a, _ := netip.AddrFromSlice(ipNet.IP)
+						return a
 					})
 					ys = append(ys, y)
 				}
