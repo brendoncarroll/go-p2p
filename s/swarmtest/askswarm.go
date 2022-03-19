@@ -13,32 +13,32 @@ import (
 )
 
 // TestAskSwarm runs a test suite on AskSwarms to ensure they implement p2p.AskSwarm correctly
-func TestAskSwarm(t *testing.T, newSwarms func(testing.TB, []p2p.AskSwarm)) {
+func TestAskSwarm[A p2p.Addr](t *testing.T, newSwarms func(testing.TB, []p2p.AskSwarm[A])) {
 	t.Run("SingleAsk", func(t *testing.T) {
-		xs := make([]p2p.AskSwarm, 2)
+		xs := make([]p2p.AskSwarm[A], 2)
 		newSwarms(t, xs)
 		TestAsk(t, xs[0], xs[1])
 	})
 	t.Run("MultipleAsks", func(t *testing.T) {
-		xs := make([]p2p.AskSwarm, 10)
+		xs := make([]p2p.AskSwarm[A], 10)
 		newSwarms(t, xs)
 		TestMultipleAsks(t, xs)
 	})
 	t.Run("ErrorResponse", func(t *testing.T) {
-		xs := make([]p2p.AskSwarm, 2)
+		xs := make([]p2p.AskSwarm[A], 2)
 		newSwarms(t, xs)
 		TestErrorResponse(t, xs[0], xs[1])
 	})
 }
 
-func TestMultipleAsks(t *testing.T, xs []p2p.AskSwarm) {
+func TestMultipleAsks[A p2p.Addr](t *testing.T, xs []p2p.AskSwarm[A]) {
 	const N = 100
 	for i := 0; i < N; i++ {
 		TestAskAll(t, xs)
 	}
 }
 
-func TestAskAll(t *testing.T, xs []p2p.AskSwarm) {
+func TestAskAll[A p2p.Addr](t *testing.T, xs []p2p.AskSwarm[A]) {
 	for _, i := range rand.Perm(len(xs)) {
 		for _, j := range rand.Perm(len(xs)) {
 			if i == j {
@@ -49,7 +49,7 @@ func TestAskAll(t *testing.T, xs []p2p.AskSwarm) {
 	}
 }
 
-func TestAsk(t *testing.T, src, dst p2p.AskSwarm) {
+func TestAsk[A p2p.Addr](t *testing.T, src, dst p2p.AskSwarm[A]) {
 	ctx := context.Background()
 	ctx, cf := context.WithTimeout(ctx, 3*time.Second)
 	defer cf()
@@ -64,11 +64,11 @@ func TestAsk(t *testing.T, src, dst p2p.AskSwarm) {
 		actualRespData = actualRespData[:n]
 		return err
 	})
-	var actualReqDst p2p.Addr
+	var actualReqDst A
 	var actualReqData []byte
 	eg.Go(func() error {
 		respData := []byte("pong")
-		return dst.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message) int {
+		return dst.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message[A]) int {
 			actualReqDst = req.Dst
 			actualReqData = append([]byte{}, req.Payload...)
 			return copy(resp, respData)
@@ -81,11 +81,11 @@ func TestAsk(t *testing.T, src, dst p2p.AskSwarm) {
 	assert.Equal(t, "pong", string(actualRespData))
 }
 
-func TestErrorResponse(t *testing.T, src, dst p2p.AskSwarm) {
+func TestErrorResponse[A p2p.Addr](t *testing.T, src, dst p2p.AskSwarm[A]) {
 	ctx := context.Background()
 	eg := errgroup.Group{}
 	eg.Go(func() error {
-		return dst.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message) int {
+		return dst.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message[A]) int {
 			return -1
 		})
 	})

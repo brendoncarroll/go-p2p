@@ -17,27 +17,17 @@ These two kinds of communication are represented by the `Tell` and `Ask` methods
 The core abstraction is the `Swarm`. Which represents a group of nodes which can send messages to one another.
 
 ```
-type Swarm interface {
-    Tell(ctx context.Context, dst Addr, data []byte) error
-    Receive(ctx context.Context, fn func(Message)) error
+type Swarm[A Addr] interface {
+    Tell(ctx context.Context, dst A, data []byte) error
+    Receive(ctx context.Context, fn func(Message[A])) error
 
-    ParseAddr(data []byte) (Addr, error)
-    LocalAddrs() []Addr
-    MTU(Addr) int
+    ParseAddr(data []byte) (A, error)
+    LocalAddrs() []A
+    MTU(A) int
     Close() error
 }
 ```
 `Addr` is an interface type.
-
-Swarms each define their own Addr type, and should panic if a caller tries to send a message to an address of another type.
-In other languages Swarms might be defined as a generic type.
-```
-type Swarm[A: Addr] {
-    Tell(addr: A, data: []byte) error
-    LocalAddrs() []A
-    ...
-}
-```
 
 Overlay networks are a common pattern in p2p systems.
 Swarms have methods for introspection such as `LocalAddrs` and `MTU`.

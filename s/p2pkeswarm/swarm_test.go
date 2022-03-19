@@ -10,12 +10,12 @@ import (
 )
 
 func TestSwarm(t *testing.T) {
-	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
+	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm[Addr[memswarm.Addr]]) {
 		r := memswarm.NewRealm()
 		for i := range xs {
 			pk := p2ptest.NewTestKey(t, i)
 			sw := r.NewSwarmWithKey(pk)
-			xs[i] = New(sw, pk)
+			xs[i] = New[memswarm.Addr](sw, pk)
 		}
 	})
 }

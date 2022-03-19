@@ -40,15 +40,15 @@ var testConnectCmd = &cobra.Command{
 			return err
 		}
 
-		s3 := multiswarm.NewSecureAsk(map[string]p2p.SecureAskSwarm{
-			"ssh": s1,
+		s3 := multiswarm.NewSecureAsk(map[string]multiswarm.DynSecureAskSwarm{
+			"ssh": multiswarm.WrapSecureAskSwarm[sshswarm.Addr](s1),
 		})
 
 		go func() error {
 			ctx := context.TODO()
-			var msg p2p.Message
+			var msg p2p.Message[multiswarm.Addr]
 			for {
-				if err := p2p.Receive(ctx, s3, &msg); err != nil {
+				if err := p2p.Receive[multiswarm.Addr](ctx, s3, &msg); err != nil {
 					return err
 				}
 				src, dst := msg.Src, msg.Dst

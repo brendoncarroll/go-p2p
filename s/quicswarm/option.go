@@ -2,23 +2,23 @@ package quicswarm
 
 import "github.com/brendoncarroll/go-p2p"
 
-type Option func(s *Swarm)
+type Option[T p2p.Addr] func(s *Swarm[T])
 
 // WithMTU sets the swarm's MTU, if not set it will default to DefaultMTU
-func WithMTU(x int) Option {
-	return func(s *Swarm) {
+func WithMTU[T p2p.Addr](x int) Option[T] {
+	return func(s *Swarm[T]) {
 		s.mtu = x
 	}
 }
 
-func WithWhilelist(f func(p2p.Addr) bool) Option {
-	return func(s *Swarm) {
+func WithWhilelist[T p2p.Addr](f func(p2p.Addr) bool) Option[T] {
+	return func(s *Swarm[T]) {
 		s.allowFunc = f
 	}
 }
 
-func WithFingerprinter(fp p2p.Fingerprinter) Option {
-	return func(s *Swarm) {
+func WithFingerprinter[T p2p.Addr](fp p2p.Fingerprinter) Option[T] {
+	return func(s *Swarm[T]) {
 		s.fingerprinter = fp
 	}
 }

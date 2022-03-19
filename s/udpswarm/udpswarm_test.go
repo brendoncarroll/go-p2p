@@ -10,7 +10,7 @@ import (
 
 func TestSwarm(t *testing.T) {
 	t.Parallel()
-	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
+	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm[Addr]) {
 		for i := range xs {
 			s, err := New("127.0.0.1:")
 			require.Nil(t, err)

@@ -3,19 +3,34 @@ package udpswarm
 import (
 	"fmt"
 	"net"
-
-	"github.com/brendoncarroll/go-p2p"
+	"net/netip"
 )
 
-var _ interface {
-	p2p.HasIP
-	p2p.HasUDP
-} = &Addr{}
+type Addr struct {
+	IP   netip.Addr
+	Port uint16
+}
 
-type Addr net.UDPAddr
+func FromNetAddr(x net.UDPAddr) Addr {
+	ip, ok := netip.AddrFromSlice(x.IP)
+	if !ok {
+		panic(ip)
+	}
+	return Addr{
+		IP:   ip,
+		Port: uint16(x.Port),
+	}
+}
+
+func (a Addr) AsNetAddr() net.UDPAddr {
+	return net.UDPAddr{
+		IP:   a.IP.AsSlice(),
+		Port: int(a.Port),
+	}
+}
 
 func (a Addr) Network() string {
-	a2 := net.UDPAddr(a)
+	a2 := a.AsNetAddr()
 	return a2.Network()
 }
 
@@ -31,12 +46,9 @@ func (a *Addr) UnmarshalText(x []byte) error {
 	if _, err = fmt.Sscan(port, &a.Port); err != nil {
 		return err
 	}
-	a.IP = net.ParseIP(host)
-	if a.IP == nil {
-		return fmt.Errorf("could not parse ip from: %s", host)
-	}
-	if a.IP.To4() != nil {
-		a.IP = a.IP.To4()
+	a.IP, err = netip.ParseAddr(host)
+	if err != nil {
+		return fmt.Errorf("could not parse ip from: %s, %v", host, err)
 	}
 	return nil
 }
@@ -49,21 +61,21 @@ func (a Addr) Key() string {
 	return a.String()
 }
 
-func (a Addr) GetIP() net.IP {
+func (a Addr) GetIP() netip.Addr {
 	return a.IP
 }
 
-func (a Addr) MapIP(fn func(net.IP) net.IP) p2p.Addr {
+func (a Addr) MapIP(fn func(netip.Addr) netip.Addr) Addr {
 	return Addr{
 		IP:   fn(a.IP),
 		Port: a.Port,
 	}
 }
 
-func (a Addr) GetUDP() net.UDPAddr {
-	return (net.UDPAddr)(a)
-}
-
-func (a Addr) MapUDP(fn func(net.UDPAddr) net.UDPAddr) p2p.Addr {
-	return (Addr)(fn((net.UDPAddr)(a)))
+func ParseAddr(x []byte) (*Addr, error) {
+	var addr Addr
+	if err := addr.UnmarshalText(x); err != nil {
+		return nil, err
+	}
+	return &addr, nil
 }

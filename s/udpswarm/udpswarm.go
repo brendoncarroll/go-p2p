@@ -14,9 +14,7 @@ const (
 	TheoreticalMTU = (1 << 16) - 1
 )
 
-var _ interface {
-	p2p.Swarm
-} = &Swarm{}
+var _ p2p.Swarm[Addr] = &Swarm{}
 
 /*
 Swarm implements p2p.Swarm using the User Datagram Protocol
@@ -46,37 +44,35 @@ func New(laddr string) (*Swarm, error) {
 	return s, nil
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr p2p.Addr, data p2p.IOVec) error {
-	a := addr.(Addr)
+func (s *Swarm) Tell(ctx context.Context, a Addr, data p2p.IOVec) error {
 	if p2p.VecSize(data) > s.MTU(ctx, a) {
 		return p2p.ErrMTUExceeded
 	}
-	a2 := (net.UDPAddr)(a)
+	a2 := a.AsNetAddr()
 	_, err := s.conn.WriteToUDP(p2p.VecBytes(nil, data), &a2)
 	return err
 }
 
-func (s *Swarm) Receive(ctx context.Context, th p2p.TellHandler) error {
+func (s *Swarm) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
 	buf := [TheoreticalMTU]byte{}
-	n, udpAddr, err := s.conn.ReadFromUDP(buf[:])
+	n, remoteAddr, err := s.conn.ReadFromUDP(buf[:])
 	if err != nil {
 		return err
 	}
-	th(p2p.Message{
-		Src:     Addr(*udpAddr),
-		Dst:     Addr(*s.conn.LocalAddr().(*net.UDPAddr)),
+	th(p2p.Message[Addr]{
+		Src:     FromNetAddr(*remoteAddr),
+		Dst:     FromNetAddr(*s.conn.LocalAddr().(*net.UDPAddr)),
 		Payload: buf[:n],
 	})
 	return nil
 }
 
-func (s *Swarm) LocalAddrs() []p2p.Addr {
+func (s *Swarm) LocalAddrs() []Addr {
 	laddr := s.conn.LocalAddr().(*net.UDPAddr)
-	a := (*Addr)(laddr)
-	return p2p.ExpandUnspecifiedIPs([]p2p.Addr{*a})
+	return p2p.ExpandUnspecifiedIPs([]Addr{FromNetAddr(*laddr)})
 }
 
-func (s *Swarm) MTU(ctx context.Context, addr p2p.Addr) int {
+func (s *Swarm) MTU(ctx context.Context, addr Addr) int {
 	laddr := s.conn.LocalAddr().(*net.UDPAddr)
 	if laddr.IP.To16() != nil {
 		return IPv6MTU
@@ -88,12 +84,8 @@ func (s *Swarm) MaxIncomingSize() int {
 	return TheoreticalMTU
 }
 
-func (s *Swarm) ParseAddr(x []byte) (p2p.Addr, error) {
-	a := Addr{}
-	if err := a.UnmarshalText(x); err != nil {
-		return nil, err
-	}
-	return a, nil
+func (s *Swarm) ParseAddr(x []byte) (*Addr, error) {
+	return ParseAddr(x)
 }
 
 func (s *Swarm) Close() error {

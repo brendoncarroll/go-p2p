@@ -1,38 +1,38 @@
 package p2p
 
-type composedSecureSwarm struct {
-	Swarm
-	Secure
+type composedSecureSwarm[A Addr] struct {
+	Swarm[A]
+	Secure[A]
 }
 
-type composedAskSwarm struct {
-	Swarm
-	Asker
+type composedAskSwarm[A Addr] struct {
+	Swarm[A]
+	Asker[A]
 }
 
-type composedSecureAskSwarm struct {
-	Swarm
-	Asker
-	Secure
+type composedSecureAskSwarm [A Addr]struct {
+	Swarm[A]
+	Asker[A]
+	Secure[A]
 }
 
-func ComposeAskSwarm(swarm Swarm, ask Asker) AskSwarm {
-	return composedAskSwarm{
+func ComposeAskSwarm[A Addr](swarm Swarm[A], ask Asker[A]) AskSwarm[A] {
+	return composedAskSwarm[A]{
 		Swarm: swarm,
 		Asker: ask,
 	}
 }
 
-func ComposeSecureAskSwarm(swarm Swarm, ask Asker, sec Secure) SecureAskSwarm {
-	return composedSecureAskSwarm{
+func ComposeSecureAskSwarm[A Addr](swarm Swarm[A], ask Asker[A], sec Secure[A]) SecureAskSwarm[A] {
+	return composedSecureAskSwarm[A]{
 		Swarm:  swarm,
 		Asker:  ask,
 		Secure: sec,
 	}
 }
 
-func ComposeSecureSwarm(swarm Swarm, sec Secure) SecureSwarm {
-	return composedSecureSwarm{
+func ComposeSecureSwarm[A Addr](swarm Swarm[A], sec Secure[A]) SecureSwarm[A] {
+	return composedSecureSwarm[A]{
 		Swarm:  swarm,
 		Secure: sec,
 	}

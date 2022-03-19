@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net"
+	"net/netip"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
@@ -12,8 +13,8 @@ import (
 
 type Conn struct {
 	swarm      *Swarm
-	remoteAddr *Addr
-	localAddr  *Addr
+	remoteAddr Addr
+	localAddr  Addr
 	shutdown   chan struct{}
 
 	newChanReqs <-chan ssh.NewChannel
@@ -22,7 +23,7 @@ type Conn struct {
 	pubKey      ssh.PublicKey
 }
 
-func newServer(s *Swarm, netConn net.Conn, af AllowFunc) (*Conn, error) {
+func newServer(s *Swarm, netConn net.Conn) (*Conn, error) {
 	var pubKey ssh.PublicKey
 	config := &ssh.ServerConfig{
 		PublicKeyCallback: func(md ssh.ConnMetadata, pk ssh.PublicKey) (*ssh.Permissions, error) {
@@ -39,30 +40,22 @@ func newServer(s *Swarm, netConn net.Conn, af AllowFunc) (*Conn, error) {
 	if pubKey == nil {
 		return nil, errors.New("pubkey not set after connection")
 	}
-	convertKey, ok := pubKey.(ssh.CryptoPublicKey)
-	if !ok {
-		return nil, errors.New("public key not supported")
-	}
-	remoteID := p2p.DefaultFingerprinter(convertKey.CryptoPublicKey())
-	if !af(remoteID) {
-		return nil, errors.New("peer is not allowed")
-	}
 
 	raddr := sconn.RemoteAddr().(*net.TCPAddr)
-	rip := raddr.IP
+	rip, _ := netip.AddrFromSlice(raddr.IP)
 	port := raddr.Port
 
 	c := &Conn{
 		swarm: s,
-		remoteAddr: &Addr{
+		remoteAddr: Addr{
 			Fingerprint: ssh.FingerprintSHA256(pubKey),
 			IP:          rip,
-			Port:        port,
+			Port:        uint16(port),
 		},
-		localAddr: &Addr{
+		localAddr: Addr{
 			Fingerprint: ssh.FingerprintSHA256(s.signer.PublicKey()),
-			IP:          netConn.LocalAddr().(*net.TCPAddr).IP,
-			Port:        netConn.LocalAddr().(*net.TCPAddr).Port,
+			IP:          s.LocalAddrs()[0].IP,
+			Port:        uint16(netConn.LocalAddr().(*net.TCPAddr).Port),
 		},
 		shutdown: make(chan struct{}),
 
@@ -75,7 +68,7 @@ func newServer(s *Swarm, netConn net.Conn, af AllowFunc) (*Conn, error) {
 	return c, nil
 }
 
-func newClient(s *Swarm, remoteAddr *Addr, netConn net.Conn) (*Conn, error) {
+func newClient(s *Swarm, remoteAddr Addr, netConn net.Conn) (*Conn, error) {
 	var pubKey ssh.PublicKey
 	config := &ssh.ClientConfig{
 		Auth: []ssh.AuthMethod{
@@ -122,7 +115,7 @@ func (c *Conn) loop() {
 				return
 			}
 			ctx := context.TODO()
-			msg := p2p.Message{
+			msg := p2p.Message[Addr]{
 				Src:     c.RemoteAddr(),
 				Dst:     c.localAddr,
 				Payload: req.Payload,
@@ -171,7 +164,7 @@ func (c *Conn) Send(wantReply bool, payload []byte) ([]byte, error) {
 	return resData, nil
 }
 
-func (c *Conn) RemoteAddr() *Addr {
+func (c *Conn) RemoteAddr() Addr {
 	return c.remoteAddr
 }
 

@@ -11,10 +11,10 @@ import (
 
 func TestSwarm(t *testing.T) {
 	t.Parallel()
-	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
+	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm[Addr]) {
 		for i := range xs {
 			privKey := p2ptest.NewTestKey(t, i)
-			s, err := New("127.0.0.1:", privKey, nil)
+			s, err := New("127.0.0.1:", privKey)
 			require.Nil(t, err)
 			xs[i] = s
 		}
@@ -22,10 +22,10 @@ func TestSwarm(t *testing.T) {
 			swarmtest.CloseSwarms(t, xs)
 		})
 	})
-	swarmtest.TestAskSwarm(t, func(t testing.TB, xs []p2p.AskSwarm) {
+	swarmtest.TestAskSwarm(t, func(t testing.TB, xs []p2p.AskSwarm[Addr]) {
 		for i := range xs {
 			privKey := p2ptest.NewTestKey(t, i)
-			s, err := New("127.0.0.1:", privKey, nil)
+			s, err := New("127.0.0.1:", privKey)
 			require.Nil(t, err)
 			xs[i] = s
 		}
@@ -33,10 +33,10 @@ func TestSwarm(t *testing.T) {
 			swarmtest.CloseAskSwarms(t, xs)
 		})
 	})
-	swarmtest.TestSecureSwarm(t, func(t testing.TB, xs []p2p.SecureSwarm) {
+	swarmtest.TestSecureSwarm(t, func(t testing.TB, xs []p2p.SecureSwarm[Addr]) {
 		for i := range xs {
 			privKey := p2ptest.NewTestKey(t, i)
-			s, err := New("127.0.0.1:", privKey, nil)
+			s, err := New("127.0.0.1:", privKey)
 			require.Nil(t, err)
 			xs[i] = s
 		}

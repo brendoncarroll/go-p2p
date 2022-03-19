@@ -6,12 +6,6 @@ import (
 
 type ErrList []error
 
-func (ec *ErrList) Do(fn func() error) {
-	if err := fn(); err != nil {
-		*ec = append(*ec, err)
-	}
-}
-
 func (ec *ErrList) Add(err error) {
 	if err != nil {
 		*ec = append(*ec, err)

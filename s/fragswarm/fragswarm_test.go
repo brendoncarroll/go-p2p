@@ -12,10 +12,10 @@ import (
 
 func TestSwarm(t *testing.T) {
 	t.Parallel()
-	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm) {
+	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm[memswarm.Addr]) {
 		r := memswarm.NewRealm()
 		for i := range xs {
-			xs[i] = New(r.NewSwarm(), 1<<16)
+			xs[i] = New[memswarm.Addr](r.NewSwarm(), 1<<16)
 		}
 		t.Cleanup(func() {
 			swarmtest.CloseSwarms(t, xs)
@@ -27,14 +27,14 @@ func TestFragment(t *testing.T) {
 	ctx := context.Background()
 	r := memswarm.NewRealm(memswarm.WithMTU(100))
 	const mtu = 1024
-	a := New(r.NewSwarm(), mtu)
-	b := New(r.NewSwarm(), mtu)
+	a := New[memswarm.Addr](r.NewSwarm(), mtu)
+	b := New[memswarm.Addr](r.NewSwarm(), mtu)
 
-	var recv p2p.Message
+	var recv p2p.Message[memswarm.Addr]
 	done := make(chan struct{})
 	go func() error {
 		defer close(done)
-		if err := p2p.Receive(ctx, b, &recv); err != nil {
+		if err := p2p.Receive[memswarm.Addr](ctx, b, &recv); err != nil {
 			return err
 		}
 		return nil

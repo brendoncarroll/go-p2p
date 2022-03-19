@@ -7,91 +7,93 @@ import (
 	"github.com/pkg/errors"
 )
 
-type Message struct {
-	Src, Dst Addr
+type Message[A Addr] struct {
+	Src, Dst A
 	Payload  []byte
 }
 
-type TellHandler = func(Message)
+// TODO: Add back TellHandler
+// https://github.com/golang/go/issues/46477
+// type TellHandler[A Addr] = func(Message[A])
 
-type Teller interface {
+type Teller[A Addr] interface {
 	// Tell sends a message containing data to dst
 	// Tell returns an error if the message cannot be set in flight.
 	// A nil error does not guarentee delivery of the message.
 	// None of the buffers in v will be modified.
-	Tell(ctx context.Context, dst Addr, v IOVec) error
+	Tell(ctx context.Context, dst A, v IOVec) error
 
 	// Recv blocks until the context is cancelled or 1 message is recieved.
 	// fn is called with the message, which may be used until fn returns.
 	// None of the message's fields may be accessed outside of fn.
 	// All of the message's fields may be modified inside fn. A message is only ever delivered to one place,
 	// so the message will never be accessed concurrently or after the call to fn.
-	Receive(ctx context.Context, fn TellHandler) error
+	Receive(ctx context.Context, fn func(Message[A])) error
 }
 
 // AskHandler is used to generate a response to an Ask
 // The response is written to resp and the number of bytes written is returned.
 // Returning a value < 0 indicates an error.
 // How to interpret values < 0 is up to the Swarm, but it must result in some kind of error returned from the corresponding call to Ask
-type AskHandler = func(ctx context.Context, resp []byte, req Message) int
+// TODO: Add back AskHandler
+// https://github.com/golang/go/issues/46477
+// type AskHandler[A Addr] func(ctx context.Context, resp []byte, req Message[A]) int
 
-type Asker interface {
+type Asker[A Addr] interface {
 	// Ask sends req to addr, and writes the response to resp.
 	// The number of bytes written to resp is returned, or an error.
 	// If resp is too short for the response: io.ErrShortBuffer is returned.
-	Ask(ctx context.Context, resp []byte, addr Addr, req IOVec) (int, error)
+	Ask(ctx context.Context, resp []byte, addr A, req IOVec) (int, error)
 	// ServeAsk calls fn to serve a single ask request, it returns an error if anything went wrong.
 	// Return values < 0 from fn will not result in an error returned from ServeAsk
-	ServeAsk(ctx context.Context, fn AskHandler) error
+	ServeAsk(ctx context.Context, fn func(ctx context.Context, resp []byte, req Message[A]) int) error
 }
 
-var _ AskHandler = NoOpAskHandler
-
-func NoOpAskHandler(ctx context.Context, resp []byte, req Message) int { return 0 }
+func NoOpAskHandler[A Addr](ctx context.Context, resp []byte, req Message[A]) int { return 0 }
 
 // Swarm represents a single node's view of an address space for nodes.
 // Nodes have their own position(s) or address(es) in the swarm.
 // Nodes can send and receive messages to and from other nodes in the Swarm.
-type Swarm interface {
-	Teller
+type Swarm[A Addr] interface {
+	Teller[A]
 
 	// LocalAddrs returns all the addresses that can be used to contact this Swarm
-	LocalAddrs() []Addr
+	LocalAddrs() []A
 	// MTU returns the maximum transmission unit for a particular address,
 	// If the context is done, MTU returns a safe default value.
-	MTU(ctx context.Context, addr Addr) int
+	MTU(ctx context.Context, addr A) int
 	// Close releases all resources held by the swarm.
 	// It should be called when the swarm is no longer in use.
 	Close() error
 	// ParseAddr attempts to parse an address from data
-	ParseAddr(data []byte) (Addr, error)
+	ParseAddr(data []byte) (*A, error)
 	// MaxIncomingSize returns the minimum size the payload of an incoming message could be
 	MaxIncomingSize() int
 }
 
-type AskSwarm interface {
-	Swarm
-	Asker
+type AskSwarm[A Addr] interface {
+	Swarm[A]
+	Asker[A]
 }
 
 var (
 	ErrPublicKeyNotFound = errors.Errorf("public key not found")
 )
 
-type Secure interface {
+type Secure[A Addr] interface {
 	PublicKey() PublicKey
-	LookupPublicKey(ctx context.Context, addr Addr) (PublicKey, error)
+	LookupPublicKey(ctx context.Context, addr A) (PublicKey, error)
 }
 
-type SecureSwarm interface {
-	Swarm
-	Secure
+type SecureSwarm[A Addr] interface {
+	Swarm[A]
+	Secure[A]
 }
 
-type SecureAskSwarm interface {
-	Swarm
-	Asker
-	Secure
+type SecureAskSwarm[A Addr] interface {
+	Swarm[A]
+	Asker[A]
+	Secure[A]
 }
 
 type IOVec = net.Buffers
@@ -119,7 +121,7 @@ func VecBytes(out []byte, v IOVec) []byte {
 // be able to return a PublicKey retrieved from memory, during the
 // execution of an AskHandler or TellHandler.
 // to lookup a public key outside a handler, use the swarms LookupPublicKey method
-func LookupPublicKeyInHandler(s Secure, target Addr) PublicKey {
+func LookupPublicKeyInHandler[A Addr](s Secure[A], target A) PublicKey {
 	ctx, cf := context.WithCancel(context.Background())
 	cf()
 	pubKey, err := s.LookupPublicKey(ctx, target)
@@ -133,17 +135,17 @@ func LookupPublicKeyInHandler(s Secure, target Addr) PublicKey {
 	return pubKey
 }
 
-func DiscardAsks(ctx context.Context, a Asker) error {
+func DiscardAsks[A Addr](ctx context.Context, a Asker[A]) error {
 	for {
-		if err := a.ServeAsk(ctx, NoOpAskHandler); err != nil {
+		if err := a.ServeAsk(ctx, NoOpAskHandler[A]); err != nil {
 			return err
 		}
 	}
 }
 
-func DiscardTells(ctx context.Context, t Teller) error {
+func DiscardTells[A Addr](ctx context.Context, t Teller[A]) error {
 	for {
-		if err := t.Receive(ctx, func(m Message) {}); err != nil {
+		if err := t.Receive(ctx, func(m Message[A]) {}); err != nil {
 			return err
 		}
 	}
@@ -153,8 +155,8 @@ func DiscardTells(ctx context.Context, t Teller) error {
 // m must be non-nil.
 // m.Payload will be truncated (x = x[:0]), and then the message payload will be appended (x = append(x, payload...))
 // This is useful if the caller wants their own copy of the message, instead of borrowing the swarm's temporarily.
-func Receive(ctx context.Context, t Teller, m *Message) error {
-	return t.Receive(ctx, func(m2 Message) {
+func Receive[A Addr](ctx context.Context, t Teller[A], m *Message[A]) error {
+	return t.Receive(ctx, func(m2 Message[A]) {
 		m.Src = m2.Src
 		m.Dst = m2.Dst
 		m.Payload = append(m.Payload[:0], m2.Payload...)

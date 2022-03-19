@@ -16,8 +16,8 @@ func TestStringMux(t *testing.T) {
 	s1 := r.NewSwarm()
 	s2 := r.NewSwarm()
 
-	m1 := NewStringMux(s1)
-	m2 := NewStringMux(s2)
+	m1 := NewStringMux[memswarm.Addr](s1)
+	m2 := NewStringMux[memswarm.Addr](s2)
 
 	m1foo := m1.Open("foo-channel")
 	m2foo := m2.Open("foo-channel")
@@ -28,16 +28,16 @@ func TestStringMux(t *testing.T) {
 	var recvFoo, recvBar string
 	eg := errgroup.Group{}
 	eg.Go(func() error {
-		var msg p2p.Message
-		if err := p2p.Receive(ctx, m1foo, &msg); err != nil {
+		var msg p2p.Message[memswarm.Addr]
+		if err := p2p.Receive[memswarm.Addr](ctx, m1foo, &msg); err != nil {
 			return err
 		}
 		recvFoo = string(msg.Payload)
 		return nil
 	})
 	eg.Go(func() error {
-		var msg p2p.Message
-		if err := p2p.Receive(ctx, m1bar, &msg); err != nil {
+		var msg p2p.Message[memswarm.Addr]
+		if err := p2p.Receive[memswarm.Addr](ctx, m1bar, &msg); err != nil {
 			return err
 		}
 		recvBar = string(msg.Payload)
@@ -60,8 +60,8 @@ func TestVarintMux(t *testing.T) {
 	s1 := r.NewSwarm()
 	s2 := r.NewSwarm()
 
-	m1 := NewVarintMux(s1)
-	m2 := NewVarintMux(s2)
+	m1 := NewVarintMux[memswarm.Addr](s1)
+	m2 := NewVarintMux[memswarm.Addr](s2)
 
 	m1foo := m1.Open(0)
 	m2foo := m2.Open(0)
@@ -72,16 +72,16 @@ func TestVarintMux(t *testing.T) {
 	var recvFoo, recvBar string
 	eg := errgroup.Group{}
 	eg.Go(func() error {
-		var msg p2p.Message
-		if err := p2p.Receive(ctx, m1foo, &msg); err != nil {
+		var msg p2p.Message[memswarm.Addr]
+		if err := p2p.Receive[memswarm.Addr](ctx, m1foo, &msg); err != nil {
 			return err
 		}
 		recvFoo = string(msg.Payload)
 		return nil
 	})
 	eg.Go(func() error {
-		var msg p2p.Message
-		if err := p2p.Receive(ctx, m1bar, &msg); err != nil {
+		var msg p2p.Message[memswarm.Addr]
+		if err := p2p.Receive[memswarm.Addr](ctx, m1bar, &msg); err != nil {
 			return err
 		}
 		recvBar = string(msg.Payload)

@@ -8,14 +8,14 @@ import (
 	"github.com/brendoncarroll/go-p2p/p/p2pke"
 )
 
-type store struct {
-	newChan func(Addr) *p2pke.Channel
+type store[T p2p.Addr] struct {
+	newChan func(Addr[T]) *p2pke.Channel
 	mu      sync.RWMutex
 	addrs   map[string]*p2pke.Channel
 }
 
-func newStore(newChan func(Addr) *p2pke.Channel) *store {
-	return &store{
+func newStore[T p2p.Addr](newChan func(Addr[T]) *p2pke.Channel) *store[T] {
+	return &store[T]{
 		newChan: newChan,
 		addrs:   make(map[string]*p2pke.Channel),
 	}
@@ -23,21 +23,21 @@ func newStore(newChan func(Addr) *p2pke.Channel) *store {
 
 // withLower calls fn with sc.
 // while fn executes, all traffic is gaurenteed to reach the conn passed to fn, there will not be another conn with the same id.
-func (s *store) withConn(x Addr, fn func(c *p2pke.Channel) error) error {
-	conn := s.getOrCreateConn(x.ID, x.Addr)
+func (s *store[T]) withConn(x Addr[T], fn func(c *p2pke.Channel) error) error {
+	conn := s.getOrCreateConn(x.ID, x.Addr.(T))
 	if err := fn(conn); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *store) delete(addr Addr) {
+func (s *store[T]) delete(addr Addr[T]) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.addrs, addrKey(addr.Addr))
 }
 
-func (s *store) getOrCreateConn(id p2p.PeerID, addr p2p.Addr) *p2pke.Channel {
+func (s *store[T]) getOrCreateConn(id p2p.PeerID, addr T) *p2pke.Channel {
 	sid := addrKey(addr)
 	s.mu.RLock()
 	conn, exists := s.addrs[sid]
@@ -46,7 +46,7 @@ func (s *store) getOrCreateConn(id p2p.PeerID, addr p2p.Addr) *p2pke.Channel {
 		s.mu.Lock()
 		conn, exists = s.addrs[sid]
 		if !exists {
-			conn = s.newChan(Addr{ID: id, Addr: addr})
+			conn = s.newChan(Addr[T]{ID: id, Addr: addr})
 			s.addrs[sid] = conn
 		}
 		s.mu.Unlock()
@@ -54,7 +54,7 @@ func (s *store) getOrCreateConn(id p2p.PeerID, addr p2p.Addr) *p2pke.Channel {
 	return conn
 }
 
-func (s *store) cleanup(expireBefore time.Time) {
+func (s *store[T]) cleanup(expireBefore time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k, c := range s.addrs {

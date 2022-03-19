@@ -48,16 +48,7 @@ func (a Addr) MarshalText() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-var addrRe = regexp.MustCompile(`^(.+?)://(.+)$`)
-
-type parserFunc = func([]byte) (p2p.Addr, error)
-
-// AddrSchema is an address scheme for parsing addresses from multiple swarms
-type AddrSchema struct {
-	parsers map[string]parserFunc
-}
-
-func NewSchemaFromSwarms(sws map[string]p2p.Swarm) AddrSchema {
+func NewSchemaFromSwarms(sws map[string]DynSwarm) AddrSchema {
 	parsers := make(map[string]parserFunc, len(sws))
 	for k, sw := range sws {
 		parsers[k] = sw.ParseAddr
@@ -67,15 +58,24 @@ func NewSchemaFromSwarms(sws map[string]p2p.Swarm) AddrSchema {
 	}
 }
 
-func NewSchemaFromSecureSwarms(sws map[string]p2p.SecureSwarm) AddrSchema {
-	sws2 := make(map[string]p2p.Swarm, len(sws))
+func NewSchemaFromSecureSwarms(sws map[string]DynSecureSwarm) AddrSchema {
+	sws2 := make(map[string]DynSwarm, len(sws))
 	for k, v := range sws {
 		sws2[k] = v
 	}
 	return NewSchemaFromSwarms(sws2)
 }
 
-func (as AddrSchema) ParseAddr(x []byte) (p2p.Addr, error) {
+var addrRe = regexp.MustCompile(`^(.+?)://(.+)$`)
+
+type parserFunc = func([]byte) (*p2p.Addr, error)
+
+// AddrSchema is an address scheme for parsing addresses from multiple swarms
+type AddrSchema struct {
+	parsers map[string]parserFunc
+}
+
+func (as AddrSchema) ParseAddr(x []byte) (*Addr, error) {
 	groups := addrRe.FindSubmatch(x)
 	if len(groups) != 3 {
 		return nil, errors.New("could not unmarshal")
@@ -89,8 +89,8 @@ func (as AddrSchema) ParseAddr(x []byte) (p2p.Addr, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Addr{
+	return &Addr{
 		Transport: transport,
-		Addr:      innerAddr,
+		Addr:      *innerAddr,
 	}, nil
 }
