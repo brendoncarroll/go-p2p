@@ -7,19 +7,19 @@ import (
 	"github.com/pkg/errors"
 )
 
-func NewUint16Mux[A p2p.Addr, C any](x p2p.Swarm[A]) Mux[A, uint16] {
+func NewUint16Mux[A p2p.Addr](x p2p.Swarm[A]) Mux[A, uint16] {
 	return mux[A, uint16]{newMuxCore(x, uint16MuxFunc, uint16DemuxFunc)}
 }
 
-func NewUint16AskMux[A p2p.Addr, C any](x p2p.Swarm[A]) AskMux[A, uint16] {
+func NewUint16AskMux[A p2p.Addr](x p2p.Swarm[A]) AskMux[A, uint16] {
 	return askMux[A, uint16]{newMuxCore(x, uint16MuxFunc, uint16DemuxFunc)}
 }
 
-func NewUint16SecureMux[A p2p.Addr, C any](x p2p.Swarm[A]) SecureMux[A, uint16] {
+func NewUint16SecureMux[A p2p.Addr](x p2p.Swarm[A]) SecureMux[A, uint16] {
 	return secureMux[A, uint16]{newMuxCore(x, uint16MuxFunc, uint16DemuxFunc)}
 }
 
-func NewUint16SecureAskMux[A p2p.Addr, C any](x p2p.Swarm[A]) SecureAskMux[A, uint16] {
+func NewUint16SecureAskMux[A p2p.Addr](x p2p.Swarm[A]) SecureAskMux[A, uint16] {
 	return secureAskMux[A, uint16]{newMuxCore(x, uint16MuxFunc, uint16DemuxFunc)}
 }
 

@@ -4,6 +4,7 @@ A Library for writing Peer-to-Peer applications.
 Many peer-to-peer libraries go to great lengths to provide a reliable stream abstraction over as many different transports as possible.
 That makes them unsuitable for modeling protocols over lossy mediums (UDP, IP, ethernet).
 This library takes a message oriented approach instead of a stream oriented approach.
+
 Unreliable, fire-and-forget communication is provided using `Tell` and `Receive` methods.
 Reliable request-response communication is provided using `Ask` and `ServeAsk` methods.
 
