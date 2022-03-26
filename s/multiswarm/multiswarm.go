@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	ErrTransportNotExist = errors.New("transport does not exist")
+	ErrTransportNotExist = errors.New("transport does not exist for scheme")
 )
 
 type (
@@ -92,7 +92,7 @@ func newMultiSwarm(m map[string]DynSwarm) multiSwarm {
 }
 
 func (mt multiSwarm) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
-	t, ok := mt.swarms[dst.Transport]
+	t, ok := mt.swarms[dst.Scheme]
 	if !ok {
 		return ErrTransportNotExist
 	}
@@ -112,8 +112,8 @@ func (mt multiSwarm) recvLoops(ctx context.Context) error {
 			for {
 				if err := t.Receive(ctx, func(m p2p.Message[p2p.Addr]) {
 					mt.tells.Deliver(ctx, p2p.Message[Addr]{
-						Src:     Addr{Transport: tname, Addr: m.Src},
-						Dst:     Addr{Transport: tname, Addr: m.Dst},
+						Src:     Addr{Scheme: tname, Addr: m.Src},
+						Dst:     Addr{Scheme: tname, Addr: m.Dst},
 						Payload: m.Payload,
 					})
 				}); err != nil {
@@ -130,7 +130,7 @@ func (ms multiSwarm) ParseAddr(data []byte) (Addr, error) {
 }
 
 func (mt multiSwarm) MTU(ctx context.Context, target Addr) int {
-	t, ok := mt.swarms[target.Transport]
+	t, ok := mt.swarms[target.Scheme]
 	if !ok {
 		return -1
 	}
@@ -152,8 +152,8 @@ func (mt multiSwarm) LocalAddrs() (ret []Addr) {
 	for tname, t := range mt.swarms {
 		for _, addr := range t.LocalAddrs() {
 			a := Addr{
-				Transport: tname,
-				Addr:      addr,
+				Scheme: tname,
+				Addr:   addr,
 			}
 			ret = append(ret, a)
 		}
@@ -187,7 +187,7 @@ func newMultiAsker(m map[string]p2p.Asker[p2p.Addr]) multiAsker {
 }
 
 func (ma multiAsker) Ask(ctx context.Context, resp []byte, dst Addr, data p2p.IOVec) (int, error) {
-	t, ok := ma.swarms[dst.Transport]
+	t, ok := ma.swarms[dst.Scheme]
 	if !ok {
 		return 0, ErrTransportNotExist
 	}
@@ -200,20 +200,20 @@ func (ma multiAsker) ServeAsk(ctx context.Context, fn func(context.Context, []by
 
 func (ma multiAsker) serveLoops(ctx context.Context) error {
 	eg := errgroup.Group{}
-	for tname, t := range ma.swarms {
-		tname := tname
+	for scheme, t := range ma.swarms {
+		scheme := scheme
 		t := t
 		eg.Go(func() error {
 			for {
 				err := t.ServeAsk(ctx, func(ctx context.Context, reqData []byte, msg p2p.Message[p2p.Addr]) int {
 					msg2 := p2p.Message[Addr]{
 						Src: Addr{
-							Transport: tname,
-							Addr:      msg.Src,
+							Scheme: scheme,
+							Addr:   msg.Src,
 						},
 						Dst: Addr{
-							Transport: tname,
-							Addr:      msg.Dst,
+							Scheme: scheme,
+							Addr:   msg.Dst,
 						},
 						Payload: msg.Payload,
 					}
@@ -243,9 +243,9 @@ func (ms multiSecure) PublicKey() p2p.PublicKey {
 }
 
 func (ms multiSecure) LookupPublicKey(ctx context.Context, a Addr) (p2p.PublicKey, error) {
-	t, ok := ms[a.Transport]
+	t, ok := ms[a.Scheme]
 	if !ok {
-		return nil, errors.Errorf("invalid transport: %s", a.Transport)
+		return nil, errors.Errorf("invalid transport: %s", a.Scheme)
 	}
 	return t.LookupPublicKey(ctx, a.Addr)
 }

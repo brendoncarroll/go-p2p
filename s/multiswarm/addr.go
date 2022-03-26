@@ -11,8 +11,8 @@ import (
 var _ p2p.UnwrapAddr = Addr{}
 
 type Addr struct {
-	Transport string
-	Addr      p2p.Addr
+	Scheme string
+	Addr   p2p.Addr
 }
 
 func (a Addr) Unwrap() p2p.Addr {
@@ -21,8 +21,8 @@ func (a Addr) Unwrap() p2p.Addr {
 
 func (a Addr) Map(f func(p2p.Addr) p2p.Addr) p2p.Addr {
 	return Addr{
-		Transport: a.Transport,
-		Addr:      f(a.Addr),
+		Scheme: a.Scheme,
+		Addr:   f(a.Addr),
 	}
 }
 
@@ -38,7 +38,7 @@ func (a Addr) Key() string {
 
 func (a Addr) MarshalText() ([]byte, error) {
 	buf := bytes.Buffer{}
-	buf.WriteString(a.Transport)
+	buf.WriteString(a.Scheme)
 	buf.WriteString("://")
 	data, err := a.Addr.MarshalText()
 	if err != nil {
@@ -80,17 +80,17 @@ func (as AddrSchema) ParseAddr(x []byte) (Addr, error) {
 	if len(groups) != 3 {
 		return Addr{}, errors.New("could not unmarshal")
 	}
-	transport := string(groups[1])
-	parser, exists := as.parsers[transport]
+	scheme := string(groups[1])
+	parser, exists := as.parsers[scheme]
 	if !exists {
-		return Addr{}, errors.Errorf("%v does not exist in muiltiswarm.Schema", transport)
+		return Addr{}, errors.Errorf("%v does not exist in muiltiswarm.Schema", scheme)
 	}
 	innerAddr, err := parser(groups[2])
 	if err != nil {
 		return Addr{}, err
 	}
 	return Addr{
-		Transport: transport,
-		Addr:      innerAddr,
+		Scheme: scheme,
+		Addr:   innerAddr,
 	}, nil
 }
