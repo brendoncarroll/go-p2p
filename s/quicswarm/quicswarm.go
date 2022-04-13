@@ -34,7 +34,7 @@ type Swarm[T p2p.Addr] struct {
 	cf            context.CancelFunc
 
 	mu        sync.RWMutex
-	sessCache map[sessionKey]quic.Session
+	sessCache map[sessionKey]quic.Connection
 
 	tells *swarmutil.TellHub[Addr[T]]
 	asks  *swarmutil.AskHub[Addr[T]]
@@ -62,7 +62,7 @@ func New[T p2p.Addr](x p2p.Swarm[T], privKey p2p.PrivateKey, opts ...Option[T]) 
 		privKey:       privKey,
 		cf:            cf,
 
-		sessCache: map[sessionKey]quic.Session{},
+		sessCache: map[sessionKey]quic.Connection{},
 		tells:     swarmutil.NewTellHub[Addr[T]](),
 		asks:      swarmutil.NewAskHub[Addr[T]](),
 	}
@@ -83,7 +83,7 @@ func (s *Swarm[T]) Tell(ctx context.Context, dst Addr[T], data p2p.IOVec) error 
 	if p2p.VecSize(data) > s.mtu {
 		return p2p.ErrMTUExceeded
 	}
-	err := s.withSession(ctx, dst, func(sess quic.Session) error {
+	err := s.withSession(ctx, dst, func(sess quic.Connection) error {
 		stream, err := sess.OpenUniStream()
 		if err != nil {
 			return err
@@ -115,7 +115,7 @@ func (s *Swarm[T]) Ask(ctx context.Context, resp []byte, dst Addr[T], data p2p.I
 		"remote_addr": dst,
 	})
 	var n int
-	if err := s.withSession(ctx, dst, func(sess quic.Session) error {
+	if err := s.withSession(ctx, dst, func(sess quic.Connection) error {
 		// stream
 		stream, err := sess.OpenStreamSync(ctx)
 		if err != nil {
@@ -188,7 +188,7 @@ func (s *Swarm[T]) PublicKey() p2p.PublicKey {
 
 func (s *Swarm[T]) LookupPublicKey(ctx context.Context, x Addr[T]) (p2p.PublicKey, error) {
 	var pubKey p2p.PublicKey
-	if err := s.withSession(ctx, x, func(sess quic.Session) error {
+	if err := s.withSession(ctx, x, func(sess quic.Connection) error {
 		tlsState := sess.ConnectionState().TLS
 		// ok to panic here on OOB, it is a bug to have a session with
 		// no certificates in the cache.
@@ -205,7 +205,7 @@ func (s *Swarm[T]) ParseAddr(data []byte) (Addr[T], error) {
 	return ParseAddr[T](s.inner.ParseAddr, data)
 }
 
-func (s *Swarm[T]) withSession(ctx context.Context, dst Addr[T], fn func(sess quic.Session) error) error {
+func (s *Swarm[T]) withSession(ctx context.Context, dst Addr[T], fn func(sess quic.Connection) error) error {
 	s.mu.Lock()
 	sess, exists := s.sessCache[sessionKey{addr: dst.Key(), outbound: false}]
 	if !exists {
@@ -262,7 +262,7 @@ func (s *Swarm[T]) serve(ctx context.Context) {
 	}
 }
 
-func (s *Swarm[T]) handleSession(ctx context.Context, sess quic.Session, src Addr[T], isClient bool) {
+func (s *Swarm[T]) handleSession(ctx context.Context, sess quic.Connection, src Addr[T], isClient bool) {
 	defer func() {
 		s.mu.Lock()
 		delete(s.sessCache, sessionKey{addr: src.Key(), outbound: isClient})
@@ -283,7 +283,7 @@ func (s *Swarm[T]) handleSession(ctx context.Context, sess quic.Session, src Add
 	sess.CloseWithError(0, "")
 }
 
-func (s *Swarm[T]) handleAsks(ctx context.Context, sess quic.Session, srcAddr Addr[T]) error {
+func (s *Swarm[T]) handleAsks(ctx context.Context, sess quic.Connection, srcAddr Addr[T]) error {
 	log := s.log.WithFields(logrus.Fields{"remote_addr": srcAddr})
 	for {
 		stream, err := sess.AcceptStream(ctx)
@@ -326,7 +326,7 @@ func (s *Swarm[T]) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, d
 	return stream.Close()
 }
 
-func (s *Swarm[T]) handleTells(ctx context.Context, sess quic.Session, srcAddr Addr[T]) error {
+func (s *Swarm[T]) handleTells(ctx context.Context, sess quic.Connection, srcAddr Addr[T]) error {
 	for {
 		stream, err := sess.AcceptUniStream(ctx)
 		if err != nil {
@@ -351,7 +351,7 @@ func (s *Swarm[T]) handleTells(ctx context.Context, sess quic.Session, srcAddr A
 	}
 }
 
-func (s *Swarm[T]) putSession(addr Addr[T], newSess quic.Session, isClient bool) {
+func (s *Swarm[T]) putSession(addr Addr[T], newSess quic.Connection, isClient bool) {
 	s.mu.Lock()
 	s.sessCache[sessionKey{addr: addr.Key(), outbound: isClient}] = newSess
 	s.mu.Unlock()
@@ -366,7 +366,7 @@ func (s *Swarm[T]) makeLocalAddr(x net.Addr) Addr[T] {
 	}
 }
 
-func (s *Swarm[T]) remoteAddrFromSession(x quic.Session) (Addr[T], error) {
+func (s *Swarm[T]) remoteAddrFromSession(x quic.Connection) (Addr[T], error) {
 	tlsState := x.ConnectionState().TLS
 	if len(tlsState.PeerCertificates) < 1 {
 		return Addr[T]{}, errors.New("no certificates")
