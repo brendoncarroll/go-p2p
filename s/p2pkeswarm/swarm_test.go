@@ -14,7 +14,7 @@ import (
 	"github.com/brendoncarroll/go-p2p/s/udpswarm"
 )
 
-func testSwarm[T ComparableAddr](t *testing.T, baseSwarms func(testing.TB, []p2p.Swarm[T])) {
+func testSwarm[T p2p.Addr](t *testing.T, baseSwarms func(testing.TB, []p2p.Swarm[T])) {
 	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm[Addr[T]]) {
 		ss := make([]p2p.Swarm[T], len(xs))
 		baseSwarms(t, ss)

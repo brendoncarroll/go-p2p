@@ -14,24 +14,19 @@ import (
 
 const Overhead = p2pke.Overhead
 
-type ComparableAddr interface {
-	p2p.Addr
-	comparable
-}
-
-type Swarm[T ComparableAddr] struct {
+type Swarm[T p2p.Addr] struct {
 	inner      p2p.Swarm[T]
 	privateKey p2p.PrivateKey
 	swarmConfig
 	localID p2p.PeerID
 
 	hub   *swarmutil.TellHub[Addr[T]]
-	store *store[T, *channelState]
+	store *store[string, *channelState]
 	cf    context.CancelFunc
 	eg    errgroup.Group
 }
 
-func New[T ComparableAddr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Option) *Swarm[T] {
+func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Option) *Swarm[T] {
 	config := swarmConfig{
 		log:           logrus.StandardLogger(),
 		fingerprinter: p2p.DefaultFingerprinter,
@@ -47,7 +42,7 @@ func New[T ComparableAddr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts .
 		swarmConfig: config,
 
 		hub:   swarmutil.NewTellHub[Addr[T]](),
-		store: newStore[T, *channelState](),
+		store: newStore[string, *channelState](),
 		cf:    cf,
 	}
 	s.localID = s.fingerprinter(privateKey.Public())
@@ -126,7 +121,7 @@ func (s *Swarm[T]) Close() error {
 // getFullAddr returns a p2pke.Channel which matches the full Addr addr.
 func (s *Swarm[T]) getFullAddr(ctx context.Context, addr Addr[T]) (*p2pke.Channel, error) {
 	for {
-		c := s.store.getOrCreate(addr.Addr.(T), func() *channelState {
+		c := s.store.getOrCreate(s.keyForAddr(addr.Addr.(T)), func() *channelState {
 			return &channelState{
 				CreatedAt: time.Now(),
 				Channel: p2pke.NewChannel(s.privateKey, func(pubKey p2p.PublicKey) bool {
@@ -141,7 +136,7 @@ func (s *Swarm[T]) getFullAddr(ctx context.Context, addr Addr[T]) (*p2pke.Channe
 		if remoteID == addr.ID {
 			return c.Channel, nil
 		}
-		s.store.deleteMatching(addr.Addr.(T), func(v *channelState) bool {
+		s.store.deleteMatching(s.keyForAddr(addr.Addr.(T)), func(v *channelState) bool {
 			return v.Channel == c.Channel
 		})
 	}
@@ -160,7 +155,7 @@ func (s *Swarm[T]) recvLoop(ctx context.Context) error {
 }
 
 func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error {
-	cs := s.store.getOrCreate(msg.Src, func() *channelState {
+	cs := s.store.getOrCreate(s.keyForAddr(msg.Src), func() *channelState {
 		return &channelState{
 			CreatedAt: time.Now(),
 			Channel: p2pke.NewChannel(s.privateKey, func(pubKey p2p.PublicKey) bool {
@@ -202,7 +197,7 @@ func (s *Swarm[T]) cleanupLoop(ctx context.Context) error {
 	defer ticker.Stop()
 	now := time.Now()
 	for {
-		s.store.purge(func(addr T, c *channelState) bool {
+		s.store.purge(func(addr string, c *channelState) bool {
 			if now.Sub(c.CreatedAt) < gracePeriod {
 				return true
 			}
@@ -220,6 +215,14 @@ func (s *Swarm[T]) cleanupLoop(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *Swarm[T]) keyForAddr(x T) string {
+	data, err := x.MarshalText()
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }
 
 type channelState struct {
