@@ -2,9 +2,7 @@ package memswarm
 
 import (
 	"io"
-	"time"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 )
 
@@ -22,24 +20,9 @@ func WithTrafficLogging(w io.Writer) Option {
 	}
 }
 
-func WithLatency(t time.Duration) Option {
+func WithTellTransform(fn func(x Message) *Message) Option {
 	return func(r *Realm) {
-		if r.clock == nil {
-			r.clock = clockwork.NewFakeClock()
-		}
-		r.latency = t
-	}
-}
-
-func WithClock(clock clockwork.Clock) Option {
-	return func(r *Realm) {
-		r.clock = clock
-	}
-}
-
-func WithDropRate(dr float64) Option {
-	return func(r *Realm) {
-		r.dropRate = dr
+		r.tellTransform = fn
 	}
 }
 

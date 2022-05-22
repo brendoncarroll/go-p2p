@@ -212,7 +212,7 @@ func (s *Session) readHandshake(msg Message) error {
 		}
 		s.initHelloTime = res.Timestamp
 		s.msgCache[1] = res.RespHello
-		s.cipherOut, s.cipherIn = pickCS(s.isInit, res.CS1, res.CS2)
+		s.cipherOut, s.cipherIn = res.CipherOut, res.CipherIn
 		s.hsIndex = 1
 	case s.isInit && s.hsIndex == 0 && msg.GetNonce() == nonceRespHello:
 		res, err := readRespHello(s.hs, s.privateKey, msg)
@@ -220,7 +220,7 @@ func (s *Session) readHandshake(msg Message) error {
 			return err
 		}
 		s.msgCache[2] = res.InitDone
-		s.cipherOut, s.cipherIn = pickCS(s.isInit, res.CS1, res.CS2)
+		s.cipherOut, s.cipherIn = res.CipherOut, res.CipherIn
 		s.hsIndex = 2 // the initiator doesn't know if the server got the initDone yet.
 		s.nonce = noncePostHandshake
 		s.remoteKey = res.RemoteKey
@@ -253,9 +253,9 @@ func writeInitHello(out []byte, hs *noise.HandshakeState, privateKey p2p.Private
 }
 
 type initHelloResult struct {
-	CS1, CS2  *noise.CipherState
-	Timestamp tai64.TAI64N
-	RespHello []byte
+	CipherOut, CipherIn noise.Cipher
+	Timestamp           tai64.TAI64N
+	RespHello           []byte
 }
 
 // readInitHello
@@ -288,9 +288,10 @@ func readInitHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 	if err != nil {
 		panic(err)
 	}
+	cipherOut, cipherIn := pickCS(false, cs1, cs2)
 	return &initHelloResult{
-		CS1:       cs1,
-		CS2:       cs2,
+		CipherOut: cipherOut,
+		CipherIn:  cipherIn,
 		Timestamp: timestamp,
 		RespHello: msg2,
 	}, nil
@@ -298,9 +299,9 @@ func readInitHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 
 // respHelloResult is the result of processing a RespHello message
 type respHelloResult struct {
-	CS1, CS2  *noise.CipherState
-	RemoteKey p2p.PublicKey
-	InitDone  []byte
+	CipherOut, CipherIn noise.Cipher
+	RemoteKey           p2p.PublicKey
+	InitDone            []byte
 }
 
 func readRespHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Message) (*respHelloResult, error) {
@@ -320,7 +321,7 @@ func readRespHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 	if err := p2p.Verify(pubKey, purposeChannelBinding, cb, respHello.AuthClaim.Sig); err != nil {
 		return nil, err
 	}
-	cipherOut, _ := pickCS(true, cs1, cs2)
+	cipherOut, cipherIn := pickCS(true, cs1, cs2)
 	authClaim := makeChannelAuthClaim(privateKey, hs.ChannelBinding())
 	msg2 := newMessage(InitToResp, nonceInitDone)
 	msg2 = cipherOut.Encrypt(msg2, uint64(nonceInitDone), msg2, marshal(nil, &InitDone{
@@ -330,8 +331,8 @@ func readRespHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 		panic(err)
 	}
 	return &respHelloResult{
-		CS1:       cs1,
-		CS2:       cs2,
+		CipherIn:  cipherIn,
+		CipherOut: cipherOut,
 		RemoteKey: pubKey,
 		InitDone:  msg2,
 	}, nil
@@ -402,13 +403,4 @@ func pickCS(initiator bool, cs1, cs2 *noise.CipherState) (outCipher, inCipher no
 	outCipher = cs1.Cipher()
 	inCipher = cs2.Cipher()
 	return outCipher, inCipher
-}
-
-func isOneOf(x uint8, ys ...uint8) bool {
-	for i := range ys {
-		if x == ys[i] {
-			return true
-		}
-	}
-	return false
 }

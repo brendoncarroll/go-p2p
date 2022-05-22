@@ -10,15 +10,17 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/blake2b"
+	"golang.org/x/sync/errgroup"
 )
 
-const handshakeSendPeriod = 500 * time.Millisecond
+const handshakeSendPeriod = 250 * time.Millisecond
 
 type Channel struct {
 	privateKey        p2p.PrivateKey
 	send              Sender
 	outbound, inbound *halfChannel
 	keyCell           *keyCell
+	eg                errgroup.Group
 }
 
 func NewChannel(privateKey p2p.PrivateKey, allowKey func(p2p.PublicKey) bool, send Sender) *Channel {
