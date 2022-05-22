@@ -2,72 +2,54 @@ package p2pkeswarm
 
 import (
 	"sync"
-	"time"
-
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/p/p2pke"
 )
 
-type store[T p2p.Addr] struct {
-	newChan func(Addr[T]) *p2pke.Channel
-	mu      sync.RWMutex
-	addrs   map[string]*p2pke.Channel
+type store[K comparable, V any] struct {
+	mu sync.RWMutex
+	m  map[K]V
 }
 
-func newStore[T p2p.Addr](newChan func(Addr[T]) *p2pke.Channel) *store[T] {
-	return &store[T]{
-		newChan: newChan,
-		addrs:   make(map[string]*p2pke.Channel),
+func newStore[K comparable, V any]() *store[K, V] {
+	return &store[K, V]{
+		m: make(map[K]V),
 	}
 }
 
-// withLower calls fn with sc.
-// while fn executes, all traffic is gaurenteed to reach the conn passed to fn, there will not be another conn with the same id.
-func (s *store[T]) withConn(x Addr[T], fn func(c *p2pke.Channel) error) error {
-	conn := s.getOrCreateConn(x.ID, x.Addr.(T))
-	if err := fn(conn); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *store[T]) delete(addr Addr[T]) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.addrs, addrKey(addr.Addr))
-}
-
-func (s *store[T]) getOrCreateConn(id p2p.PeerID, addr T) *p2pke.Channel {
-	sid := addrKey(addr)
+func (s *store[K, V]) get(k K) (V, bool) {
 	s.mu.RLock()
-	conn, exists := s.addrs[sid]
-	s.mu.RUnlock()
-	if !exists {
-		s.mu.Lock()
-		conn, exists = s.addrs[sid]
-		if !exists {
-			conn = s.newChan(Addr[T]{ID: id, Addr: addr})
-			s.addrs[sid] = conn
-		}
-		s.mu.Unlock()
-	}
-	return conn
+	defer s.mu.RUnlock()
+	v, exists := s.m[k]
+	return v, exists
 }
 
-func (s *store[T]) cleanup(expireBefore time.Time) {
+func (s *store[K, V]) getOrCreate(k K, fn func() V) V {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for k, c := range s.addrs {
-		if c.LastReceived().Before(expireBefore) && c.LastSent().Before(expireBefore) {
-			delete(s.addrs, k)
+	v, exists := s.m[k]
+	if !exists {
+		v = fn()
+		s.m[k] = v
+	}
+	return v
+}
+
+// purge applies the predicate fn to all items in the store.
+// If fn returns false, the item is deleted.
+func (s *store[K, V]) purge(fn func(k K, v V) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range s.m {
+		if !fn(k, v) {
+			delete(s.m, k)
 		}
 	}
 }
 
-func addrKey(x p2p.Addr) string {
-	data, err := x.MarshalText()
-	if err != nil {
-		panic(err)
+func (s *store[K, V]) deleteMatching(k K, fn func(v V) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, exists := s.m[k]
+	if exists && fn(v) {
+		delete(s.m, k)
 	}
-	return string(data)
 }

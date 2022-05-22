@@ -8,75 +8,74 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/p/p2pke"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
 
-type swarmConfig struct {
-	fingerprinter p2p.Fingerprinter
-}
-
-type Option func(s *swarmConfig)
-
-func WithFingerprinter(fp p2p.Fingerprinter) Option {
-	return func(c *swarmConfig) {
-		c.fingerprinter = fp
-	}
-}
+const Overhead = p2pke.Overhead
 
 type Swarm[T p2p.Addr] struct {
-	inner         p2p.Swarm[T]
-	privateKey    p2p.PrivateKey
-	fingerprinter p2p.Fingerprinter
-	log           *logrus.Logger
-	localID       p2p.PeerID
+	inner      p2p.Swarm[T]
+	privateKey p2p.PrivateKey
+	swarmConfig
+	localID p2p.PeerID
 
 	hub   *swarmutil.TellHub[Addr[T]]
-	store *store[T]
+	store *store[string, *channelState]
+	cf    context.CancelFunc
+	eg    errgroup.Group
 }
 
 func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Option) *Swarm[T] {
 	config := swarmConfig{
+		log:           logrus.StandardLogger(),
 		fingerprinter: p2p.DefaultFingerprinter,
+		tellTimeout:   3 * time.Second,
 	}
 	for _, opt := range opts {
 		opt(&config)
 	}
+	ctx, cf := context.WithCancel(context.Background())
 	s := &Swarm[T]{
-		inner:         inner,
-		privateKey:    privateKey,
-		log:           logrus.StandardLogger(),
-		hub:           swarmutil.NewTellHub[Addr[T]](),
-		fingerprinter: config.fingerprinter,
+		inner:       inner,
+		privateKey:  privateKey,
+		swarmConfig: config,
+
+		hub:   swarmutil.NewTellHub[Addr[T]](),
+		store: newStore[string, *channelState](),
+		cf:    cf,
 	}
 	s.localID = s.fingerprinter(privateKey.Public())
-	s.store = newStore(func(addr Addr[T]) *p2pke.Channel {
-		checkKey := func(p2p.PublicKey) error { return nil }
-		if addr.ID != (p2p.PeerID{}) {
-			checkKey = func(x p2p.PublicKey) error {
-				return checkPublicKey(s.fingerprinter, addr.ID, x)
-			}
-		}
-		return p2pke.NewChannel(s.privateKey, checkKey)
+	numWorkers := 1 + runtime.GOMAXPROCS(0)
+	for i := 0; i < numWorkers; i++ {
+		s.eg.Go(func() error {
+			return s.recvLoop(ctx)
+		})
+	}
+	s.eg.Go(func() error {
+		return s.cleanupLoop(ctx)
 	})
-	go s.recvLoops(context.Background(), runtime.GOMAXPROCS(0))
 	return s
 }
 
+// Tell implements p2p.Swarm.Tell
 func (s *Swarm[T]) Tell(ctx context.Context, dst Addr[T], v p2p.IOVec) error {
 	if p2p.VecSize(v) > s.MTU(ctx, dst) {
 		return p2p.ErrMTUExceeded
 	}
-	return s.withConn(ctx, dst, func(c *p2pke.Channel) error {
-		return c.Send(ctx, p2p.VecBytes(nil, v), s.getSender(ctx, dst.Addr.(T)))
-	})
+	c, err := s.getFullAddr(ctx, dst)
+	if err != nil {
+		return err
+	}
+	return c.Send(ctx, p2p.VecBytes(nil, v))
 }
 
+// Receive implements p2p.Swarm.Receive
 func (s *Swarm[T]) Receive(ctx context.Context, th func(p2p.Message[Addr[T]])) error {
 	return s.hub.Receive(ctx, th)
 }
 
+// LocalAddrs implements p2p.Swarm.LocalAddrs
 func (s *Swarm[T]) LocalAddrs() []Addr[T] {
 	addrs := s.inner.LocalAddrs()
 	addrs2 := make([]Addr[T], 0, len(addrs))
@@ -89,108 +88,144 @@ func (s *Swarm[T]) LocalAddrs() []Addr[T] {
 	return addrs2
 }
 
+// PublicKey implements p2p.SecureSwarm.PublicKey
 func (s *Swarm[T]) PublicKey() p2p.PublicKey {
 	return s.privateKey.Public()
 }
 
+// LookupPublicKey implements p2p.SecureSwarm.PublicKey
 func (s *Swarm[T]) LookupPublicKey(ctx context.Context, dst Addr[T]) (p2p.PublicKey, error) {
-	var ret p2p.PublicKey
-	if err := s.withConn(ctx, dst, func(conn *p2pke.Channel) error {
-		ret = conn.RemoteKey()
-		return nil
-	}); err != nil {
+	c, err := s.getFullAddr(ctx, dst)
+	if err != nil {
 		return nil, err
 	}
-	if ret == nil {
-		return nil, p2p.ErrPublicKeyNotFound
-	}
-	return ret, nil
+	return c.RemoteKey(), nil
 }
 
 func (s *Swarm[T]) MTU(ctx context.Context, target Addr[T]) int {
-	return s.inner.MTU(ctx, target.Addr.(T)) - p2pke.Overhead
+	return s.inner.MTU(ctx, target.Addr.(T)) - Overhead
 }
 
 func (s *Swarm[T]) MaxIncomingSize() int {
-	return s.inner.MaxIncomingSize()
+	return s.inner.MaxIncomingSize() - Overhead
 }
 
 func (s *Swarm[T]) Close() error {
+	s.cf()
+	err := s.inner.Close()
 	s.hub.CloseWithError(p2p.ErrClosed)
-	return s.inner.Close()
+	s.eg.Wait()
+	return err
 }
 
-func (s *Swarm[T]) withConn(ctx context.Context, addr Addr[T], fn func(*p2pke.Channel) error) error {
-	shouldDelete := false
-	defer func() {
-		if shouldDelete {
-			s.store.delete(addr)
-		}
-	}()
-	return s.store.withConn(addr, func(c *p2pke.Channel) error {
-		if err := c.WaitReady(ctx, s.getSender(ctx, addr.Addr.(T))); err != nil {
-			return err
-		}
-		if err := checkPublicKey(s.fingerprinter, addr.ID, c.RemoteKey()); err != nil {
-			shouldDelete = true
-			return err
-		}
-		return fn(c)
-	})
-}
-
-func (s *Swarm[T]) recvLoops(ctx context.Context, numWorkers int) error {
-	eg := errgroup.Group{}
-	for i := 0; i < numWorkers; i++ {
-		eg.Go(func() error {
-			for {
-				if err := s.inner.Receive(ctx, func(msg p2p.Message[T]) {
-					if err := s.handleMessage(ctx, msg); err != nil {
-						s.log.Warnf("handling message from %v: %v", msg.Src, err)
-					}
-				}); err != nil {
-					return err
-				}
+// getFullAddr returns a p2pke.Channel which matches the full Addr addr.
+func (s *Swarm[T]) getFullAddr(ctx context.Context, addr Addr[T]) (*p2pke.Channel, error) {
+	for {
+		c := s.store.getOrCreate(s.keyForAddr(addr.Addr.(T)), func() *channelState {
+			return &channelState{
+				CreatedAt: time.Now(),
+				Channel: p2pke.NewChannel(s.privateKey, func(pubKey p2p.PublicKey) bool {
+					return s.fingerprinter(pubKey) == addr.ID
+				}, s.getSender(addr.Addr.(T))),
 			}
 		})
+		if err := c.Channel.WaitReady(ctx); err != nil {
+			return nil, err
+		}
+		remoteID := s.fingerprinter(c.Channel.RemoteKey())
+		if remoteID == addr.ID {
+			return c.Channel, nil
+		}
+		s.store.deleteMatching(s.keyForAddr(addr.Addr.(T)), func(v *channelState) bool {
+			return v.Channel == c.Channel
+		})
 	}
-	return eg.Wait()
+}
+
+func (s *Swarm[T]) recvLoop(ctx context.Context) error {
+	for {
+		if err := s.inner.Receive(ctx, func(msg p2p.Message[T]) {
+			if err := s.handleMessage(ctx, msg); err != nil {
+				s.log.Warnf("p2pkeswarm: handling message from %v: %v", msg.Src, err)
+			}
+		}); err != nil {
+			return err
+		}
+	}
 }
 
 func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error {
-	a := Addr[T]{ID: p2p.PeerID{}, Addr: msg.Src} // Leave ID blank
-	return s.store.withConn(a, func(conn *p2pke.Channel) error {
-		out, err := conn.Deliver(ctx, nil, msg.Payload, s.getSender(ctx, msg.Src))
-		if err != nil {
-			return err
+	cs := s.store.getOrCreate(s.keyForAddr(msg.Src), func() *channelState {
+		return &channelState{
+			CreatedAt: time.Now(),
+			Channel: p2pke.NewChannel(s.privateKey, func(pubKey p2p.PublicKey) bool {
+				return true
+			}, s.getSender(msg.Src)),
 		}
-		if out != nil {
-			srcID := s.fingerprinter(conn.RemoteKey())
-			return s.hub.Deliver(ctx, p2p.Message[Addr[T]]{
-				Src:     Addr[T]{ID: srcID, Addr: msg.Src},
-				Dst:     Addr[T]{ID: s.localID, Addr: msg.Dst},
-				Payload: out,
-			})
-		}
-		return nil
 	})
-}
-
-func (s *Swarm[T]) getSender(ctx context.Context, dst T) p2pke.Sender {
-	return func(x []byte) {
-		ctx, cf := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cf()
-		if err := s.inner.Tell(ctx, dst, p2p.IOVec{x}); err != nil {
-			s.log.Errorf("p2pkeswarm: during tell: %v", err)
-		}
+	out, err := cs.Channel.Deliver(ctx, nil, msg.Payload)
+	if err != nil {
+		return err
 	}
-}
-
-func checkPublicKey(fp p2p.Fingerprinter, id p2p.PeerID, x p2p.PublicKey) error {
-	have := fp(x)
-	want := id
-	if have != want {
-		return errors.Errorf("wrong peer id HAVE: %v WANT: %v", have, want)
+	if out != nil {
+		srcID := s.fingerprinter(cs.Channel.RemoteKey())
+		return s.hub.Deliver(ctx, p2p.Message[Addr[T]]{
+			Src:     Addr[T]{ID: srcID, Addr: msg.Src},
+			Dst:     Addr[T]{ID: s.localID, Addr: msg.Dst},
+			Payload: out,
+		})
 	}
 	return nil
+}
+
+func (s *Swarm[T]) getSender(dst T) p2pke.Sender {
+	return func(x []byte) {
+		ctx, cf := context.WithTimeout(context.Background(), s.tellTimeout)
+		defer cf()
+		if err := s.inner.Tell(ctx, dst, p2p.IOVec{x}); err != nil {
+			s.log.Debug("p2pkeswarm: during tell ", err)
+		}
+	}
+}
+
+func (s *Swarm[T]) cleanupLoop(ctx context.Context) error {
+	const (
+		gracePeriod   = 30 * time.Second
+		timeoutPeriod = 30 * time.Second
+	)
+	ticker := time.NewTicker(p2pke.MaxSessionDuration / 2)
+	defer ticker.Stop()
+	now := time.Now()
+	for {
+		s.store.purge(func(addr string, c *channelState) bool {
+			if now.Sub(c.CreatedAt) < gracePeriod {
+				return true
+			}
+			if now.Sub(c.Channel.LastReceived()) < timeoutPeriod {
+				return true
+			}
+			if now.Sub(c.Channel.LastSent()) < timeoutPeriod {
+				return true
+			}
+			return false
+		})
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Swarm[T]) keyForAddr(x T) string {
+	data, err := x.MarshalText()
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
+}
+
+type channelState struct {
+	Channel   *p2pke.Channel
+	CreatedAt time.Time
 }

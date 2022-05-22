@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math/rand"
 	"sync"
-	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
@@ -18,12 +16,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type Message = p2p.Message[Addr]
+
 type Realm struct {
 	clock         clockwork.Clock
-	latency       time.Duration
-	dropRate      float64
 	log           *logrus.Logger
 	trafficLog    io.Writer
+	tellTransform func(Message) *Message
 	mtu           int
 	bufferedTells int
 
@@ -37,6 +36,7 @@ func NewRealm(opts ...Option) *Realm {
 		clock:         clockwork.NewRealClock(),
 		log:           logrus.StandardLogger(),
 		trafficLog:    ioutil.Discard,
+		tellTransform: func(x Message) *Message { return &x },
 		mtu:           1 << 20,
 		swarms:        make(map[int]*Swarm),
 		bufferedTells: 0,
@@ -56,14 +56,6 @@ func (r *Realm) logTraffic(isAsk bool, msg *p2p.Message[Addr]) {
 		method = "ASK_"
 	}
 	fmt.Fprintf(r.trafficLog, "%s: %v -> %v : %x\n", method, msg.Src, msg.Dst, msg.Payload)
-}
-
-func (r *Realm) block() bool {
-	if r.latency > 0 {
-		r.clock.Sleep(r.latency)
-	}
-	x := rand.Float64()
-	return x >= r.dropRate
 }
 
 func (r *Realm) NewSwarm() *Swarm {
@@ -128,9 +120,6 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, addr Addr, data p2p.IOVec)
 	if p2p.VecSize(data) > s.r.mtu {
 		return 0, p2p.ErrMTUExceeded
 	}
-	if !s.r.block() {
-		return 0, errors.New("message dropped")
-	}
 	s.r.logTraffic(true, &msg)
 	s2 := s.r.getSwarm(addr.N)
 	n, err := s2.asks.Deliver(ctx, resp, msg)
@@ -150,27 +139,26 @@ func (s *Swarm) Tell(ctx context.Context, addr Addr, data p2p.IOVec) error {
 	if p2p.VecSize(data) > s.r.mtu {
 		return p2p.ErrMTUExceeded
 	}
-	msg := p2p.Message[Addr]{
+	msg := &p2p.Message[Addr]{
 		Src:     s.LocalAddrs()[0],
 		Dst:     addr,
 		Payload: p2p.VecBytes(nil, data),
 	}
-	if !s.r.block() {
+	msg = s.r.tellTransform(*msg)
+	if msg == nil {
 		return nil
 	}
-	s.r.logTraffic(false, &msg)
+	s.r.logTraffic(false, msg)
 	s2 := s.r.getSwarm(addr.N)
 	if s2 == nil {
 		s.r.log.Debugf("swarm %v does not exist in same memswarm.Realm", addr.N)
 		return nil
 	}
-	ctx, cf := context.WithTimeout(ctx, 3*time.Second)
-	defer cf()
 	select {
 	case <-ctx.Done():
 		s.r.log.Debugf("memswarm: timeout delivering tell %v -> %v", s.n, addr.N)
 		return nil
-	case s2.tells <- msg:
+	case s2.tells <- *msg:
 		return nil
 	}
 }
