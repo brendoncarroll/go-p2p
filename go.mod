@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/brendoncarroll/go-state v0.0.0-20210627233638-99c825eb7040
+	github.com/brendoncarroll/go-tai64 v0.0.0-20220521174838-dc724633d9bd
 	github.com/flynn/noise v1.0.0
 	github.com/golang/protobuf v1.5.2
 	github.com/jonboulle/clockwork v0.1.1-0.20190114141812-62fb9bc030d1

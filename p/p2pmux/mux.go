@@ -151,7 +151,7 @@ func (mc *muxCore[A, C]) publicKey() p2p.PublicKey {
 func (mc *muxCore[A, C]) getSwarm(cid C) (*muxedSwarm[A, C], error) {
 	v, ok := mc.swarms.Load(cid)
 	if !ok {
-		return nil, errors.Errorf("no swarm for channel: %v", v)
+		return nil, errors.Errorf("p2pmux: no swarm for channel: %v", v)
 	}
 	return v.(*muxedSwarm[A, C]), nil
 }
@@ -160,7 +160,7 @@ func (mc *muxCore[A, C]) open(cid C) *muxedSwarm[A, C] {
 	newMS := newMuxedSwarm[A, C](mc, cid)
 	_, exists := mc.swarms.LoadOrStore(cid, newMS)
 	if exists {
-		panic("swarm for channel already exists")
+		panic("p2pmux: swarm for channel already exists")
 	}
 	return newMS
 }

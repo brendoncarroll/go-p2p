@@ -2,13 +2,13 @@ package p2pkeswarm
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/p/p2pke"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
@@ -52,13 +52,19 @@ func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Opti
 	}
 	s.localID = s.fingerprinter(privateKey.Public())
 	s.store = newStore(func(addr Addr[T]) *p2pke.Channel {
-		checkKey := func(p2p.PublicKey) error { return nil }
+		checkKey := func(p2p.PublicKey) bool { return true }
 		if addr.ID != (p2p.PeerID{}) {
-			checkKey = func(x p2p.PublicKey) error {
+			checkKey = func(x p2p.PublicKey) bool {
 				return checkPublicKey(s.fingerprinter, addr.ID, x)
 			}
 		}
-		return p2pke.NewChannel(s.privateKey, checkKey)
+		return p2pke.NewChannel(s.privateKey, checkKey, func(x []byte) {
+			ctx, cf := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cf()
+			if err := s.inner.Tell(ctx, addr.Addr.(T), p2p.IOVec{x}); err != nil {
+				s.log.Warnf("p2pkeswarm: during tell: %v", err)
+			}
+		})
 	})
 	go s.recvLoops(context.Background(), runtime.GOMAXPROCS(0))
 	return s
@@ -69,7 +75,7 @@ func (s *Swarm[T]) Tell(ctx context.Context, dst Addr[T], v p2p.IOVec) error {
 		return p2p.ErrMTUExceeded
 	}
 	return s.withConn(ctx, dst, func(c *p2pke.Channel) error {
-		return c.Send(ctx, p2p.VecBytes(nil, v), s.getSender(ctx, dst.Addr.(T)))
+		return c.Send(ctx, p2p.VecBytes(nil, v))
 	})
 }
 
@@ -128,12 +134,12 @@ func (s *Swarm[T]) withConn(ctx context.Context, addr Addr[T], fn func(*p2pke.Ch
 		}
 	}()
 	return s.store.withConn(addr, func(c *p2pke.Channel) error {
-		if err := c.WaitReady(ctx, s.getSender(ctx, addr.Addr.(T))); err != nil {
+		if err := c.WaitReady(ctx); err != nil {
 			return err
 		}
-		if err := checkPublicKey(s.fingerprinter, addr.ID, c.RemoteKey()); err != nil {
+		if ok := checkPublicKey(s.fingerprinter, addr.ID, c.RemoteKey()); !ok {
 			shouldDelete = true
-			return err
+			return errors.New("key rejected")
 		}
 		return fn(c)
 	})
@@ -146,7 +152,7 @@ func (s *Swarm[T]) recvLoops(ctx context.Context, numWorkers int) error {
 			for {
 				if err := s.inner.Receive(ctx, func(msg p2p.Message[T]) {
 					if err := s.handleMessage(ctx, msg); err != nil {
-						s.log.Warnf("handling message from %v: %v", msg.Src, err)
+						s.log.Warnf("p2pkeswarm: handling message from %v: %v", msg.Src, err)
 					}
 				}); err != nil {
 					return err
@@ -160,7 +166,7 @@ func (s *Swarm[T]) recvLoops(ctx context.Context, numWorkers int) error {
 func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error {
 	a := Addr[T]{ID: p2p.PeerID{}, Addr: msg.Src} // Leave ID blank
 	return s.store.withConn(a, func(conn *p2pke.Channel) error {
-		out, err := conn.Deliver(ctx, nil, msg.Payload, s.getSender(ctx, msg.Src))
+		out, err := conn.Deliver(ctx, nil, msg.Payload)
 		if err != nil {
 			return err
 		}
@@ -176,21 +182,8 @@ func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error 
 	})
 }
 
-func (s *Swarm[T]) getSender(ctx context.Context, dst T) p2pke.Sender {
-	return func(x []byte) {
-		ctx, cf := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cf()
-		if err := s.inner.Tell(ctx, dst, p2p.IOVec{x}); err != nil {
-			s.log.Errorf("p2pkeswarm: during tell: %v", err)
-		}
-	}
-}
-
-func checkPublicKey(fp p2p.Fingerprinter, id p2p.PeerID, x p2p.PublicKey) error {
+func checkPublicKey(fp p2p.Fingerprinter, id p2p.PeerID, x p2p.PublicKey) bool {
 	have := fp(x)
 	want := id
-	if have != want {
-		return errors.Errorf("wrong peer id HAVE: %v WANT: %v", have, want)
-	}
-	return nil
+	return have == want
 }

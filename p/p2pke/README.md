@@ -7,6 +7,22 @@ It requires a message based transport to deliver messages between sessions.
 Sessions have a short lifecycle.
 They are bounded both by a maximum number of messages (2^31-1) and a maximum age (1 minute).
 
+### Handshake
+The Session handshake state machine looks like this:
+```
+                INITIATOR                       RESPONDER
+0   SendingInitHello/AwaitingRespHello          AwaitingInitHello
+1                                               SendingResponseHello/AwaitingInitDone
+2   SendingInitDone/AwaitingFirstMessage
+3                                               HandshakeComplete
+4   HandshakeComplete
+```
+
+In each of these states except HandshakeComplete, the sessions will respond to handshake messages with the next handshake message.
+
+The Responder is ready to send after it has received the InitDone, and will no longer send handshake messages.
+The Initiator is ready to send after it has sent the InitDone, but will still respond to handshake messages until it has received channel data from the responder.
+
 ## Channels
 Channels are a secure channel between two parties.
 Channels manage creating and recreating sessions as they expire.

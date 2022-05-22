@@ -5,24 +5,32 @@ import (
 	sync "sync"
 	"time"
 
+	mrand "math/rand"
+
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/blake2b"
 )
 
+const handshakeSendPeriod = 500 * time.Millisecond
+
 type Channel struct {
 	privateKey        p2p.PrivateKey
+	send              Sender
 	outbound, inbound *halfChannel
 	keyCell           *keyCell
 }
 
-func NewChannel(privateKey p2p.PrivateKey, checkKey func(p2p.PublicKey) error) *Channel {
-	if checkKey == nil {
-		checkKey = func(p2p.PublicKey) error { return nil }
+func NewChannel(privateKey p2p.PrivateKey, allowKey func(p2p.PublicKey) bool, send Sender) *Channel {
+	if allowKey == nil {
+		allowKey = func(x p2p.PublicKey) bool {
+			return true
+		}
 	}
-	kc := &keyCell{checkKey: checkKey}
+	kc := &keyCell{checkKey: allowKey}
 	c := &Channel{
 		privateKey: privateKey,
+		send:       send,
 		outbound: newHalfChannel(SessionParams{
 			PrivateKey: privateKey,
 			IsInit:     true,
@@ -39,12 +47,12 @@ func NewChannel(privateKey p2p.PrivateKey, checkKey func(p2p.PublicKey) error) *
 // Send will call send with an encrypted message containing x
 // It may also send a handshake message.
 // Send will be called multiple times if a handshake has to be performed.
-func (c *Channel) Send(ctx context.Context, x []byte, send Sender) error {
-	hc, err := c.waitReady(ctx, send)
+func (c *Channel) Send(ctx context.Context, x []byte) error {
+	hc, err := c.waitReady(ctx)
 	if err != nil {
 		return err
 	}
-	return hc.Send(ctx, x, send)
+	return hc.Send(ctx, x, c.send)
 }
 
 // Deliver decrypts the payload in x if it contains application data, and appends it to out.
@@ -52,20 +60,27 @@ func (c *Channel) Send(ctx context.Context, x []byte, send Sender) error {
 // if out != nil, then it is application data.
 // if out == nil, then the message was either invalid or contained a handshake message
 // and there is nothing more for the caller to do.
-func (c *Channel) Deliver(ctx context.Context, out, x []byte, send Sender) ([]byte, error) {
+func (c *Channel) Deliver(ctx context.Context, out, x []byte) ([]byte, error) {
 	msg, err := ParseMessage(x)
 	if err != nil {
 		return nil, err
 	}
 	switch msg.GetDirection() {
 	case InitToResp:
-		out, err = c.inbound.Deliver(ctx, out, x, send)
+		out, err = c.inbound.Deliver(ctx, out, x, c.send)
 	case RespToInit:
-		out, err = c.outbound.Deliver(ctx, out, x, send)
+		out, err = c.outbound.Deliver(ctx, out, x, c.send)
 	default:
 		panic("invalid direction")
 	}
 	return out, err
+}
+
+// Close releases all resources associated with the channel.
+// send will not be called after Close completes
+func (c *Channel) Close() error {
+	c.send = func([]byte) {}
+	return nil
 }
 
 // LocalKey returns the public key used by the local party to authenticate.
@@ -93,18 +108,27 @@ func (c *Channel) LastSent() time.Time {
 // WaitReady blocks until the either an inbound or outbound session
 // has been established.
 // send is called to send handshake messages.
-func (c *Channel) WaitReady(ctx context.Context, send Sender) error {
-	_, err := c.waitReady(ctx, send)
+func (c *Channel) WaitReady(ctx context.Context) error {
+	_, err := c.waitReady(ctx)
 	return err
 }
 
-func (c *Channel) waitReady(ctx context.Context, send Sender) (*halfChannel, error) {
+// waitReady sends handshakes in a loop on the output channel
+// and waits for any channel to be ready.
+func (c *Channel) waitReady(ctx context.Context) (*halfChannel, error) {
+	if c.inbound.IsReady() && c.outbound.IsReady() {
+		if mrand.Intn(2) > 0 {
+			return c.inbound, nil
+		} else {
+			return c.outbound, nil
+		}
+	}
 	inbound := c.inbound.ReadyChan()
 	outbound := c.outbound.ReadyChan()
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(handshakeSendPeriod)
 	defer ticker.Stop()
 	for {
-		c.outbound.InitHandshake(send)
+		c.outbound.InitHandshake(c.send)
 		select {
 		case <-ticker.C:
 			// continue
@@ -125,6 +149,7 @@ type halfChannel struct {
 	mu          sync.Mutex
 	m0Hash      [32]byte
 	initMessage []byte
+	queued      []byte
 
 	s           *Session
 	closedReady bool
@@ -166,37 +191,28 @@ func (hc *halfChannel) Send(ctx context.Context, x []byte, send Sender) error {
 }
 
 func (hc *halfChannel) Deliver(ctx context.Context, out, x []byte, send Sender) ([]byte, error) {
-	// check if this could be an early arriving postHandshake message
-	// and give an oppurtunity for the handshake message to get there first.
-	// In practice this makes the tests less flaky, but there might be a better way to handle this.
-	// Once the connection is established, this won't happen.
-	// It might also be worth limiting the number of these messages that we are delaying.
-	if !hc.IsReady() && IsPostHandshake(x) {
-		timer := time.NewTimer(200 * time.Millisecond)
-		defer timer.Stop()
-		select {
-		case <-timer.C:
-		case <-hc.ReadyChan():
-		case <-ctx.Done():
-			return nil, ctx.Err()
+	var haveAppData bool
+	if err := hc.doThenSend(send, func() ([]byte, error) {
+		// check if this could be an early arriving postHandshake message
+		// and give an oppurtunity for the handshake message to get there first.
+		// In practice this makes the tests less flaky, but there might be a better way to handle this.
+		// Once the connection is established, this won't happen.
+		// It might also be worth limiting the number of these messages that we are delaying.
+		if !hc.s.IsReady() && IsPostHandshake(x) {
+			hc.queued = append([]byte{}, x...)
+			return nil, nil
 		}
-	}
-	var isApp bool
-	var closeReady chan struct{}
-	if err := func() error {
-		hc.mu.Lock()
-		defer hc.mu.Unlock()
 		if !hc.params.IsInit && IsInitHello(x) {
 			msgHash := blake2b.Sum256(x)
 			if msgHash == hc.m0Hash {
-				return nil
+				return nil, nil
 			}
 			hc.reset(msgHash)
 		}
 		var err error
-		isApp, out, err = hc.s.Deliver(out, x, time.Now())
+		haveAppData, out, err = hc.s.Deliver(out, x, time.Now())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		hc.lastReceived = time.Now()
 		// if the session just became ready then close the ready channel
@@ -204,33 +220,28 @@ func (hc *halfChannel) Deliver(ctx context.Context, out, x []byte, send Sender) 
 			// check and set the remote key
 			if err := hc.setKey(hc.s.RemoteKey()); err != nil {
 				hc.reset([32]byte{})
-				return errors.Errorf("keys do not match")
+				return nil, err
 			}
-			// if we need to send anything, don't mark it ready until it has been sent.
-			if len(out) > 0 {
-				closeReady = hc.ready
-			} else {
-				close(hc.ready)
-				hc.closedReady = true
-			}
-		}
-		return nil
-	}(); err != nil {
-		return nil, err
-	}
-	if isApp {
-		return out, nil
-	} else if len(out) > 0 {
-		send(out)
-	}
-	// after the send we can now close the ready channel
-	if closeReady != nil {
-		hc.mu.Lock()
-		if closeReady == hc.ready && !hc.closedReady {
 			close(hc.ready)
 			hc.closedReady = true
 		}
-		hc.mu.Unlock()
+		// if there is not app data, then we need to send the response
+		if !haveAppData {
+			return out, nil
+		}
+		return nil, nil
+	}); err != nil {
+		return nil, err
+	}
+	if haveAppData {
+		return out, nil
+	}
+	hc.mu.Lock()
+	queued := hc.queued
+	hc.queued = nil
+	hc.mu.Unlock()
+	if queued != nil {
+		return hc.Deliver(ctx, out, queued, send)
 	}
 	return nil, nil
 }
@@ -277,34 +288,45 @@ func (hc *halfChannel) InitHandshake(send Sender) {
 	if !hc.params.IsInit {
 		panic("InitHandshake called on non-initiator session")
 	}
+	hc.doThenSend(send, func() ([]byte, error) {
+		if hc.s.IsReady() {
+			return nil, nil
+		}
+		if hc.initMessage == nil {
+			hc.initMessage = hc.s.Handshake(nil)
+		}
+		return hc.initMessage, nil
+	})
+}
+
+func (hc *halfChannel) doThenSend(send Sender, fn func() ([]byte, error)) error {
 	var data []byte
+	var err error
 	func() {
 		hc.mu.Lock()
 		defer hc.mu.Unlock()
-		if hc.s.IsReady() {
-			return
-		}
-		if hc.initMessage == nil {
-			hc.initMessage = hc.s.StartHandshake(nil)
-		}
-		data = hc.initMessage
+		data, err = fn()
 	}()
+	if err != nil {
+		return err
+	}
 	if data != nil {
 		send(data)
 	}
+	return nil
 }
 
 // keyCell holds a public key.
 type keyCell struct {
-	checkKey func(p2p.PublicKey) error
+	checkKey func(p2p.PublicKey) bool
 
 	mu        sync.Mutex
 	publicKey p2p.PublicKey
 }
 
 func (kc *keyCell) SetKey(x p2p.PublicKey) error {
-	if err := kc.checkKey(x); err != nil {
-		return err
+	if ok := kc.checkKey(x); !ok {
+		return errors.New("key rejected")
 	}
 	kc.mu.Lock()
 	defer kc.mu.Unlock()
