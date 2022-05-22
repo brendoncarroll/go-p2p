@@ -18,7 +18,10 @@ const (
 	noncePostHandshake = 16
 )
 
-const purpose = "p2pke/sig-channel-binding"
+const (
+	purposeChannelBinding = "p2pke/sig-channel-binding"
+	purposeTimestamp      = "p2pke/timestamp"
+)
 
 type Direction uint8
 

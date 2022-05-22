@@ -43,17 +43,18 @@ func EqualPublicKeys(a, b PublicKey) bool {
 // The signature will be appended to out
 func Sign(out []byte, key PrivateKey, purpose string, data []byte) ([]byte, error) {
 	xof := makeXOF(purpose, data)
-	return SignXOF(out, key, rand.Reader, xof)
+	return signXOF(out, key, xof)
 }
 
 // Verify checks that sig was produced by the private key corresponding to key
 // and that purpose matches the purposed used to created the signature.
 func Verify(key PublicKey, purpose string, data, sig []byte) error {
 	xof := makeXOF(purpose, data)
-	return VerifyXOF(key, xof, sig)
+	return verifyXOF(key, xof, sig)
 }
 
-func SignXOF(out []byte, privateKey PrivateKey, rng, xof io.Reader) ([]byte, error) {
+func signXOF(out []byte, privateKey PrivateKey, xof io.Reader) ([]byte, error) {
+	rng := rand.Reader
 	var presig [64]byte
 	if _, err := io.ReadFull(xof, presig[:]); err != nil {
 		return nil, err
@@ -65,7 +66,7 @@ func SignXOF(out []byte, privateKey PrivateKey, rng, xof io.Reader) ([]byte, err
 	return append(out, sig...), nil
 }
 
-func VerifyXOF(publicKey PublicKey, xof io.Reader, sig []byte) error {
+func verifyXOF(publicKey PublicKey, xof io.Reader, sig []byte) error {
 	var presig [64]byte
 	if _, err := io.ReadFull(xof, presig[:]); err != nil {
 		return err

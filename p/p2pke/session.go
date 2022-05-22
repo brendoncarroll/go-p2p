@@ -1,8 +1,6 @@
 package p2pke
 
 import (
-	"crypto/rand"
-	"io"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
@@ -10,7 +8,6 @@ import (
 	"github.com/flynn/noise"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/blake2b"
 	"golang.zx2c4.com/wireguard/replay"
 )
 
@@ -278,7 +275,7 @@ func readInitHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 	if hello.AuthClaim == nil {
 		return nil, errors.Errorf("InitHello missing auth claim")
 	}
-	if err := verifyAuthClaim(hello.AuthClaim, hello.TimestampTai64N); err != nil {
+	if err := verifyAuthClaim(purposeTimestamp, hello.AuthClaim, hello.TimestampTai64N); err != nil {
 		return nil, errors.Wrapf(err, "validating InitHello")
 	}
 	// prepare response
@@ -320,11 +317,7 @@ func readRespHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 	if err != nil {
 		return nil, err
 	}
-	xof := makeAuthClaimXOF()
-	if _, err := xof.Write(cb); err != nil {
-		return nil, err
-	}
-	if err := p2p.VerifyXOF(pubKey, xof, respHello.AuthClaim.Sig); err != nil {
+	if err := p2p.Verify(pubKey, purposeChannelBinding, cb, respHello.AuthClaim.Sig); err != nil {
 		return nil, err
 	}
 	cipherOut, _ := pickCS(true, cs1, cs2)
@@ -363,11 +356,7 @@ func readInitDone(hs *noise.HandshakeState, cipherIn noise.Cipher, msg Message) 
 		return nil, err
 	}
 	cb := hs.ChannelBinding()
-	xof := makeAuthClaimXOF()
-	if _, err := xof.Write(cb); err != nil {
-		return nil, err
-	}
-	if err := p2p.VerifyXOF(pubKey, xof, initDone.AuthClaim.Sig); err != nil {
+	if err := verifyAuthClaim(purposeChannelBinding, initDone.AuthClaim, cb); err != nil {
 		return nil, err
 	}
 	return &initDoneResult{
@@ -376,11 +365,7 @@ func readInitDone(hs *noise.HandshakeState, cipherIn noise.Cipher, msg Message) 
 }
 
 func makeChannelAuthClaim(privateKey p2p.PrivateKey, cb []byte) *AuthClaim {
-	xof := makeAuthClaimXOF()
-	if _, err := xof.Write(cb); err != nil {
-		panic(err)
-	}
-	sig, err := p2p.SignXOF(nil, privateKey, rand.Reader, xof)
+	sig, err := p2p.Sign(nil, privateKey, purposeChannelBinding, cb)
 	if err != nil {
 		panic(err)
 	}
@@ -391,12 +376,8 @@ func makeChannelAuthClaim(privateKey p2p.PrivateKey, cb []byte) *AuthClaim {
 }
 
 func makeTAI64NAuthClaim(privateKey p2p.PrivateKey, timestamp tai64.TAI64N) *AuthClaim {
-	xof := makeAuthClaimXOF()
 	tsBytes := timestamp.Marshal()
-	if _, err := xof.Write(tsBytes[:]); err != nil {
-		panic(err)
-	}
-	sig, err := p2p.SignXOF(nil, privateKey, rand.Reader, xof)
+	sig, err := p2p.Sign(nil, privateKey, purposeTimestamp, tsBytes[:])
 	if err != nil {
 		panic(err)
 	}
@@ -406,31 +387,12 @@ func makeTAI64NAuthClaim(privateKey p2p.PrivateKey, timestamp tai64.TAI64N) *Aut
 	}
 }
 
-// makeAuthClaimXOF creates an XOF and writes the auth claim purpose to it
-// then returns it.
-// The XOF will be created using the same cryptographic primitive used for the handshake.
-// Right now, that will always be blake2b.
-func makeAuthClaimXOF() io.ReadWriter {
-	xof, err := blake2b.NewXOF(blake2b.OutputLengthUnknown, nil)
-	if err != nil {
-		panic(err)
-	}
-	if _, err := xof.Write([]byte(purpose)); err != nil {
-		panic(err)
-	}
-	return xof
-}
-
-func verifyAuthClaim(ac *AuthClaim, data []byte) error {
+func verifyAuthClaim(purpose string, ac *AuthClaim, data []byte) error {
 	pubKey, err := p2p.ParsePublicKey(ac.KeyX509)
 	if err != nil {
 		return err
 	}
-	xof := makeAuthClaimXOF()
-	if _, err := xof.Write(data); err != nil {
-		return err
-	}
-	return p2p.VerifyXOF(pubKey, xof, ac.Sig)
+	return p2p.Verify(pubKey, purpose, data, ac.Sig)
 }
 
 func pickCS(initiator bool, cs1, cs2 *noise.CipherState) (outCipher, inCipher noise.Cipher) {

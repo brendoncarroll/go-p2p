@@ -15,6 +15,7 @@ import (
 
 type swarmConfig struct {
 	fingerprinter p2p.Fingerprinter
+	tellTimeout   time.Duration
 }
 
 type Option func(s *swarmConfig)
@@ -39,6 +40,7 @@ type Swarm[T p2p.Addr] struct {
 func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Option) *Swarm[T] {
 	config := swarmConfig{
 		fingerprinter: p2p.DefaultFingerprinter,
+		tellTimeout:   3 * time.Second,
 	}
 	for _, opt := range opts {
 		opt(&config)
@@ -59,7 +61,7 @@ func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Opti
 			}
 		}
 		return p2pke.NewChannel(s.privateKey, checkKey, func(x []byte) {
-			ctx, cf := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cf := context.WithTimeout(context.Background(), config.tellTimeout)
 			defer cf()
 			if err := s.inner.Tell(ctx, addr.Addr.(T), p2p.IOVec{x}); err != nil {
 				s.log.Warnf("p2pkeswarm: during tell: %v", err)
