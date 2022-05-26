@@ -1,17 +1,14 @@
 package p2pke
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
-type ErrNoCommonSuite struct {
-	ServerSupports []string
+type ErrSessionExpired struct {
+	ExpiredAt time.Time
 }
-
-func (e ErrNoCommonSuite) Error() string {
-	return fmt.Sprintf("p2pke: no common suites: server supports %v", e.ServerSupports)
-}
-
-type ErrSessionExpired struct{}
 
 func (e ErrSessionExpired) Error() string {
-	return "p2pke: session expired"
+	return fmt.Sprintf("p2pke: session expired at %v", e.ExpiredAt)
 }

@@ -3,13 +3,12 @@ syntax = "proto3";
 option go_package = "github.com/brendoncarroll/go-p2p/p/p2pke";
 
 message InitHello {
-    repeated string cipher_suites = 1;
+    uint32 version = 1;
     bytes timestamp_tai64n = 2;
     AuthClaim auth_claim = 3;
 }
 
 message RespHello {
-    string cipher_suite = 1;
     AuthClaim auth_claim = 2;
 }
 

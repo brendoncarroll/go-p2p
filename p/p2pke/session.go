@@ -11,17 +11,10 @@ import (
 	"golang.zx2c4.com/wireguard/replay"
 )
 
-const (
-	MaxSessionDuration = 1 * time.Minute
-	Overhead           = 4 + 16
-)
-
-type Sender func([]byte)
-
 type Session struct {
 	privateKey p2p.PrivateKey
 	isInit     bool
-	log        *logrus.Logger
+	log        logrus.FieldLogger
 	expiresAt  time.Time
 
 	// handshake
@@ -38,10 +31,11 @@ type Session struct {
 }
 
 type SessionParams struct {
-	IsInit     bool
-	PrivateKey p2p.PrivateKey
-	Logger     *logrus.Logger
-	Now        time.Time
+	IsInit      bool
+	PrivateKey  p2p.PrivateKey
+	Logger      logrus.FieldLogger
+	Now         time.Time
+	RejectAfter time.Duration
 }
 
 func NewSession(params SessionParams) *Session {
@@ -51,7 +45,7 @@ func NewSession(params SessionParams) *Session {
 	hs, err := noise.NewHandshakeState(noise.Config{
 		Initiator:   params.IsInit,
 		Pattern:     noise.HandshakeNN,
-		CipherSuite: noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b),
+		CipherSuite: v1CipherSuite,
 	})
 	if err != nil {
 		panic(err)
@@ -60,7 +54,7 @@ func NewSession(params SessionParams) *Session {
 		privateKey: params.PrivateKey,
 		isInit:     params.IsInit,
 		log:        params.Logger,
-		expiresAt:  params.Now.Add(MaxSessionDuration),
+		expiresAt:  params.Now.Add(params.RejectAfter),
 		hs:         hs,
 		rp:         &replay.Filter{},
 	}
@@ -131,7 +125,7 @@ func (s *Session) Send(out, ptext []byte, now time.Time) ([]byte, error) {
 	}
 	nonce := s.nonce
 	s.nonce++
-	msg := newMessage(s.outgoingDirection(), nonce)
+	msg := newMessage(nonce)
 	out = append(out, msg...)
 	out = s.cipherOut.Encrypt(out, uint64(nonce), msg, ptext)
 	return out, nil
@@ -158,17 +152,9 @@ func (s *Session) Close() error {
 	return nil
 }
 
-func (s *Session) outgoingDirection() Direction {
-	if s.isInit {
-		return InitToResp
-	} else {
-		return RespToInit
-	}
-}
-
 func (s *Session) checkExpired(now time.Time) error {
 	if now.After(s.expiresAt) {
-		return ErrSessionExpired{}
+		return ErrSessionExpired{ExpiredAt: s.expiresAt}
 	}
 	return nil
 }
@@ -184,7 +170,7 @@ func (s *Session) writeHandshake(out []byte) []byte {
 		if s.msgCache[0] == nil {
 			panic("writeHandshake without init")
 		}
-		return s.msgCache[0]
+		return append(out, s.msgCache[0]...)
 	case !s.isInit && s.hsIndex == 1:
 		if s.msgCache[1] == nil {
 			panic("writeHandshake called before readHandshake")
@@ -238,14 +224,15 @@ func (s *Session) readHandshake(msg Message) error {
 
 // writeInit writes an InitHello message to out using hs, and initHelloTime
 func writeInitHello(out []byte, hs *noise.HandshakeState, privateKey p2p.PrivateKey, initHelloTime tai64.TAI64N) []byte {
-	msg := newMessage(InitToResp, 0)
+	msg := newMessage(0)
 	tsBytes := initHelloTime.Marshal()
 	var err error
-	msg, _, _, err = hs.WriteMessage(msg, marshal(nil, &InitHello{
-		CipherSuites:    cipherSuiteNames,
+	initHelloData := marshal(nil, &InitHello{
+		Version:         1,
 		TimestampTai64N: tsBytes[:],
 		AuthClaim:       makeTAI64NAuthClaim(privateKey, initHelloTime),
-	}))
+	})
+	msg, _, _, err = hs.WriteMessage(msg, initHelloData)
 	if err != nil {
 		panic(err)
 	}
@@ -272,18 +259,14 @@ func readInitHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 	if err != nil {
 		return nil, err
 	}
-	if hello.AuthClaim == nil {
-		return nil, errors.Errorf("InitHello missing auth claim")
-	}
 	if err := verifyAuthClaim(purposeTimestamp, hello.AuthClaim, hello.TimestampTai64N); err != nil {
 		return nil, errors.Wrapf(err, "validating InitHello")
 	}
 	// prepare response
-	msg2 := newMessage(RespToInit, 1)
+	msg2 := newMessage(1)
 	cb := hs.ChannelBinding()
 	msg2, cs1, cs2, err := hs.WriteMessage(msg2, marshal(nil, &RespHello{
-		CipherSuite: cipherSuiteNames[0],
-		AuthClaim:   makeChannelAuthClaim(privateKey, cb),
+		AuthClaim: makeChannelAuthClaim(privateKey, cb),
 	}))
 	if err != nil {
 		panic(err)
@@ -323,7 +306,7 @@ func readRespHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 	}
 	cipherOut, cipherIn := pickCS(true, cs1, cs2)
 	authClaim := makeChannelAuthClaim(privateKey, hs.ChannelBinding())
-	msg2 := newMessage(InitToResp, nonceInitDone)
+	msg2 := newMessage(nonceInitDone)
 	msg2 = cipherOut.Encrypt(msg2, uint64(nonceInitDone), msg2, marshal(nil, &InitDone{
 		AuthClaim: authClaim,
 	}))

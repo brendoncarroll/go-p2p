@@ -66,14 +66,16 @@ func logMsg(t *testing.T, direction Direction, data []byte) {
 
 func newTestPair(t *testing.T) (s1, s2 *Session) {
 	s1 = NewSession(SessionParams{
-		IsInit:     true,
-		PrivateKey: p2ptest.NewTestKey(t, 0),
-		Now:        time.Now(),
+		IsInit:      true,
+		PrivateKey:  p2ptest.NewTestKey(t, 0),
+		Now:         time.Now(),
+		RejectAfter: RejectAfterTime,
 	})
 	s2 = NewSession(SessionParams{
-		IsInit:     false,
-		PrivateKey: p2ptest.NewTestKey(t, 1),
-		Now:        time.Now(),
+		IsInit:      false,
+		PrivateKey:  p2ptest.NewTestKey(t, 1),
+		Now:         time.Now(),
+		RejectAfter: RejectAfterTime,
 	})
 	return s1, s2
 }
