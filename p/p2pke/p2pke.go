@@ -8,38 +8,34 @@ import (
 )
 
 const (
-	MaxNonce        = math.MaxUint32 - 1
-	SessionOverhead = 4 + 16
-	Overhead        = 4 + SessionOverhead
+	MaxNonce      = math.MaxUint32 - 1
+	Overhead      = 4 + 16
+	MaxMessageLen = noise.MaxMsgLen - Overhead
 
-	// RekeyAttemptTime is the duration spent trying to rekey before giving up and letting the channel die.
-	RekeyAttemptTime = 90 * time.Second
-	// RekeyTimeout is the durtation spent waiting for a response before retrying
-	RekeyTimeout = 5 * time.Second
-	// RekeyAfterTime is the time the current session is alive before another session is created.
+	// RekeyAfterTime is the default.
 	RekeyAfterTime = 120 * time.Second
-	// RejectAfterTime is the time a session has been alive, after which messages will automatically be rejected.
+	// RejectAfterTime is the default.
 	RejectAfterTime = 180 * time.Second
 	// RekeyAfterMessages is the number of messages that can be sent over a session before a rekey is triggered.
 	RekeyAfterMessages = MaxNonce / 2
-	// KeepAliveTimeout is the amount of time to keep the session alive if no authenticated packets have been received.
-	KeepAliveTimeout = 15 * time.Second
-	// HandshakeTimeout
-	HandshakeTimeout = time.Second
 
-	MaxSessionDuration = 1 * time.Minute
+	// KeepAliveTimeout is the default.
+	KeepAliveTimeout = 15 * time.Second
+	// HandshakeBackoff is the default.
+	HandshakeBackoff = 250 * time.Millisecond
 )
 
 const (
 	nonceInitHello = 0
 	nonceRespHello = 1
 	nonceInitDone  = 2
+	nonceRespDone  = 3
 
 	noncePostHandshake = 16
 )
 
 const (
-	purposeChannelBinding = "p2pke/sig-channel-binding"
+	purposeChannelBinding = "p2pke/channel-binding"
 	purposeTimestamp      = "p2pke/timestamp"
 )
 

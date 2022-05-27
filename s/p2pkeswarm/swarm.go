@@ -18,13 +18,12 @@ type Swarm[T p2p.Addr] struct {
 	inner      p2p.Swarm[T]
 	privateKey p2p.PrivateKey
 	swarmConfig[T]
-	whitelist func(Addr[T]) bool
-	localID   p2p.PeerID
 
-	hub   *swarmutil.TellHub[Addr[T]]
-	store *store[string, *channelState]
-	cf    context.CancelFunc
-	eg    errgroup.Group
+	localID p2p.PeerID
+	hub     *swarmutil.TellHub[Addr[T]]
+	store   *store[string, *channelState]
+	cf      context.CancelFunc
+	eg      errgroup.Group
 }
 
 func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Option[T]) *Swarm[T] {
@@ -126,10 +125,11 @@ func (s *Swarm[T]) getFullAddr(ctx context.Context, addr Addr[T]) (*p2pke.Channe
 		c := s.store.getOrCreate(s.keyForAddr(addr.Addr.(T)), func() *channelState {
 			return &channelState{
 				CreatedAt: time.Now(),
-				Channel: p2pke.NewChannel(p2pke.ChannelParams{
+				Channel: p2pke.NewChannel(p2pke.ChannelConfig{
 					PrivateKey: s.privateKey,
 					AllowKey: func(pubKey p2p.PublicKey) bool {
-						return s.fingerprinter(pubKey) == addr.ID
+						id := s.fingerprinter(pubKey)
+						return id == addr.ID
 					},
 					Send: s.getSender(addr.Addr.(T)),
 				}),
@@ -164,7 +164,7 @@ func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error 
 	cs := s.store.getOrCreate(s.keyForAddr(msg.Src), func() *channelState {
 		return &channelState{
 			CreatedAt: time.Now(),
-			Channel: p2pke.NewChannel(p2pke.ChannelParams{
+			Channel: p2pke.NewChannel(p2pke.ChannelConfig{
 				PrivateKey: s.privateKey,
 				AllowKey: func(pubKey p2p.PublicKey) bool {
 					id := s.fingerprinter(pubKey)
@@ -190,10 +190,10 @@ func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error 
 }
 
 func (s *Swarm[T]) getSender(dst T) p2pke.SendFunc {
-	return func(x p2p.IOVec) {
+	return func(x []byte) {
 		ctx, cf := context.WithTimeout(context.Background(), s.tellTimeout)
 		defer cf()
-		if err := s.inner.Tell(ctx, dst, x); err != nil {
+		if err := s.inner.Tell(ctx, dst, p2p.IOVec{x}); err != nil {
 			s.log.Debug("p2pkeswarm: during tell ", err)
 		}
 	}
@@ -202,7 +202,7 @@ func (s *Swarm[T]) getSender(dst T) p2pke.SendFunc {
 func (s *Swarm[T]) cleanupLoop(ctx context.Context) error {
 	const (
 		gracePeriod   = 30 * time.Second
-		timeoutPeriod = 30 * time.Second
+		timeoutPeriod = p2pke.KeepAliveTimeout
 	)
 	ticker := time.NewTicker(p2pke.MaxSessionDuration / 2)
 	defer ticker.Stop()

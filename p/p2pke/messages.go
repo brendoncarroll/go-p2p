@@ -22,7 +22,16 @@ func unmarshal(data []byte, x proto.Message) error {
 	return proto.Unmarshal(data, x)
 }
 
-func parseInitHello(data []byte) (*InitHello, error) {
+func parseInitHello(body []byte) (*InitHello, error) {
+	if len(body) < 2 {
+		return nil, errors.New("InitHello missing length")
+	}
+	l := int(binary.BigEndian.Uint16(body[len(body)-2:]))
+	start := len(body) - 2 - l
+	if start < 0 {
+		return nil, errors.New("InitHello has invalid length")
+	}
+	data := body[start : len(body)-2]
 	x := &InitHello{}
 	if err := unmarshal(data, x); err != nil {
 		return nil, err
@@ -89,10 +98,6 @@ func (m Message) Body() []byte {
 
 func (m Message) GetInitHello() (*InitHello, error) {
 	data := m.Body()
-	if len(data) < 32 {
-		return nil, errors.New("too short to contain InitHello")
-	}
-	data = data[32:]
 	return parseInitHello(data)
 }
 

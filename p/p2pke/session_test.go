@@ -20,7 +20,10 @@ func TestHandshake(t *testing.T) {
 	logMsg(t, InitToResp, m2)
 	_, m3, err := s2.Deliver(nil, m2, time.Now())
 	require.NoError(t, err)
-	require.Len(t, m3, 0)
+	logMsg(t, RespToInit, m3)
+	_, m4, err := s1.Deliver(nil, m3, time.Now())
+	require.NoError(t, err)
+	require.Len(t, m4, 0)
 
 	require.Equal(t, s1.hs.ChannelBinding(), s2.hs.ChannelBinding())
 	require.Equal(t, s1.privateKey.Public(), s2.RemoteKey())
@@ -29,7 +32,7 @@ func TestHandshake(t *testing.T) {
 
 func TestHandshakeRepeats(t *testing.T) {
 	s1, s2 := newTestPair(t)
-	var m1, m2, m3 []byte
+	var m1, m2, m3, m4 []byte
 	var err error
 	var isApp bool
 	const N = 10
@@ -51,8 +54,14 @@ func TestHandshakeRepeats(t *testing.T) {
 		//logMsg(t, InitToResp, m2)
 		isApp, m3, err = s2.Deliver(nil, m2, time.Now())
 		require.NoError(t, err)
-		require.Len(t, m3, 0)
 		require.False(t, isApp)
+	}
+	for i := 0; i < N; i++ {
+		//logMsg(t, InitToResp, m2)
+		isApp, m4, err = s1.Deliver(nil, m3, time.Now())
+		require.NoError(t, err)
+		require.False(t, isApp)
+		require.Len(t, m4, 0)
 	}
 
 	require.Equal(t, s1.hs.ChannelBinding(), s2.hs.ChannelBinding())
