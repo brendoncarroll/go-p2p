@@ -130,7 +130,7 @@ func (s *Swarm[T]) getFullAddr(ctx context.Context, addr Addr[T]) (*p2pke.Channe
 				CreatedAt: time.Now(),
 				Channel: p2pke.NewChannel(p2pke.ChannelConfig{
 					PrivateKey: s.privateKey,
-					AllowKey: func(pubKey p2p.PublicKey) bool {
+					AcceptKey: func(pubKey p2p.PublicKey) bool {
 						id := s.fingerprinter(pubKey)
 						return id == addr.ID
 					},
@@ -169,7 +169,7 @@ func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error 
 			CreatedAt: time.Now(),
 			Channel: p2pke.NewChannel(p2pke.ChannelConfig{
 				PrivateKey: s.privateKey,
-				AllowKey: func(pubKey p2p.PublicKey) bool {
+				AcceptKey: func(pubKey p2p.PublicKey) bool {
 					id := s.fingerprinter(pubKey)
 					return s.whitelist(Addr[T]{ID: id, Addr: msg.Src})
 				},
@@ -177,7 +177,7 @@ func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error 
 			}),
 		}
 	})
-	out, err := cs.Channel.Deliver(ctx, nil, msg.Payload)
+	out, err := cs.Channel.Deliver(nil, msg.Payload)
 	if err != nil {
 		return err
 	}

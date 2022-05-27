@@ -3,6 +3,7 @@ package p2pke
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -58,9 +59,6 @@ func parseInitDone(data []byte) (*InitDone, error) {
 	if err := unmarshal(data, x); err != nil {
 		return nil, err
 	}
-	if x.AuthClaim == nil {
-		return nil, errors.New("InitDone missing AuthClaim")
-	}
 	return x, nil
 }
 
@@ -113,7 +111,12 @@ func PrettyPrint(msg Message) string {
 			break
 		}
 		doHexDump = false
-		fmt.Fprintln(bw, x)
+		data, err := json.MarshalIndent(x, "", "  ")
+		if err != nil {
+			panic(err)
+		}
+		bw.Write(data)
+		bw.WriteString("\n")
 	}
 	if doHexDump {
 		d := hex.Dumper(bw)

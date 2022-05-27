@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p/p2ptest"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,17 +75,26 @@ func logMsg(t *testing.T, direction Direction, data []byte) {
 }
 
 func newTestPair(t *testing.T) (s1, s2 *Session) {
-	s1 = NewSession(SessionParams{
+	s1 = NewSession(SessionConfig{
 		IsInit:      true,
 		PrivateKey:  p2ptest.NewTestKey(t, 0),
 		Now:         time.Now(),
+		Logger:      newTestLogger(t),
 		RejectAfter: RejectAfterTime,
 	})
-	s2 = NewSession(SessionParams{
+	s2 = NewSession(SessionConfig{
 		IsInit:      false,
 		PrivateKey:  p2ptest.NewTestKey(t, 1),
 		Now:         time.Now(),
+		Logger:      newTestLogger(t),
 		RejectAfter: RejectAfterTime,
 	})
 	return s1, s2
+}
+
+func newTestLogger(t testing.TB) logrus.FieldLogger {
+	log := logrus.New()
+	log.SetFormatter(&logrus.TextFormatter{ForceColors: true})
+	log.SetLevel(logrus.TraceLevel)
+	return log
 }

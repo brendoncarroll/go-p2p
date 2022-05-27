@@ -8,10 +8,13 @@ import (
 )
 
 const (
-	MaxNonce      = math.MaxUint32 - 1
-	Overhead      = 4 + 16
+	// Overhead is the per message overhead taken up by P2PKE.
+	Overhead = 4 + 16
+	// MaxMessageLen is the maximum message size that applications can send through the channel.
 	MaxMessageLen = noise.MaxMsgLen - Overhead
 
+	// MaxNonce is the maxmium number of messages that can be sent through a channel.
+	MaxNonce = math.MaxUint32 - 1
 	// RekeyAfterTime is the default.
 	RekeyAfterTime = 120 * time.Second
 	// RejectAfterTime is the default.

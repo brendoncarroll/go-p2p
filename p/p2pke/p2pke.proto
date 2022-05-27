@@ -13,7 +13,7 @@ message RespHello {
 }
 
 message InitDone {
-    AuthClaim auth_claim = 1;
+    bytes sig = 1;
 }
 
 message AuthClaim {

@@ -50,30 +50,31 @@ func TestChannelBidi(t *testing.T) {
 }
 
 func newChannelPair(t testing.TB, fn1, fn2 func([]byte)) (c1, c2 *Channel) {
-	ctx := context.Background()
 	c1 = NewChannel(ChannelConfig{
 		PrivateKey: p2ptest.NewTestKey(t, 0),
 		Send: func(x []byte) {
 			t.Logf("1->2: %q", x)
-			out, err := c2.Deliver(ctx, nil, x)
+			out, err := c2.Deliver(nil, x)
 			require.NoError(t, err)
 			if out != nil {
 				fn2(out)
 			}
 		},
-		AllowKey: func(p2p.PublicKey) bool { return true },
+		AcceptKey: func(p2p.PublicKey) bool { return true },
+		Logger:    newTestLogger(t),
 	})
 	c2 = NewChannel(ChannelConfig{
 		PrivateKey: p2ptest.NewTestKey(t, 1),
 		Send: func(x []byte) {
 			t.Logf("2->1: %q", x)
-			out, err := c1.Deliver(ctx, nil, x)
+			out, err := c1.Deliver(nil, x)
 			require.NoError(t, err)
 			if out != nil {
 				fn1(out)
 			}
 		},
-		AllowKey: func(p2p.PublicKey) bool { return true },
+		AcceptKey: func(p2p.PublicKey) bool { return true },
+		Logger:    newTestLogger(t),
 	})
 	t.Cleanup(func() {
 		require.NoError(t, c1.Close())

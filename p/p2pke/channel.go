@@ -1,7 +1,9 @@
 package p2pke
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"log"
 	sync "sync"
 	"time"
@@ -23,17 +25,22 @@ type ChannelConfig struct {
 	// Send is used to send p2pke protocol messages including ciphertexts and handshake messages.
 	// *REQUIRED*
 	Send SendFunc
-	// AllowKey is used to check if a key is allowed before connecting.
-	AllowKey func(p2p.PublicKey) bool
-	Logger   logrus.FieldLogger
+	// AcceptKey is used to check if a key is allowed before connecting
+	// *REQUIRED*.
+	AcceptKey func(p2p.PublicKey) bool
+	// Logger is used for logging, nil disables logs.
+	Logger logrus.FieldLogger
 
 	// KeepAliveTimeout is the amount of time to consider a session alive wihtout receiving a message
 	// through it.
 	KeepAliveTimeout time.Duration
 	// HandshakeBackoff is the amount of time to wait between sending handshake messages.
 	HandshakeBackoff time.Duration
-	RekeyAfterTime   time.Duration
-	RejectAfterTime  time.Duration
+	// RekeyAfterTime is the amount of time between rekeying a session.
+	RekeyAfterTime time.Duration
+	// RejectAfterTime is the duration after session creation when the session will send and
+	// received messages.
+	RejectAfterTime time.Duration
 }
 
 type Channel struct {
@@ -61,11 +68,15 @@ func NewChannel(params ChannelConfig) *Channel {
 	if params.Send == nil {
 		panic("Send must be set")
 	}
-	if params.AllowKey == nil {
-		panic("AllowKey must be set")
+	if params.AcceptKey == nil {
+		panic("AcceptKey must be set")
 	}
 	if params.Logger == nil {
-		params.Logger = logrus.StandardLogger()
+		nullLogger := &logrus.Logger{
+			Level: logrus.FatalLevel,
+			Out:   io.Discard,
+		}
+		params.Logger = nullLogger
 	}
 	if params.KeepAliveTimeout == 0 {
 		params.KeepAliveTimeout = KeepAliveTimeout
@@ -108,7 +119,17 @@ func (c *Channel) Send(ctx context.Context, x p2p.IOVec) error {
 // if out != nil, then it is application data.
 // if out == nil, then the message was either invalid or contained a handshake message
 // and there is nothing more for the caller to do.
-func (c *Channel) Deliver(ctx context.Context, out, x []byte) ([]byte, error) {
+//
+// e.g.
+// out, err := c.Deliver(nil, input)
+// if err != nil {
+//   // handle the error
+// } else if out != nil {
+//   // deliver application data
+// } else {
+//   // nothing to do
+// }
+func (c *Channel) Deliver(out, x []byte) ([]byte, error) {
 	now := time.Now()
 	var appData []byte
 	if err := c.doThenSend(func() ([]byte, error) {
@@ -118,17 +139,15 @@ func (c *Channel) Deliver(ctx context.Context, out, x []byte) ([]byte, error) {
 				continue
 			}
 			readyBefore := s.IsReady()
-			isApp, out, err := s.Deliver(nil, x, now)
+			isApp, out, err := s.Deliver(out, x, now)
 			if err != nil {
-				// TODO: remove
-				c.log.Warn(err, " continuing...")
+				c.log.Debug(err, " continuing...")
 				continue
 			}
 			if isApp {
 				appData = out
 				return nil, nil
 			}
-			log.Println("session state", s.hsIndex)
 			// if the session became ready, then make it the current and notify.
 			if !readyBefore && s.IsReady() {
 				if i != 2 {
@@ -159,11 +178,14 @@ func (c *Channel) Deliver(ctx context.Context, out, x []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if s := c.sessions[2].Session; s != nil && tai64Before(s.initHelloTime, newS.initHelloTime) {
-			log.Println("not replacing session", s.initHelloTime, newS.initHelloTime)
+		if s := c.sessions[2].Session; s != nil && bytes.Compare(c.sessions[2].ID[:], sid[:]) < 0 {
+			c.log.Debugf("not replacing prospective session old=%v new=%v", s, newS)
 			return s.Handshake(nil), nil
+		} else if s != nil {
+			c.log.Debugf("replacing prospective session old=%v new=%v", s, newS)
+		} else {
+			c.log.Debugf("creating new session %v", newS)
 		}
-		log.Println("replacing session")
 		c.setNext(sessionEntry{
 			ID:      sid,
 			Session: newS,
@@ -226,7 +248,7 @@ func (c *Channel) WaitReady(ctx context.Context) error {
 
 // newInit creates a new session as the initiator.
 func (c *Channel) newInit(now time.Time) ([32]byte, *Session) {
-	s := NewSession(SessionParams{
+	s := NewSession(SessionConfig{
 		PrivateKey:  c.params.PrivateKey,
 		IsInit:      true,
 		Logger:      c.params.Logger,
@@ -249,10 +271,6 @@ func (c *Channel) newResp(m0 []byte, minTime tai64.TAI64N) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	pubKey, err := p2p.ParsePublicKey(initHello.AuthClaim.KeyX509)
-	if err != nil {
-		return nil, err
-	}
 	helloTime, err := tai64.ParseN(initHello.TimestampTai64N)
 	if err != nil {
 		return nil, err
@@ -260,14 +278,15 @@ func (c *Channel) newResp(m0 []byte, minTime tai64.TAI64N) (*Session, error) {
 	if helloTime.Before(minTime) {
 		return nil, errors.New("timestamp too early to consider session")
 	}
-	if err := verifyAuthClaim(purposeTimestamp, initHello.AuthClaim, initHello.TimestampTai64N); err != nil {
+	pubKey, err := verifyAuthClaim(purposeTimestamp, initHello.AuthClaim, initHello.TimestampTai64N)
+	if err != nil {
 		return nil, err
 	}
 	if err := c.checkKey(pubKey); err != nil {
 		return nil, err
 	}
 	now := time.Now()
-	s := NewSession(SessionParams{
+	s := NewSession(SessionConfig{
 		PrivateKey:  c.params.PrivateKey,
 		IsInit:      false,
 		Logger:      c.log,
@@ -314,7 +333,7 @@ func (c *Channel) setNext(x sessionEntry) {
 func (c *Channel) checkKey(pubKey p2p.PublicKey) error {
 	if c.remoteKey != nil && p2p.EqualPublicKeys(c.remoteKey, pubKey) {
 		return nil
-	} else if c.params.AllowKey(pubKey) {
+	} else if c.params.AcceptKey(pubKey) {
 		return nil
 	}
 	return errors.New("key rejected")
@@ -379,8 +398,6 @@ func (c *Channel) onRekey() {
 		c.handshakeTimer.Reset(0)
 		return nil, nil
 	})
-	// TODO: retriger reset
-	// c.rekeyTimer.Reset(c.params.RekeyAfterTime)
 }
 
 // onHandshake is called by handshakeTimer
@@ -421,7 +438,6 @@ func (c *Channel) doThenSend(fn func() ([]byte, error)) error {
 		return err
 	}
 	if data != nil {
-		log.Println("sending ", len(data))
 		c.params.Send(data)
 	}
 	return nil
@@ -434,11 +450,4 @@ func (c *Channel) isFatal(err error) bool {
 type sessionEntry struct {
 	ID      [32]byte
 	Session *Session
-}
-
-func tai64Before(a, b tai64.TAI64N) bool {
-	if a.Seconds != b.Seconds {
-		return a.Seconds < b.Seconds
-	}
-	return a.Nanoseconds < b.Nanoseconds
 }
