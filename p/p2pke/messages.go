@@ -37,9 +37,6 @@ func parseInitHello(body []byte) (*InitHello, error) {
 	if err := unmarshal(data, x); err != nil {
 		return nil, err
 	}
-	if x.AuthClaim == nil {
-		return nil, errors.New("InitHello missing AuthClaim")
-	}
 	return x, nil
 }
 
@@ -47,9 +44,6 @@ func parseRespHello(data []byte) (*RespHello, error) {
 	x := &RespHello{}
 	if err := unmarshal(data, x); err != nil {
 		return nil, err
-	}
-	if x.AuthClaim == nil {
-		return nil, errors.New("RespHello missing AuthClaim")
 	}
 	return x, nil
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"log"
 	sync "sync"
 	"time"
 
@@ -51,7 +50,8 @@ type Channel struct {
 	sessions        [3]sessionEntry
 	remoteKey       p2p.PublicKey
 	remoteTimestamp tai64.TAI64N
-	ready           chan struct{}
+	// ready is closed, and reset whenever the current session changes.
+	ready chan struct{}
 	// lastReceived is the last time we received a message through the current session.
 	lastReceived time.Time
 	// lastSent is the las time we sent a message through any session.
@@ -178,20 +178,8 @@ func (c *Channel) Deliver(out, x []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if s := c.sessions[2].Session; s != nil && bytes.Compare(c.sessions[2].ID[:], sid[:]) < 0 {
-			c.log.Debugf("not replacing prospective session old=%v new=%v", s, newS)
-			return s.Handshake(nil), nil
-		} else if s != nil {
-			c.log.Debugf("replacing prospective session old=%v new=%v", s, newS)
-		} else {
-			c.log.Debugf("creating new session %v", newS)
-		}
-		c.setNext(sessionEntry{
-			ID:      sid,
-			Session: newS,
-		})
-		c.rekeyTimer.Reset(c.params.RekeyAfterTime)
-		return newS.Handshake(nil), nil
+		s := c.proposeNewSession(sid, newS)
+		return s.Handshake(nil), nil
 	}); err != nil {
 		if c.isFatal(err) {
 			return nil, err
@@ -278,7 +266,7 @@ func (c *Channel) newResp(m0 []byte, minTime tai64.TAI64N) (*Session, error) {
 	if helloTime.Before(minTime) {
 		return nil, errors.New("timestamp too early to consider session")
 	}
-	pubKey, err := verifyAuthClaim(purposeTimestamp, initHello.AuthClaim, initHello.TimestampTai64N)
+	pubKey, err := verifyAuthClaim(purposeTimestamp, initHello.KeyX509, initHello.TimestampTai64N, initHello.Sig)
 	if err != nil {
 		return nil, err
 	}
@@ -298,6 +286,30 @@ func (c *Channel) newResp(m0 []byte, minTime tai64.TAI64N) (*Session, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// proposeNextSession proposes a session created from a new message
+// and checks to see if it should become the new prospective session, possibly
+// replacing an existing prospective session.
+func (c *Channel) proposeNewSession(sid [32]byte, newS *Session) (ret *Session) {
+	if s := c.sessions[2].Session; s != nil && bytes.Compare(c.sessions[2].ID[:], sid[:]) < 0 {
+		c.log.Debugf("not replacing prospective session old=%v new=%v", s, newS)
+		return s
+	} else if s != nil {
+		c.log.Debugf("replacing prospective session old=%v new=%v", s, newS)
+		ret = newS
+	} else {
+		c.log.Debugf("creating new session %v", newS)
+		ret = newS
+	}
+	c.setNext(sessionEntry{
+		ID:      sid,
+		Session: newS,
+	})
+	if ret.IsInit() {
+		c.rekeyTimer.Reset(c.params.RekeyAfterTime)
+	}
+	return ret
 }
 
 // onReadySession is called when the prospective session becomes ready
@@ -339,26 +351,35 @@ func (c *Channel) checkKey(pubKey p2p.PublicKey) error {
 	return errors.New("key rejected")
 }
 
+func (c *Channel) expireSessions(now time.Time) {
+	if s := c.sessions[0].Session; s != nil && s.ExpiresAt().Before(now) {
+		c.sessions[2] = sessionEntry{}
+	}
+	if s := c.sessions[1].Session; s != nil && s.ExpiresAt().Before(now) {
+		c.sessions[0] = c.sessions[1]
+		c.sessions[1] = sessionEntry{}
+		select {
+		case <-c.ready:
+		default:
+			close(c.ready)
+		}
+		c.ready = make(chan struct{})
+	}
+	if s := c.sessions[2].Session; s != nil && s.ExpiresAt().Before(now) {
+		c.sessions[2] = sessionEntry{}
+	}
+}
+
 func (c *Channel) getOrInit(ctx context.Context) (*Session, error) {
 	for {
 		c.mu.Lock()
 		now := time.Now()
-		// clear expired session
-		for i, se := range c.sessions {
-			if se.Session != nil && se.Session.ExpiresAt().Before(now) {
-				c.sessions[i] = sessionEntry{}
-			}
+		c.expireSessions(now)
+		if s := c.sessions[1].Session; s != nil && s.IsReady() {
+			c.mu.Unlock()
+			return s, nil
 		}
-		// if we haven't received a message recently, then discard the old Session
-		if now.Sub(c.lastReceived) > c.params.KeepAliveTimeout {
-			// expire old session
-			c.sessions[1] = sessionEntry{}
-			select {
-			case <-c.ready:
-			default:
-				close(c.ready)
-			}
-			c.ready = make(chan struct{})
+		if s := c.sessions[2].Session; s == nil {
 			c.rekeyTimer.Reset(0)
 		}
 		ready := c.ready
@@ -383,19 +404,15 @@ func (c *Channel) getOrInit(ctx context.Context) (*Session, error) {
 func (c *Channel) onRekey() {
 	c.doThenSend(func() ([]byte, error) {
 		now := time.Now()
-		if s := c.sessions[1].Session; s != nil && now.Sub(s.initHelloTime.GoTime()) < c.params.RekeyAfterTime {
-			return nil, nil
+		c.expireSessions(now)
+		if s := c.sessions[2].Session; s != nil {
+			c.rekeyTimer.Reset(c.params.RekeyAfterTime)
+		} else {
+			c.log.Debug("creating new init session")
+			id, s := c.newInit(now)
+			c.proposeNewSession(id, s)
+			c.handshakeTimer.Reset(0)
 		}
-		if c.sessions[2].Session != nil {
-			log.Println("replacing session")
-		}
-		log.Println("creating new init session")
-		id, s := c.newInit(now)
-		c.sessions[2] = sessionEntry{
-			ID:      id,
-			Session: s,
-		}
-		c.handshakeTimer.Reset(0)
 		return nil, nil
 	})
 }

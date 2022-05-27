@@ -265,10 +265,12 @@ func writeInitHello(out []byte, hs *noise.HandshakeState, privateKey p2p.Private
 	msg := newMessage(0)
 	tsBytes := initHelloTime.Marshal()
 	var err error
+	keyX509, sig := makeTAI64NAuthClaim(privateKey, initHelloTime)
 	initHelloData := marshal(nil, &InitHello{
 		Version:         1,
 		TimestampTai64N: tsBytes[:],
-		AuthClaim:       makeTAI64NAuthClaim(privateKey, initHelloTime),
+		KeyX509:         keyX509,
+		Sig:             sig,
 	})
 	initHelloData = appendUint16(initHelloData, uint16(len(initHelloData)))
 	msg, _, _, err = hs.WriteMessage(msg, initHelloData)
@@ -299,15 +301,17 @@ func readInitHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 	if err != nil {
 		return nil, err
 	}
-	pubKey, err := verifyAuthClaim(purposeTimestamp, hello.AuthClaim, hello.TimestampTai64N)
+	pubKey, err := verifyAuthClaim(purposeTimestamp, hello.KeyX509, hello.TimestampTai64N, hello.Sig)
 	if err != nil {
 		return nil, errors.Wrapf(err, "validating InitHello")
 	}
 	// prepare response
 	msg2 := newMessage(1)
 	cb := hs.ChannelBinding()
+	keyX509, sig := makeChannelAuthClaim(privateKey, cb)
 	msg2, cs1, cs2, err := hs.WriteMessage(msg2, marshal(nil, &RespHello{
-		AuthClaim: makeChannelAuthClaim(privateKey, cb),
+		KeyX509: keyX509,
+		Sig:     sig,
 	}))
 	if err != nil {
 		panic(err)
@@ -339,7 +343,7 @@ func readRespHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 	if err != nil {
 		return nil, err
 	}
-	pubKey, err := verifyAuthClaim(purposeChannelBinding, respHello.AuthClaim, cb)
+	pubKey, err := verifyAuthClaim(purposeChannelBinding, respHello.KeyX509, cb, respHello.Sig)
 	if err != nil {
 		return nil, err
 	}
@@ -395,35 +399,29 @@ func readRespDone(cipherIn noise.Cipher, msg Message) error {
 	return err
 }
 
-func makeChannelAuthClaim(privateKey p2p.PrivateKey, cb []byte) *AuthClaim {
+func makeChannelAuthClaim(privateKey p2p.PrivateKey, cb []byte) ([]byte, []byte) {
 	sig, err := p2p.Sign(nil, privateKey, purposeChannelBinding, cb)
 	if err != nil {
 		panic(err)
 	}
-	return &AuthClaim{
-		KeyX509: p2p.MarshalPublicKey(privateKey.Public()),
-		Sig:     sig,
-	}
+	return p2p.MarshalPublicKey(privateKey.Public()), sig
 }
 
-func makeTAI64NAuthClaim(privateKey p2p.PrivateKey, timestamp tai64.TAI64N) *AuthClaim {
+func makeTAI64NAuthClaim(privateKey p2p.PrivateKey, timestamp tai64.TAI64N) ([]byte, []byte) {
 	tsBytes := timestamp.Marshal()
 	sig, err := p2p.Sign(nil, privateKey, purposeTimestamp, tsBytes[:])
 	if err != nil {
 		panic(err)
 	}
-	return &AuthClaim{
-		KeyX509: p2p.MarshalPublicKey(privateKey.Public()),
-		Sig:     sig,
-	}
+	return p2p.MarshalPublicKey(privateKey.Public()), sig
 }
 
-func verifyAuthClaim(purpose string, ac *AuthClaim, data []byte) (p2p.PublicKey, error) {
-	pubKey, err := p2p.ParsePublicKey(ac.KeyX509)
+func verifyAuthClaim(purpose string, keyX509, data, sig []byte) (p2p.PublicKey, error) {
+	pubKey, err := p2p.ParsePublicKey(keyX509)
 	if err != nil {
 		return nil, err
 	}
-	if err := p2p.Verify(pubKey, purpose, data, ac.Sig); err != nil {
+	if err := p2p.Verify(pubKey, purpose, data, sig); err != nil {
 		return nil, err
 	}
 	return pubKey, nil
