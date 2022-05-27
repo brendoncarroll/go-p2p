@@ -42,7 +42,7 @@ const (
 	purposeTimestamp      = "p2pke/timestamp"
 )
 
-var v1CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2s)
+var v1CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
 
 type Direction uint8
 

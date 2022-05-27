@@ -10,7 +10,7 @@ import (
 	"github.com/flynn/noise"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/blake2s"
+	"golang.org/x/crypto/blake2b"
 	"golang.zx2c4.com/wireguard/replay"
 )
 
@@ -178,7 +178,7 @@ func (s *Session) checkExpired(now time.Time) error {
 }
 
 func (s *Session) String() string {
-	m0Hash := blake2s.Sum256(s.msgCache[0])
+	m0Hash := blake2b.Sum256(s.msgCache[0])
 	return fmt.Sprintf("Session(init=%v, helloTime=%v m0Hash=%x)", s.isInit, s.initHelloTime, m0Hash[:4])
 }
 

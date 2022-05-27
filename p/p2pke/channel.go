@@ -11,7 +11,7 @@ import (
 	"github.com/brendoncarroll/go-tai64"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/blake2s"
+	"golang.org/x/crypto/blake2b"
 )
 
 // SendFunc is the type of functions called to send messages by the channel.
@@ -46,7 +46,10 @@ type Channel struct {
 	params ChannelConfig
 	log    logrus.FieldLogger
 
-	mu              sync.RWMutex
+	mu sync.RWMutex
+	// sessions holds the 3 sessions: previous, current, next
+	// previous and current are always ready s.IsReady() == true, next is always not ready s.IsReady() == false.
+	// Once next becomes ready it immediately becomes current, the old current becomes previous, and the old previous is discarded.
 	sessions        [3]sessionEntry
 	remoteKey       p2p.PublicKey
 	remoteTimestamp tai64.TAI64N
@@ -100,9 +103,9 @@ func NewChannel(params ChannelConfig) *Channel {
 	return c
 }
 
-// Send will call send with an encrypted message containing x
+// Send will send an encrypted message containing x
 // It may also send a handshake message.
-// Send blocks until a handshake has been established and the message can be sent or the context is cancelled.
+// Send blocks until a Session has been established and the message can be sent or the context is cancelled.
 func (c *Channel) Send(ctx context.Context, x p2p.IOVec) error {
 	s, err := c.getOrInit(ctx)
 	if err != nil {
@@ -166,7 +169,7 @@ func (c *Channel) Deliver(out, x []byte) ([]byte, error) {
 		if !IsInitHello(x) {
 			return nil, errors.New("message did not match a session")
 		}
-		sid := blake2s.Sum256(x)
+		sid := blake2b.Sum256(x)
 		for _, se := range c.sessions {
 			if se.ID == sid {
 				// repeated InitHello, nothing to do.
@@ -244,7 +247,7 @@ func (c *Channel) newInit(now time.Time) ([32]byte, *Session) {
 		RejectAfter: c.params.RejectAfterTime,
 	})
 	out := s.Handshake(nil)
-	id := blake2s.Sum256(out)
+	id := blake2b.Sum256(out)
 	return id, s
 }
 
@@ -320,10 +323,10 @@ func (c *Channel) onReadySession(now time.Time) error {
 		return errors.New("session negotiated with wrong peer")
 	}
 	c.remoteKey = se.Session.RemoteKey()
-	c.setCurrent(se)
-	c.setNext(sessionEntry{})
 	c.lastReceived = now
 	c.remoteTimestamp = se.Session.InitHelloTime()
+	c.setCurrent(se)
+	c.setNext(sessionEntry{})
 	if se.Session.isInit {
 		// if we were the initiator, we are responsible for rekeying
 		c.rekeyTimer.Reset(c.params.RekeyAfterTime)
@@ -352,10 +355,14 @@ func (c *Channel) checkKey(pubKey p2p.PublicKey) error {
 }
 
 func (c *Channel) expireSessions(now time.Time) {
+	// expire the previous session only if it is expired
 	if s := c.sessions[0].Session; s != nil && s.ExpiresAt().Before(now) {
-		c.sessions[2] = sessionEntry{}
+		c.log.Debug("expiring previous session")
+		c.sessions[0] = sessionEntry{}
 	}
-	if s := c.sessions[1].Session; s != nil && s.ExpiresAt().Before(now) {
+	// expire the current session if it is expired or we have not received a packet recently.
+	if s := c.sessions[1].Session; s != nil && (s.ExpiresAt().Before(now) || now.Sub(c.lastReceived) > c.params.KeepAliveTimeout) {
+		c.log.Debug("expiring current session")
 		c.sessions[0] = c.sessions[1]
 		c.sessions[1] = sessionEntry{}
 		select {
@@ -365,7 +372,9 @@ func (c *Channel) expireSessions(now time.Time) {
 		}
 		c.ready = make(chan struct{})
 	}
+	// expire the prospective session only if it is expired.
 	if s := c.sessions[2].Session; s != nil && s.ExpiresAt().Before(now) {
+		c.log.Debug("expiring prospective session")
 		c.sessions[2] = sessionEntry{}
 	}
 }
@@ -375,7 +384,7 @@ func (c *Channel) getOrInit(ctx context.Context) (*Session, error) {
 		c.mu.Lock()
 		now := time.Now()
 		c.expireSessions(now)
-		if s := c.sessions[1].Session; s != nil && s.IsReady() {
+		if s := c.sessions[1].Session; s != nil {
 			c.mu.Unlock()
 			return s, nil
 		}
@@ -405,10 +414,7 @@ func (c *Channel) onRekey() {
 	c.doThenSend(func() ([]byte, error) {
 		now := time.Now()
 		c.expireSessions(now)
-		if s := c.sessions[2].Session; s != nil {
-			c.rekeyTimer.Reset(c.params.RekeyAfterTime)
-		} else {
-			c.log.Debug("creating new init session")
+		if c.sessions[2].Session == nil {
 			id, s := c.newInit(now)
 			c.proposeNewSession(id, s)
 			c.handshakeTimer.Reset(0)
