@@ -7,6 +7,7 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/p2ptest"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 func TestChannel(t *testing.T) {
@@ -27,6 +28,25 @@ func TestChannel(t *testing.T) {
 
 	require.Equal(t, c2.LocalKey(), c1.RemoteKey())
 	require.Equal(t, c1.LocalKey(), c2.RemoteKey())
+}
+
+func TestChannelBidi(t *testing.T) {
+	ctx := context.Background()
+	var c1Out, c2Out []string
+	c1, c2 := newChannelPair(t, func(x []byte) {
+		c1Out = append(c1Out, string(x))
+	}, func(x []byte) {
+		c2Out = append(c2Out, string(x))
+	})
+	testData := "test data"
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		return c1.Send(ctx, p2p.IOVec{[]byte(testData)})
+	})
+	eg.Go(func() error {
+		return c2.Send(ctx, p2p.IOVec{[]byte(testData)})
+	})
+	require.NoError(t, eg.Wait())
 }
 
 func newChannelPair(t testing.TB, fn1, fn2 func([]byte)) (c1, c2 *Channel) {

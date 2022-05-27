@@ -9,6 +9,7 @@ import (
 	"github.com/brendoncarroll/go-p2p/p/p2pke"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/constraints"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -104,11 +105,13 @@ func (s *Swarm[T]) LookupPublicKey(ctx context.Context, dst Addr[T]) (p2p.Public
 }
 
 func (s *Swarm[T]) MTU(ctx context.Context, target Addr[T]) int {
-	return s.inner.MTU(ctx, target.Addr.(T)) - Overhead
+	n := s.inner.MTU(ctx, target.Addr.(T)) - Overhead
+	return min(n, p2pke.MaxMessageLen)
 }
 
 func (s *Swarm[T]) MaxIncomingSize() int {
-	return s.inner.MaxIncomingSize() - Overhead
+	n := s.inner.MaxIncomingSize() - Overhead
+	return min(n, p2pke.MaxMessageLen)
 }
 
 func (s *Swarm[T]) Close() error {
@@ -204,7 +207,7 @@ func (s *Swarm[T]) cleanupLoop(ctx context.Context) error {
 		gracePeriod   = 30 * time.Second
 		timeoutPeriod = p2pke.KeepAliveTimeout
 	)
-	ticker := time.NewTicker(p2pke.MaxSessionDuration / 2)
+	ticker := time.NewTicker(p2pke.KeepAliveTimeout / 2)
 	defer ticker.Stop()
 	now := time.Now()
 	for {
@@ -240,4 +243,16 @@ func (s *Swarm[T]) keyForAddr(x T) string {
 type channelState struct {
 	Channel   *p2pke.Channel
 	CreatedAt time.Time
+}
+
+func min[T constraints.Ordered](xs ...T) (ret T) {
+	if len(xs) > 0 {
+		ret = xs[0]
+	}
+	for i := range xs {
+		if xs[i] < ret {
+			ret = xs[i]
+		}
+	}
+	return ret
 }

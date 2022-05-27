@@ -88,18 +88,6 @@ func newDropFirst(t testing.TB) func(memswarm.Message) *memswarm.Message {
 	}
 }
 
-func min[T constraints.Ordered](xs ...T) (ret T) {
-	if len(xs) > 0 {
-		ret = xs[0]
-	}
-	for i := range xs {
-		if xs[i] < ret {
-			ret = xs[i]
-		}
-	}
-	return ret
-}
-
 func max[T constraints.Ordered](xs ...T) (ret T) {
 	if len(xs) > 0 {
 		ret = xs[0]

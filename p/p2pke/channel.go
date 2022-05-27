@@ -128,6 +128,7 @@ func (c *Channel) Deliver(ctx context.Context, out, x []byte) ([]byte, error) {
 				appData = out
 				return nil, nil
 			}
+			log.Println("session state", s.hsIndex)
 			// if the session became ready, then make it the current and notify.
 			if !readyBefore && s.IsReady() {
 				if i != 2 {
@@ -158,7 +159,7 @@ func (c *Channel) Deliver(ctx context.Context, out, x []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if s := c.sessions[2].Session; s != nil && s.initHelloTime.Before(newS.initHelloTime) {
+		if s := c.sessions[2].Session; s != nil && tai64Before(s.initHelloTime, newS.initHelloTime) {
 			log.Println("not replacing session", s.initHelloTime, newS.initHelloTime)
 			return s.Handshake(nil), nil
 		}
@@ -369,6 +370,7 @@ func (c *Channel) onRekey() {
 		if c.sessions[2].Session != nil {
 			log.Println("replacing session")
 		}
+		log.Println("creating new init session")
 		id, s := c.newInit(now)
 		c.sessions[2] = sessionEntry{
 			ID:      id,
@@ -432,4 +434,11 @@ func (c *Channel) isFatal(err error) bool {
 type sessionEntry struct {
 	ID      [32]byte
 	Session *Session
+}
+
+func tai64Before(a, b tai64.TAI64N) bool {
+	if a.Seconds != b.Seconds {
+		return a.Seconds < b.Seconds
+	}
+	return a.Nanoseconds < b.Nanoseconds
 }
