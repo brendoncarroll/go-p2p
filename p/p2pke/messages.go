@@ -2,63 +2,14 @@ package p2pke
 
 import (
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
 )
-
-const MaxNonce = (1 << 31) - 1
-
-const (
-	nonceInitHello   = 0
-	nonceRespHello   = 1
-	nonceInitDone    = 2
-	nonceRespHSError = 3
-
-	noncePostHandshake = 16
-)
-
-const (
-	purposeChannelBinding = "p2pke/sig-channel-binding"
-	purposeTimestamp      = "p2pke/timestamp"
-)
-
-type Direction uint8
-
-const (
-	InitToResp = Direction(iota)
-	RespToInit
-)
-
-func (d Direction) String() string {
-	switch d {
-	case InitToResp:
-		return "INIT->RESP"
-	case RespToInit:
-		return "RESP->INIT"
-	default:
-		panic("unknown direction")
-	}
-}
-
-func IsInitHello(x []byte) bool {
-	msg, err := ParseMessage(x)
-	return err == nil && msg.GetNonce() == nonceInitHello
-}
-
-func IsRepoHello(x []byte) bool {
-	msg, err := ParseMessage(x)
-	return err == nil && msg.GetNonce() == nonceRespHello
-}
-
-func IsHello(x []byte) bool {
-	return IsInitHello(x) || IsRepoHello(x)
-}
-
-func IsPostHandshake(x []byte) bool {
-	msg, err := ParseMessage(x)
-	return err == nil && msg.GetNonce() >= noncePostHandshake
-}
 
 func marshal(out []byte, x proto.Message) []byte {
 	data, err := proto.Marshal(x)
@@ -72,7 +23,16 @@ func unmarshal(data []byte, x proto.Message) error {
 	return proto.Unmarshal(data, x)
 }
 
-func parseInitHello(data []byte) (*InitHello, error) {
+func parseInitHello(body []byte) (*InitHello, error) {
+	if len(body) < 2 {
+		return nil, errors.New("InitHello missing length")
+	}
+	l := int(binary.BigEndian.Uint16(body[len(body)-2:]))
+	start := len(body) - 2 - l
+	if start < 0 {
+		return nil, errors.New("InitHello has invalid length")
+	}
+	data := body[start : len(body)-2]
 	x := &InitHello{}
 	if err := unmarshal(data, x); err != nil {
 		return nil, err
@@ -98,9 +58,8 @@ func parseInitDone(data []byte) (*InitDone, error) {
 
 type Message []byte
 
-func newMessage(dir Direction, nonce uint32) Message {
+func newMessage(nonce uint32) Message {
 	msg := make(Message, 4)
-	msg.SetDirection(dir)
 	msg.SetNonce(nonce)
 	return msg
 }
@@ -114,42 +73,11 @@ func ParseMessage(x []byte) (Message, error) {
 }
 
 func (m Message) GetNonce() uint32 {
-	x := binary.BigEndian.Uint32(m[:4])
-	x &= 0x7FFF_FFFF
-	return x
+	return binary.BigEndian.Uint32(m[:4])
 }
 
 func (m Message) SetNonce(n uint32) {
-	if n > MaxNonce {
-		panic(n)
-	}
-	x := binary.BigEndian.Uint32(m[:4])
-	y := (x & 0x8000_0000) | n
-	binary.BigEndian.PutUint32(m[:4], y)
-}
-
-func (m Message) GetDirection() Direction {
-	x := binary.BigEndian.Uint32(m[:4])
-	x >>= 31
-	if x == 0 {
-		return InitToResp
-	} else {
-		return RespToInit
-	}
-}
-
-func (m Message) SetDirection(dir Direction) {
-	x := binary.BigEndian.Uint32(m[:4])
-	var y uint32
-	switch dir {
-	case InitToResp:
-		y = x & 0x7FFF_FFFF
-	case RespToInit:
-		y = x | 0x8000_0000
-	default:
-		panic(dir)
-	}
-	binary.BigEndian.PutUint32(m[:4], y)
+	binary.BigEndian.PutUint32(m[:4], n)
 }
 
 func (m Message) HeaderBytes() []byte {
@@ -158,4 +86,37 @@ func (m Message) HeaderBytes() []byte {
 
 func (m Message) Body() []byte {
 	return m[4:]
+}
+
+func (m Message) GetInitHello() (*InitHello, error) {
+	data := m.Body()
+	return parseInitHello(data)
+}
+
+func PrettyPrint(msg Message) string {
+	bw := &strings.Builder{}
+	fmt.Fprintf(bw, "BEGIN MESSAGE %08x\n", msg.GetNonce())
+	doHexDump := true
+	switch msg.GetNonce() {
+	case nonceInitHello:
+		x, err := msg.GetInitHello()
+		if err != nil {
+			fmt.Fprintln(bw, "Invalid InitHello", err)
+			break
+		}
+		doHexDump = false
+		data, err := json.MarshalIndent(x, "", "  ")
+		if err != nil {
+			panic(err)
+		}
+		bw.Write(data)
+		bw.WriteString("\n")
+	}
+	if doHexDump {
+		d := hex.Dumper(bw)
+		d.Write(msg.Body())
+		d.Close()
+	}
+	fmt.Fprintf(bw, "END MESSAGE\n")
+	return bw.String()
 }

@@ -1,11 +1,9 @@
 package p2pkeswarm
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/constraints"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/p2ptest"
@@ -60,54 +58,14 @@ func TestOnMem(t *testing.T) {
 	})
 }
 
-func TestOnDropFirst(t *testing.T) {
+func TestOnDropFirstPairwise(t *testing.T) {
 	t.Parallel()
 	testSwarm(t, func(t testing.TB, xs []p2p.Swarm[memswarm.Addr]) {
 		var opts []memswarm.Option
-		opts = append(opts, memswarm.WithTellTransform(newDropFirst(t)))
+		opts = append(opts, memswarm.WithTellTransform(p2ptest.NewDropFirstPairwise()))
 		r := memswarm.NewRealm(opts...)
 		for i := range xs {
 			xs[i] = r.NewSwarm()
 		}
 	})
-}
-
-func newDropFirst(t testing.TB) func(memswarm.Message) *memswarm.Message {
-	type FlowID [2]int
-	var mu sync.Mutex
-	m := map[FlowID]struct{}{}
-	return func(x memswarm.Message) *memswarm.Message {
-		flowID := [2]int{min(x.Src.N, x.Dst.N), max(x.Src.N, x.Dst.N)}
-		mu.Lock()
-		defer mu.Unlock()
-		if _, exists := m[flowID]; exists {
-			return &x
-		}
-		m[flowID] = struct{}{}
-		return nil
-	}
-}
-
-func min[T constraints.Ordered](xs ...T) (ret T) {
-	if len(xs) > 0 {
-		ret = xs[0]
-	}
-	for i := range xs {
-		if xs[i] < ret {
-			ret = xs[i]
-		}
-	}
-	return ret
-}
-
-func max[T constraints.Ordered](xs ...T) (ret T) {
-	if len(xs) > 0 {
-		ret = xs[0]
-	}
-	for i := range xs {
-		if xs[i] > ret {
-			ret = xs[i]
-		}
-	}
-	return ret
 }

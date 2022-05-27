@@ -1,17 +1,36 @@
 package p2pke
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
-type ErrNoCommonSuite struct {
-	ServerSupports []string
+// ErrSessionExpired is returned when the session is too old to be used anymore and needs to be put down.
+type ErrSessionExpired struct {
+	ExpiredAt time.Time
 }
-
-func (e ErrNoCommonSuite) Error() string {
-	return fmt.Sprintf("p2pke: no common suites: server supports %v", e.ServerSupports)
-}
-
-type ErrSessionExpired struct{}
 
 func (e ErrSessionExpired) Error() string {
-	return "p2pke: session expired"
+	return fmt.Sprintf("p2pke: session expired at %v", e.ExpiredAt)
+}
+
+// ErrDecryptionFailure is returned by a Session when a message failed to decrypt.
+type ErrDecryptionFailure struct {
+	Nonce    uint32
+	NoiseErr error
+}
+
+func (e ErrDecryptionFailure) Error() string {
+	return fmt.Sprintf("p2pke: decryption failure: nonce=%d noise=%v", e.Nonce, e.NoiseErr)
+}
+
+// ErrEarlyData is returned by the session when application data arrives early.
+// There is no way to verify this data without a
+type ErrEarlyData struct {
+	State uint8
+	Nonce uint32
+}
+
+func (e ErrEarlyData) Error() string {
+	return fmt.Sprintf("p2pke: early data: state=%d nonce=%d", e.State, e.Nonce)
 }

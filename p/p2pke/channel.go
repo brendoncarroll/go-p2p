@@ -1,60 +1,120 @@
 package p2pke
 
 import (
+	"bytes"
 	"context"
+	"io"
 	sync "sync"
 	"time"
 
-	mrand "math/rand"
-
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-tai64"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/blake2b"
-	"golang.org/x/sync/errgroup"
 )
 
-const handshakeSendPeriod = 250 * time.Millisecond
+// SendFunc is the type of functions called to send messages by the channel.
+type SendFunc func([]byte)
 
-type Channel struct {
-	privateKey        p2p.PrivateKey
-	send              Sender
-	outbound, inbound *halfChannel
-	keyCell           *keyCell
-	eg                errgroup.Group
+type ChannelConfig struct {
+	// PrivateKey is the signing key used to prove identity to the other party in the channel.
+	// *REQUIRED*
+	PrivateKey p2p.PrivateKey
+	// Send is used to send p2pke protocol messages including ciphertexts and handshake messages.
+	// *REQUIRED*
+	Send SendFunc
+	// AcceptKey is used to check if a key is allowed before connecting
+	// *REQUIRED*.
+	AcceptKey func(p2p.PublicKey) bool
+	// Logger is used for logging, nil disables logs.
+	Logger logrus.FieldLogger
+
+	// KeepAliveTimeout is the amount of time to consider a session alive wihtout receiving a message
+	// through it.
+	KeepAliveTimeout time.Duration
+	// HandshakeBackoff is the amount of time to wait between sending handshake messages.
+	HandshakeBackoff time.Duration
+	// RekeyAfterTime is the amount of time between rekeying a session.
+	RekeyAfterTime time.Duration
+	// RejectAfterTime is the duration after session creation when the session will send and
+	// received messages.
+	RejectAfterTime time.Duration
 }
 
-func NewChannel(privateKey p2p.PrivateKey, allowKey func(p2p.PublicKey) bool, send Sender) *Channel {
-	if allowKey == nil {
-		allowKey = func(x p2p.PublicKey) bool {
-			return true
+type Channel struct {
+	params ChannelConfig
+	log    logrus.FieldLogger
+
+	mu sync.RWMutex
+	// sessions holds the 3 sessions: previous, current, next
+	// previous and current are always ready s.IsReady() == true, next is always not ready s.IsReady() == false.
+	// Once next becomes ready it immediately becomes current, the old current becomes previous, and the old previous is discarded.
+	sessions        [3]sessionEntry
+	remoteKey       p2p.PublicKey
+	remoteTimestamp tai64.TAI64N
+	// ready is closed, and reset whenever the current session changes.
+	ready chan struct{}
+	// lastReceived is the last time we received a message through the current session.
+	lastReceived time.Time
+	// lastSent is the las time we sent a message through any session.
+	lastSent time.Time
+
+	rekeyTimer     *Timer
+	handshakeTimer *Timer
+}
+
+func NewChannel(params ChannelConfig) *Channel {
+	if params.PrivateKey == nil {
+		panic("PrivateKey must be set")
+	}
+	if params.Send == nil {
+		panic("Send must be set")
+	}
+	if params.AcceptKey == nil {
+		panic("AcceptKey must be set")
+	}
+	if params.Logger == nil {
+		nullLogger := &logrus.Logger{
+			Level: logrus.FatalLevel,
+			Out:   io.Discard,
 		}
+		params.Logger = nullLogger
 	}
-	kc := &keyCell{checkKey: allowKey}
+	if params.KeepAliveTimeout == 0 {
+		params.KeepAliveTimeout = KeepAliveTimeout
+	}
+	if params.HandshakeBackoff == 0 {
+		params.HandshakeBackoff = HandshakeBackoff
+	}
+	if params.RekeyAfterTime == 0 {
+		params.RekeyAfterTime = RekeyAfterTime
+	}
+	if params.RejectAfterTime == 0 {
+		params.RejectAfterTime = RejectAfterTime
+	}
 	c := &Channel{
-		privateKey: privateKey,
-		send:       send,
-		outbound: newHalfChannel(SessionParams{
-			PrivateKey: privateKey,
-			IsInit:     true,
-		}, kc.SetKey),
-		inbound: newHalfChannel(SessionParams{
-			PrivateKey: privateKey,
-			IsInit:     false,
-		}, kc.SetKey),
-		keyCell: kc,
+		params: params,
+		log:    params.Logger,
+		ready:  make(chan struct{}),
 	}
+	c.rekeyTimer = newTimer(c.onRekey)
+	c.handshakeTimer = newTimer(c.onHandshake)
 	return c
 }
 
-// Send will call send with an encrypted message containing x
+// Send will send an encrypted message containing x
 // It may also send a handshake message.
-// Send will be called multiple times if a handshake has to be performed.
-func (c *Channel) Send(ctx context.Context, x []byte) error {
-	hc, err := c.waitReady(ctx)
+// Send blocks until a Session has been established and the message can be sent or the context is cancelled.
+func (c *Channel) Send(ctx context.Context, x p2p.IOVec) error {
+	s, err := c.getOrInit(ctx)
 	if err != nil {
 		return err
 	}
-	return hc.Send(ctx, x, c.send)
+	return c.doThenSend(func() ([]byte, error) {
+		now := time.Now()
+		return s.Send(nil, p2p.VecBytes(nil, x), now)
+	})
 }
 
 // Deliver decrypts the payload in x if it contains application data, and appends it to out.
@@ -62,294 +122,355 @@ func (c *Channel) Send(ctx context.Context, x []byte) error {
 // if out != nil, then it is application data.
 // if out == nil, then the message was either invalid or contained a handshake message
 // and there is nothing more for the caller to do.
-func (c *Channel) Deliver(ctx context.Context, out, x []byte) ([]byte, error) {
-	msg, err := ParseMessage(x)
-	if err != nil {
-		return nil, err
+//
+// e.g.
+// out, err := c.Deliver(nil, input)
+// if err != nil {
+//   // handle the error
+// } else if out != nil {
+//   // deliver application data
+// } else {
+//   // nothing to do
+// }
+func (c *Channel) Deliver(out, x []byte) ([]byte, error) {
+	now := time.Now()
+	var appData []byte
+	if err := c.doThenSend(func() ([]byte, error) {
+		for i, se := range c.sessions {
+			s := se.Session
+			if s == nil {
+				continue
+			}
+			readyBefore := s.IsReady()
+			isApp, out, err := s.Deliver(out, x, now)
+			if err != nil {
+				c.log.Debug(err, " continuing...")
+				continue
+			}
+			if isApp {
+				appData = out
+				return nil, nil
+			}
+			// if the session became ready, then make it the current and notify.
+			if !readyBefore && s.IsReady() {
+				if i != 2 {
+					panic(i)
+				}
+				if err := c.onReadySession(now); err != nil {
+					return nil, err
+				}
+			}
+			if len(out) == 0 {
+				continue
+			}
+			return out, nil
+		}
+		// The message did not match a session so now check if we can create a new session.
+		if !IsInitHello(x) {
+			return nil, errors.New("message did not match a session")
+		}
+		sid := blake2b.Sum256(x)
+		for _, se := range c.sessions {
+			if se.ID == sid {
+				// repeated InitHello, nothing to do.
+				return nil, nil
+			}
+		}
+		// create new session
+		newS, err := c.newResp(x, c.remoteTimestamp)
+		if err != nil {
+			return nil, err
+		}
+		s := c.proposeNewSession(sid, newS)
+		return s.Handshake(nil), nil
+	}); err != nil {
+		if c.isFatal(err) {
+			return nil, err
+		}
+		return nil, nil
 	}
-	switch msg.GetDirection() {
-	case InitToResp:
-		out, err = c.inbound.Deliver(ctx, out, x, c.send)
-	case RespToInit:
-		out, err = c.outbound.Deliver(ctx, out, x, c.send)
-	default:
-		panic("invalid direction")
-	}
-	return out, err
+	return appData, nil
 }
 
 // Close releases all resources associated with the channel.
-// send will not be called after Close completes
+// send will not be called after Close completes.
 func (c *Channel) Close() error {
-	c.send = func([]byte) {}
+	for _, t := range []*Timer{c.rekeyTimer, c.handshakeTimer} {
+		t.StopSync()
+	}
 	return nil
 }
 
 // LocalKey returns the public key used by the local party to authenticate.
 // It will correspond to the private key passed to NewChannel.
 func (c *Channel) LocalKey() p2p.PublicKey {
-	return c.privateKey.Public()
+	return c.params.PrivateKey.Public()
 }
 
 // RemoteKey returns the public key used by the remote party to authenticate.
 // It can be nil, if there has been no successful handshake.
 func (c *Channel) RemoteKey() p2p.PublicKey {
-	return c.keyCell.GetKey()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.remoteKey
 }
 
 // LastReceived returns the time that a message was received
 func (c *Channel) LastReceived() time.Time {
-	return latestTime(c.inbound.LastReceived(), c.outbound.LastReceived())
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastReceived
 }
 
 // LastSent returns the time that a message was last sent
 func (c *Channel) LastSent() time.Time {
-	return latestTime(c.inbound.LastSent(), c.outbound.LastSent())
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastSent
 }
 
-// WaitReady blocks until the either an inbound or outbound session
-// has been established.
-// send is called to send handshake messages.
+// WaitReady blocks until a session has been established.
+// It will initiate a session if none exists.
+// After WaitReady returns: RemoteKey() != nil
 func (c *Channel) WaitReady(ctx context.Context) error {
-	_, err := c.waitReady(ctx)
+	_, err := c.getOrInit(ctx)
 	return err
 }
 
-// waitReady sends handshakes in a loop on the output channel
-// and waits for any channel to be ready.
-func (c *Channel) waitReady(ctx context.Context) (*halfChannel, error) {
-	if c.inbound.IsReady() && c.outbound.IsReady() {
-		if mrand.Intn(2) > 0 {
-			return c.inbound, nil
-		} else {
-			return c.outbound, nil
-		}
-	}
-	inbound := c.inbound.ReadyChan()
-	outbound := c.outbound.ReadyChan()
-	ticker := time.NewTicker(handshakeSendPeriod)
-	defer ticker.Stop()
-	for {
-		c.outbound.InitHandshake(c.send)
-		select {
-		case <-ticker.C:
-			// continue
-		case <-inbound:
-			return c.inbound, nil
-		case <-outbound:
-			return c.outbound, nil
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
+// newInit creates a new session as the initiator.
+func (c *Channel) newInit(now time.Time) ([32]byte, *Session) {
+	s := NewSession(SessionConfig{
+		PrivateKey:  c.params.PrivateKey,
+		IsInit:      true,
+		Logger:      c.params.Logger,
+		Now:         now,
+		RejectAfter: c.params.RejectAfterTime,
+	})
+	out := s.Handshake(nil)
+	id := blake2b.Sum256(out)
+	return id, s
 }
 
-type halfChannel struct {
-	params SessionParams
-	setKey func(p2p.PublicKey) error
-
-	mu          sync.Mutex
-	m0Hash      [32]byte
-	initMessage []byte
-	queued      []byte
-
-	s           *Session
-	closedReady bool
-	ready       chan struct{}
-
-	lastReceived, lastSent time.Time
-}
-
-func newHalfChannel(params SessionParams, setKey func(p2p.PublicKey) error) *halfChannel {
-	hc := &halfChannel{
-		params: params,
-		ready:  make(chan struct{}),
-		setKey: setKey,
-	}
-	hc.s = NewSession(hc.getParams())
-	return hc
-}
-
-// Send waits until the halfChannel is ready, then creates an encrypted message for x
-// and calls send.
-func (hc *halfChannel) Send(ctx context.Context, x []byte, send Sender) error {
-	hc.mu.Lock()
-	ready := hc.ready
-	hc.mu.Unlock()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-ready:
-		hc.mu.Lock()
-		out, err := hc.s.Send(nil, x, time.Now())
-		hc.lastSent = time.Now()
-		hc.mu.Unlock()
-		if err != nil {
-			return err
-		}
-		send(out)
-		return nil
-	}
-}
-
-func (hc *halfChannel) Deliver(ctx context.Context, out, x []byte, send Sender) ([]byte, error) {
-	var haveAppData bool
-	if err := hc.doThenSend(send, func() ([]byte, error) {
-		// check if this could be an early arriving postHandshake message
-		// and give an oppurtunity for the handshake message to get there first.
-		// In practice this makes the tests less flaky, but there might be a better way to handle this.
-		// Once the connection is established, this won't happen.
-		// It might also be worth limiting the number of these messages that we are delaying.
-		if !hc.s.IsReady() && IsPostHandshake(x) {
-			hc.queued = append([]byte{}, x...)
-			return nil, nil
-		}
-		if !hc.params.IsInit && IsInitHello(x) {
-			msgHash := blake2b.Sum256(x)
-			if msgHash == hc.m0Hash {
-				return nil, nil
-			}
-			hc.reset(msgHash)
-		}
-		var err error
-		haveAppData, out, err = hc.s.Deliver(out, x, time.Now())
-		if err != nil {
-			return nil, err
-		}
-		hc.lastReceived = time.Now()
-		// if the session just became ready then close the ready channel
-		if hc.s.IsReady() && !hc.closedReady {
-			// check and set the remote key
-			if err := hc.setKey(hc.s.RemoteKey()); err != nil {
-				hc.reset([32]byte{})
-				return nil, err
-			}
-			close(hc.ready)
-			hc.closedReady = true
-		}
-		// if there is not app data, then we need to send the response
-		if !haveAppData {
-			return out, nil
-		}
-		return nil, nil
-	}); err != nil {
+// newResp creates a new session as the responder
+// it ensures that the public key is valid and matches any existing public keys we have seen.
+func (c *Channel) newResp(m0 []byte, minTime tai64.TAI64N) (*Session, error) {
+	msg, err := ParseMessage(m0)
+	if err != nil {
 		return nil, err
 	}
-	if haveAppData {
-		return out, nil
+	initHello, err := msg.GetInitHello()
+	if err != nil {
+		return nil, err
 	}
-	hc.mu.Lock()
-	queued := hc.queued
-	hc.queued = nil
-	hc.mu.Unlock()
-	if queued != nil {
-		return hc.Deliver(ctx, out, queued, send)
+	helloTime, err := tai64.ParseN(initHello.TimestampTai64N)
+	if err != nil {
+		return nil, err
 	}
-	return nil, nil
-}
-
-func (hc *halfChannel) ReadyChan() <-chan struct{} {
-	hc.mu.Lock()
-	defer hc.mu.Unlock()
-	return hc.ready
-}
-
-func (hc *halfChannel) LastReceived() time.Time {
-	return hc.lastReceived
-}
-
-func (hc *halfChannel) LastSent() time.Time {
-	return hc.lastSent
-}
-
-func (hc *halfChannel) IsReady() bool {
-	hc.mu.Lock()
-	defer hc.mu.Unlock()
-	return hc.closedReady
-}
-
-func (hc *halfChannel) getParams() SessionParams {
-	params := hc.params
-	params.Now = time.Now()
-	return params
-}
-
-func (hc *halfChannel) reset(m0Hash [32]byte) {
-	hc.m0Hash = m0Hash
-	if hc.closedReady {
-		hc.closedReady = false
-		hc.ready = make(chan struct{})
+	if helloTime.Before(minTime) {
+		return nil, errors.New("timestamp too early to consider session")
 	}
-	params := hc.params
-	params.Now = time.Now()
-	hc.s = NewSession(params)
-	hc.initMessage = nil
+	pubKey, err := verifyAuthClaim(purposeTimestamp, initHello.KeyX509, initHello.TimestampTai64N, initHello.Sig)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.checkKey(pubKey); err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	s := NewSession(SessionConfig{
+		PrivateKey:  c.params.PrivateKey,
+		IsInit:      false,
+		Logger:      c.log,
+		Now:         now,
+		RejectAfter: c.params.RejectAfterTime,
+	})
+	_, _, err = s.Deliver(nil, m0, now)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
-func (hc *halfChannel) InitHandshake(send Sender) {
-	if !hc.params.IsInit {
-		panic("InitHandshake called on non-initiator session")
+// proposeNextSession proposes a session created from a new message
+// and checks to see if it should become the new prospective session, possibly
+// replacing an existing prospective session.
+func (c *Channel) proposeNewSession(sid [32]byte, newS *Session) (ret *Session) {
+	if s := c.sessions[2].Session; s != nil && bytes.Compare(c.sessions[2].ID[:], sid[:]) < 0 {
+		c.log.Debugf("not replacing prospective session old=%v new=%v", s, newS)
+		return s
+	} else if s != nil {
+		c.log.Debugf("replacing prospective session old=%v new=%v", s, newS)
+		ret = newS
+	} else {
+		c.log.Debugf("creating new session %v", newS)
+		ret = newS
 	}
-	hc.doThenSend(send, func() ([]byte, error) {
-		if hc.s.IsReady() {
-			return nil, nil
+	c.setNext(sessionEntry{
+		ID:      sid,
+		Session: newS,
+	})
+	if ret.IsInit() {
+		c.rekeyTimer.Reset(c.params.RekeyAfterTime)
+	}
+	return ret
+}
+
+// onReadySession is called when the prospective session becomes ready
+func (c *Channel) onReadySession(now time.Time) error {
+	se := c.sessions[2]
+	if c.remoteKey != nil && !p2p.EqualPublicKeys(c.remoteKey, se.Session.RemoteKey()) {
+		c.setNext(sessionEntry{})
+		return errors.New("session negotiated with wrong peer")
+	}
+	c.remoteKey = se.Session.RemoteKey()
+	c.lastReceived = now
+	c.remoteTimestamp = se.Session.InitHelloTime()
+	c.setCurrent(se)
+	c.setNext(sessionEntry{})
+	if se.Session.isInit {
+		// if we were the initiator, we are responsible for rekeying
+		c.rekeyTimer.Reset(c.params.RekeyAfterTime)
+	}
+	close(c.ready)
+	return nil
+}
+
+// setCurrent sets the current session, and moves the current session to the previous session.
+func (c *Channel) setCurrent(x sessionEntry) {
+	c.sessions[0] = c.sessions[1]
+	c.sessions[1] = x
+}
+
+func (c *Channel) setNext(x sessionEntry) {
+	c.sessions[2] = x
+}
+
+func (c *Channel) checkKey(pubKey p2p.PublicKey) error {
+	if c.remoteKey != nil && p2p.EqualPublicKeys(c.remoteKey, pubKey) {
+		return nil
+	} else if c.params.AcceptKey(pubKey) {
+		return nil
+	}
+	return errors.New("key rejected")
+}
+
+func (c *Channel) expireSessions(now time.Time) {
+	// expire the previous session only if it is expired
+	if s := c.sessions[0].Session; s != nil && s.ExpiresAt().Before(now) {
+		c.log.Debug("expiring previous session")
+		c.sessions[0] = sessionEntry{}
+	}
+	// expire the current session if it is expired or we have not received a packet recently.
+	if s := c.sessions[1].Session; s != nil && (s.ExpiresAt().Before(now) || now.Sub(c.lastReceived) > c.params.KeepAliveTimeout) {
+		c.log.Debug("expiring current session")
+		c.sessions[0] = c.sessions[1]
+		c.sessions[1] = sessionEntry{}
+		select {
+		case <-c.ready:
+		default:
+			close(c.ready)
 		}
-		if hc.initMessage == nil {
-			hc.initMessage = hc.s.Handshake(nil)
+		c.ready = make(chan struct{})
+	}
+	// expire the prospective session only if it is expired.
+	if s := c.sessions[2].Session; s != nil && s.ExpiresAt().Before(now) {
+		c.log.Debug("expiring prospective session")
+		c.sessions[2] = sessionEntry{}
+	}
+}
+
+func (c *Channel) getOrInit(ctx context.Context) (*Session, error) {
+	for {
+		c.mu.Lock()
+		now := time.Now()
+		c.expireSessions(now)
+		if s := c.sessions[1].Session; s != nil {
+			c.mu.Unlock()
+			return s, nil
 		}
-		return hc.initMessage, nil
+		if s := c.sessions[2].Session; s == nil {
+			c.rekeyTimer.Reset(0)
+		}
+		ready := c.ready
+		c.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ready:
+			c.mu.Lock()
+			se := c.sessions[1]
+			if se.Session != nil && se.Session.IsReady() {
+				c.mu.Unlock()
+				return se.Session, nil
+			}
+			c.mu.Unlock()
+		}
+	}
+}
+
+// onRekey is called by rekeyTimer
+func (c *Channel) onRekey() {
+	c.doThenSend(func() ([]byte, error) {
+		now := time.Now()
+		c.expireSessions(now)
+		if c.sessions[2].Session == nil {
+			id, s := c.newInit(now)
+			c.proposeNewSession(id, s)
+			c.handshakeTimer.Reset(0)
+		}
+		return nil, nil
 	})
 }
 
-func (hc *halfChannel) doThenSend(send Sender, fn func() ([]byte, error)) error {
-	var data []byte
-	var err error
+// onHandshake is called by handshakeTimer
+// It checks if there are sessions for which we need to perform handshakes.
+// And sends handshake messages for them.
+func (c *Channel) onHandshake() {
+	var toSend [][]byte
 	func() {
-		hc.mu.Lock()
-		defer hc.mu.Unlock()
-		data, err = fn()
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		for _, se := range c.sessions {
+			if se.Session != nil && !se.Session.IsReady() {
+				out := se.Session.Handshake(nil)
+				if len(out) > 0 {
+					toSend = append(toSend, out)
+				}
+			}
+		}
 	}()
-	if err != nil {
+	for _, data := range toSend {
+		c.params.Send(data)
+	}
+	// need to wake up to send another handshake message
+	if len(toSend) > 0 {
+		c.handshakeTimer.Reset(c.params.HandshakeBackoff)
+	}
+}
+
+func (c *Channel) doThenSend(fn func() ([]byte, error)) error {
+	var data []byte
+	if err := func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		var err error
+		data, err = fn()
+		return err
+	}(); err != nil {
 		return err
 	}
 	if data != nil {
-		send(data)
+		c.params.Send(data)
 	}
 	return nil
 }
 
-// keyCell holds a public key.
-type keyCell struct {
-	checkKey func(p2p.PublicKey) bool
-
-	mu        sync.Mutex
-	publicKey p2p.PublicKey
+func (c *Channel) isFatal(err error) bool {
+	return false
 }
 
-func (kc *keyCell) SetKey(x p2p.PublicKey) error {
-	if ok := kc.checkKey(x); !ok {
-		return errors.New("key rejected")
-	}
-	kc.mu.Lock()
-	defer kc.mu.Unlock()
-	if kc.publicKey != nil {
-		if !p2p.EqualPublicKeys(x, kc.publicKey) {
-			return errors.Errorf("keys do not match %v %v", kc.publicKey, x)
-		}
-	}
-	kc.publicKey = x
-	return nil
-}
-
-func (kc *keyCell) GetKey() p2p.PublicKey {
-	kc.mu.Lock()
-	defer kc.mu.Unlock()
-	return kc.publicKey
-}
-
-func latestTime(a, b time.Time) time.Time {
-	if b.After(a) {
-		return b
-	}
-	return a
+type sessionEntry struct {
+	ID      [32]byte
+	Session *Session
 }

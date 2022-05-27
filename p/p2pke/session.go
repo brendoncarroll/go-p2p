@@ -1,6 +1,8 @@
 package p2pke
 
 import (
+	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
@@ -8,50 +10,43 @@ import (
 	"github.com/flynn/noise"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/blake2b"
 	"golang.zx2c4.com/wireguard/replay"
 )
-
-const (
-	MaxSessionDuration = 1 * time.Minute
-	Overhead           = 4 + 16
-)
-
-type Sender func([]byte)
 
 type Session struct {
 	privateKey p2p.PrivateKey
 	isInit     bool
-	log        *logrus.Logger
+	log        logrus.FieldLogger
 	expiresAt  time.Time
 
 	// handshake
 	hsIndex       uint8
-	msgCache      [3][]byte
+	msgCache      [4][]byte
 	hs            *noise.HandshakeState
 	initHelloTime tai64.TAI64N
 	remoteKey     p2p.PublicKey
 
 	// ciphers
 	cipherOut, cipherIn noise.Cipher
-	nonce               uint32
+	nonce               uint64
 	rp                  *replay.Filter
 }
 
-type SessionParams struct {
-	IsInit     bool
-	PrivateKey p2p.PrivateKey
-	Logger     *logrus.Logger
-	Now        time.Time
+// SessionConfig configures a session all the parameters are required.
+type SessionConfig struct {
+	IsInit      bool
+	PrivateKey  p2p.PrivateKey
+	Now         time.Time
+	RejectAfter time.Duration
+	Logger      logrus.FieldLogger
 }
 
-func NewSession(params SessionParams) *Session {
-	if params.Logger == nil {
-		params.Logger = logrus.StandardLogger()
-	}
+func NewSession(params SessionConfig) *Session {
 	hs, err := noise.NewHandshakeState(noise.Config{
 		Initiator:   params.IsInit,
 		Pattern:     noise.HandshakeNN,
-		CipherSuite: noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b),
+		CipherSuite: v1CipherSuite,
 	})
 	if err != nil {
 		panic(err)
@@ -60,12 +55,13 @@ func NewSession(params SessionParams) *Session {
 		privateKey: params.PrivateKey,
 		isInit:     params.IsInit,
 		log:        params.Logger,
-		expiresAt:  params.Now.Add(MaxSessionDuration),
+		expiresAt:  params.Now.Add(params.RejectAfter),
 		hs:         hs,
 		rp:         &replay.Filter{},
 	}
 	if s.isInit {
-		s.msgCache[0] = writeInitHello(nil, s.hs, s.privateKey, tai64.FromGoTime(params.Now))
+		s.initHelloTime = tai64.FromGoTime(params.Now)
+		s.msgCache[0] = writeInitHello(nil, s.hs, s.privateKey, s.initHelloTime)
 	}
 	return s
 }
@@ -99,23 +95,23 @@ func (s *Session) Deliver(out []byte, incoming []byte, now time.Time) (bool, []b
 	}
 	nonce := msg.GetNonce()
 	switch nonce {
-	case 0, 1, 2:
+	case 0, 1, 2, 3:
 		if err := s.readHandshake(msg); err != nil {
-			return false, nil, errors.Wrap(err, "readHandshake")
+			return false, nil, errors.Wrapf(err, "processing handshake message")
 		}
 		return false, s.writeHandshake(out), nil
 	default:
-		if s.remoteKey == nil {
-			return false, nil, errors.New("p2pke: data before handshake complete")
+		if !s.canReceive() {
+			return false, nil, ErrEarlyData{State: s.hsIndex, Nonce: nonce}
 		}
-		s.hsIndex = 3
 		out, err := s.cipherIn.Decrypt(out, uint64(nonce), msg.HeaderBytes(), msg.Body())
 		if err != nil {
-			return false, nil, errors.Wrapf(err, "decryption failure nonce=%v", nonce)
+			return false, nil, ErrDecryptionFailure{Nonce: nonce, NoiseErr: err}
 		}
 		if !s.rp.ValidateCounter(uint64(nonce), MaxNonce) {
 			return false, nil, nil
 		}
+		s.hsIndex = 8 // successfully received a packet
 		return true, out, nil
 	}
 }
@@ -126,23 +122,28 @@ func (s *Session) Send(out, ptext []byte, now time.Time) ([]byte, error) {
 	if err := s.checkExpired(now); err != nil {
 		return nil, err
 	}
-	if s.hsIndex < 2 {
+	if !s.canSend() {
 		return nil, errors.New("handshake has not completed")
 	}
-	nonce := s.nonce
-	s.nonce++
-	msg := newMessage(s.outgoingDirection(), nonce)
+	if atomic.LoadUint64(&s.nonce) >= MaxNonce {
+		return nil, errors.New("session has hit message limit")
+	}
+	nonce := atomic.AddUint64(&s.nonce, 1) - 1
+	msg := newMessage(uint32(nonce))
 	out = append(out, msg...)
-	out = s.cipherOut.Encrypt(out, uint64(nonce), msg, ptext)
+	out = s.cipherOut.Encrypt(out, nonce, msg, ptext)
 	return out, nil
 }
 
 // IsReady returns true if the session is ready to send data.
 func (s *Session) IsReady() bool {
-	return s.remoteKey != nil
+	return s.canSend() && s.canReceive()
 }
 
 func (s *Session) RemoteKey() p2p.PublicKey {
+	if !s.canReceive() {
+		return nil
+	}
 	return s.remoteKey
 }
 
@@ -150,33 +151,41 @@ func (s *Session) ExpiresAt() time.Time {
 	return s.expiresAt
 }
 
+func (s *Session) IsInit() bool {
+	return s.isInit
+}
+
 func (s *Session) InitHelloTime() tai64.TAI64N {
 	return s.initHelloTime
 }
 
-func (s *Session) Close() error {
-	return nil
+func (s *Session) canSend() bool {
+	return (s.isInit && s.hsIndex >= nonceRespDone) || (!s.isInit && s.hsIndex >= nonceInitDone)
 }
 
-func (s *Session) outgoingDirection() Direction {
-	if s.isInit {
-		return InitToResp
-	} else {
-		return RespToInit
-	}
+func (s *Session) canReceive() bool {
+	return s.hsIndex >= nonceInitDone
 }
 
 func (s *Session) checkExpired(now time.Time) error {
 	if now.After(s.expiresAt) {
-		return ErrSessionExpired{}
+		return ErrSessionExpired{ExpiredAt: s.expiresAt}
+	}
+	if s.nonce >= MaxNonce {
+		return errors.New("session has exceeded message limit")
 	}
 	return nil
+}
+
+func (s *Session) String() string {
+	m0Hash := blake2b.Sum256(s.msgCache[0])
+	return fmt.Sprintf("Session(init=%v, helloTime=%v m0Hash=%x)", s.isInit, s.initHelloTime, m0Hash[:4])
 }
 
 // writeHandshake writes the current handshake message to out.
 func (s *Session) writeHandshake(out []byte) []byte {
 	switch {
-	case s.hsIndex >= 3:
+	case s.hsIndex >= 4:
 		// handshake is over; we have received a message through the symmetric channel
 		// from the other party.
 		return nil
@@ -184,7 +193,7 @@ func (s *Session) writeHandshake(out []byte) []byte {
 		if s.msgCache[0] == nil {
 			panic("writeHandshake without init")
 		}
-		return s.msgCache[0]
+		return append(out, s.msgCache[0]...)
 	case !s.isInit && s.hsIndex == 1:
 		if s.msgCache[1] == nil {
 			panic("writeHandshake called before readHandshake")
@@ -195,57 +204,76 @@ func (s *Session) writeHandshake(out []byte) []byte {
 			panic("writeHandshake called before readHandshake")
 		}
 		return append(out, s.msgCache[2]...)
+	case !s.isInit && s.hsIndex == 3:
+		if s.msgCache[3] == nil {
+			panic("writeHandshake called before readHandshake")
+		}
+		return append(out, s.msgCache[3]...)
 	default:
 		return nil
 	}
 }
 
-// readHandshake is idempotent. It can only advance the state of the session.
+// readHandshake is idempotent. Each message can only affect the session once
 func (s *Session) readHandshake(msg Message) error {
+	nonce := msg.GetNonce()
 	switch {
-	case s.hsIndex >= 3:
-		return nil
-	case !s.isInit && s.hsIndex == 0 && msg.GetNonce() == nonceInitHello:
+	case !s.isInit && s.hsIndex == 0 && nonce == nonceInitHello:
 		res, err := readInitHello(s.hs, s.privateKey, msg)
 		if err != nil {
 			return err
 		}
+		s.remoteKey = res.RemoteKey
 		s.initHelloTime = res.Timestamp
 		s.msgCache[1] = res.RespHello
 		s.cipherOut, s.cipherIn = res.CipherOut, res.CipherIn
 		s.hsIndex = 1
-	case s.isInit && s.hsIndex == 0 && msg.GetNonce() == nonceRespHello:
+
+	case s.isInit && s.hsIndex == 0 && nonce == nonceRespHello:
 		res, err := readRespHello(s.hs, s.privateKey, msg)
 		if err != nil {
 			return err
 		}
 		s.msgCache[2] = res.InitDone
 		s.cipherOut, s.cipherIn = res.CipherOut, res.CipherIn
-		s.hsIndex = 2 // the initiator doesn't know if the server got the initDone yet.
-		s.nonce = noncePostHandshake
 		s.remoteKey = res.RemoteKey
-	case !s.isInit && s.hsIndex == 1 && msg.GetNonce() == nonceInitDone:
-		res, err := readInitDone(s.hs, s.cipherIn, msg)
+		s.hsIndex = 2 // the initiator doesn't know if the server got the initDone yet.
+	case !s.isInit && s.hsIndex == 1 && nonce == nonceInitDone:
+		res, err := readInitDone(s.hs, s.remoteKey, s.cipherIn, s.cipherOut, msg)
 		if err != nil {
 			return err
 		}
-		s.remoteKey = res.RemoteKey
-		s.hsIndex = 3
+		s.msgCache[3] = res.RespDone
 		s.nonce = noncePostHandshake
+		s.hsIndex = 3
+	case s.isInit && s.hsIndex == 2 && nonce == nonceRespDone:
+		if err := readRespDone(s.cipherIn, msg); err != nil {
+			return err
+		}
+		s.hsIndex = 4
+		s.nonce = noncePostHandshake
+	case (s.isInit && nonce%2 == 1) || (!s.isInit && nonce%2 == 0):
+		return nil
+	default:
+		return errors.New("message not for this session")
 	}
 	return nil
 }
 
 // writeInit writes an InitHello message to out using hs, and initHelloTime
 func writeInitHello(out []byte, hs *noise.HandshakeState, privateKey p2p.PrivateKey, initHelloTime tai64.TAI64N) []byte {
-	msg := newMessage(InitToResp, 0)
+	msg := newMessage(0)
 	tsBytes := initHelloTime.Marshal()
 	var err error
-	msg, _, _, err = hs.WriteMessage(msg, marshal(nil, &InitHello{
-		CipherSuites:    cipherSuiteNames,
+	keyX509, sig := makeTAI64NAuthClaim(privateKey, initHelloTime)
+	initHelloData := marshal(nil, &InitHello{
+		Version:         1,
 		TimestampTai64N: tsBytes[:],
-		AuthClaim:       makeTAI64NAuthClaim(privateKey, initHelloTime),
-	}))
+		KeyX509:         keyX509,
+		Sig:             sig,
+	})
+	initHelloData = appendUint16(initHelloData, uint16(len(initHelloData)))
+	msg, _, _, err = hs.WriteMessage(msg, initHelloData)
 	if err != nil {
 		panic(err)
 	}
@@ -255,6 +283,7 @@ func writeInitHello(out []byte, hs *noise.HandshakeState, privateKey p2p.Private
 type initHelloResult struct {
 	CipherOut, CipherIn noise.Cipher
 	Timestamp           tai64.TAI64N
+	RemoteKey           p2p.PublicKey
 	RespHello           []byte
 }
 
@@ -272,18 +301,17 @@ func readInitHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 	if err != nil {
 		return nil, err
 	}
-	if hello.AuthClaim == nil {
-		return nil, errors.Errorf("InitHello missing auth claim")
-	}
-	if err := verifyAuthClaim(purposeTimestamp, hello.AuthClaim, hello.TimestampTai64N); err != nil {
+	pubKey, err := verifyAuthClaim(purposeTimestamp, hello.KeyX509, hello.TimestampTai64N, hello.Sig)
+	if err != nil {
 		return nil, errors.Wrapf(err, "validating InitHello")
 	}
 	// prepare response
-	msg2 := newMessage(RespToInit, 1)
+	msg2 := newMessage(1)
 	cb := hs.ChannelBinding()
+	keyX509, sig := makeChannelAuthClaim(privateKey, cb)
 	msg2, cs1, cs2, err := hs.WriteMessage(msg2, marshal(nil, &RespHello{
-		CipherSuite: cipherSuiteNames[0],
-		AuthClaim:   makeChannelAuthClaim(privateKey, cb),
+		KeyX509: keyX509,
+		Sig:     sig,
 	}))
 	if err != nil {
 		panic(err)
@@ -293,6 +321,7 @@ func readInitHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 		CipherOut: cipherOut,
 		CipherIn:  cipherIn,
 		Timestamp: timestamp,
+		RemoteKey: pubKey,
 		RespHello: msg2,
 	}, nil
 }
@@ -314,18 +343,18 @@ func readRespHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 	if err != nil {
 		return nil, err
 	}
-	pubKey, err := p2p.ParsePublicKey(respHello.AuthClaim.KeyX509)
+	pubKey, err := verifyAuthClaim(purposeChannelBinding, respHello.KeyX509, cb, respHello.Sig)
 	if err != nil {
 		return nil, err
 	}
-	if err := p2p.Verify(pubKey, purposeChannelBinding, cb, respHello.AuthClaim.Sig); err != nil {
+	cipherOut, cipherIn := pickCS(true, cs1, cs2)
+	channelSig, err := p2p.Sign(nil, privateKey, purposeChannelBinding, hs.ChannelBinding())
+	if err != nil {
 		return nil, err
 	}
-	cipherOut, cipherIn := pickCS(true, cs1, cs2)
-	authClaim := makeChannelAuthClaim(privateKey, hs.ChannelBinding())
-	msg2 := newMessage(InitToResp, nonceInitDone)
+	msg2 := newMessage(nonceInitDone)
 	msg2 = cipherOut.Encrypt(msg2, uint64(nonceInitDone), msg2, marshal(nil, &InitDone{
-		AuthClaim: authClaim,
+		Sig: channelSig,
 	}))
 	if err != nil {
 		panic(err)
@@ -341,9 +370,10 @@ func readRespHello(hs *noise.HandshakeState, privateKey p2p.PrivateKey, msg Mess
 // initDoneResult is returned by readInitDone
 type initDoneResult struct {
 	RemoteKey p2p.PublicKey
+	RespDone  []byte
 }
 
-func readInitDone(hs *noise.HandshakeState, cipherIn noise.Cipher, msg Message) (*initDoneResult, error) {
+func readInitDone(hs *noise.HandshakeState, pubKey p2p.PublicKey, cipherIn, cipherOut noise.Cipher, msg Message) (*initDoneResult, error) {
 	ptext, err := cipherIn.Decrypt(nil, uint64(nonceInitDone), msg.HeaderBytes(), msg.Body())
 	if err != nil {
 		return nil, errors.Wrapf(err, "readInitDone")
@@ -352,48 +382,49 @@ func readInitDone(hs *noise.HandshakeState, cipherIn noise.Cipher, msg Message) 
 	if err != nil {
 		return nil, err
 	}
-	pubKey, err := p2p.ParsePublicKey(initDone.AuthClaim.KeyX509)
-	if err != nil {
-		return nil, err
-	}
 	cb := hs.ChannelBinding()
-	if err := verifyAuthClaim(purposeChannelBinding, initDone.AuthClaim, cb); err != nil {
+	if err := p2p.Verify(pubKey, purposeChannelBinding, cb, initDone.Sig); err != nil {
 		return nil, err
 	}
+	respDone := newMessage(nonceRespDone)
+	respDone = cipherOut.Encrypt(respDone, uint64(nonceRespDone), respDone.HeaderBytes(), nil)
 	return &initDoneResult{
 		RemoteKey: pubKey,
+		RespDone:  respDone,
 	}, nil
 }
 
-func makeChannelAuthClaim(privateKey p2p.PrivateKey, cb []byte) *AuthClaim {
+func readRespDone(cipherIn noise.Cipher, msg Message) error {
+	_, err := cipherIn.Decrypt(nil, uint64(nonceRespDone), msg.HeaderBytes(), msg.Body())
+	return err
+}
+
+func makeChannelAuthClaim(privateKey p2p.PrivateKey, cb []byte) ([]byte, []byte) {
 	sig, err := p2p.Sign(nil, privateKey, purposeChannelBinding, cb)
 	if err != nil {
 		panic(err)
 	}
-	return &AuthClaim{
-		KeyX509: p2p.MarshalPublicKey(privateKey.Public()),
-		Sig:     sig,
-	}
+	return p2p.MarshalPublicKey(privateKey.Public()), sig
 }
 
-func makeTAI64NAuthClaim(privateKey p2p.PrivateKey, timestamp tai64.TAI64N) *AuthClaim {
+func makeTAI64NAuthClaim(privateKey p2p.PrivateKey, timestamp tai64.TAI64N) ([]byte, []byte) {
 	tsBytes := timestamp.Marshal()
 	sig, err := p2p.Sign(nil, privateKey, purposeTimestamp, tsBytes[:])
 	if err != nil {
 		panic(err)
 	}
-	return &AuthClaim{
-		KeyX509: p2p.MarshalPublicKey(privateKey.Public()),
-		Sig:     sig,
-	}
+	return p2p.MarshalPublicKey(privateKey.Public()), sig
 }
 
-func verifyAuthClaim(purpose string, ac *AuthClaim, data []byte) error {
-	pubKey, err := p2p.ParsePublicKey(ac.KeyX509)
+func verifyAuthClaim(purpose string, keyX509, data, sig []byte) (p2p.PublicKey, error) {
+	pubKey, err := p2p.ParsePublicKey(keyX509)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return p2p.Verify(pubKey, purpose, data, ac.Sig)
+	if err := p2p.Verify(pubKey, purpose, data, sig); err != nil {
+		return nil, err
+	}
+	return pubKey, nil
 }
 
 func pickCS(initiator bool, cs1, cs2 *noise.CipherState) (outCipher, inCipher noise.Cipher) {
@@ -403,4 +434,10 @@ func pickCS(initiator bool, cs1, cs2 *noise.CipherState) (outCipher, inCipher no
 	outCipher = cs1.Cipher()
 	inCipher = cs2.Cipher()
 	return outCipher, inCipher
+}
+
+func appendUint16(x []byte, n uint16) []byte {
+	x = append(x, uint8((n>>8)&0xff))
+	x = append(x, uint8((n>>0)&0xff))
+	return x
 }

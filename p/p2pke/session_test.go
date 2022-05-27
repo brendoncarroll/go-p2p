@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p/p2ptest"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +21,10 @@ func TestHandshake(t *testing.T) {
 	logMsg(t, InitToResp, m2)
 	_, m3, err := s2.Deliver(nil, m2, time.Now())
 	require.NoError(t, err)
-	require.Len(t, m3, 0)
+	logMsg(t, RespToInit, m3)
+	_, m4, err := s1.Deliver(nil, m3, time.Now())
+	require.NoError(t, err)
+	require.Len(t, m4, 0)
 
 	require.Equal(t, s1.hs.ChannelBinding(), s2.hs.ChannelBinding())
 	require.Equal(t, s1.privateKey.Public(), s2.RemoteKey())
@@ -29,7 +33,7 @@ func TestHandshake(t *testing.T) {
 
 func TestHandshakeRepeats(t *testing.T) {
 	s1, s2 := newTestPair(t)
-	var m1, m2, m3 []byte
+	var m1, m2, m3, m4 []byte
 	var err error
 	var isApp bool
 	const N = 10
@@ -51,8 +55,14 @@ func TestHandshakeRepeats(t *testing.T) {
 		//logMsg(t, InitToResp, m2)
 		isApp, m3, err = s2.Deliver(nil, m2, time.Now())
 		require.NoError(t, err)
-		require.Len(t, m3, 0)
 		require.False(t, isApp)
+	}
+	for i := 0; i < N; i++ {
+		//logMsg(t, InitToResp, m2)
+		isApp, m4, err = s1.Deliver(nil, m3, time.Now())
+		require.NoError(t, err)
+		require.False(t, isApp)
+		require.Len(t, m4, 0)
 	}
 
 	require.Equal(t, s1.hs.ChannelBinding(), s2.hs.ChannelBinding())
@@ -65,15 +75,26 @@ func logMsg(t *testing.T, direction Direction, data []byte) {
 }
 
 func newTestPair(t *testing.T) (s1, s2 *Session) {
-	s1 = NewSession(SessionParams{
-		IsInit:     true,
-		PrivateKey: p2ptest.NewTestKey(t, 0),
-		Now:        time.Now(),
+	s1 = NewSession(SessionConfig{
+		IsInit:      true,
+		PrivateKey:  p2ptest.NewTestKey(t, 0),
+		Now:         time.Now(),
+		Logger:      newTestLogger(t),
+		RejectAfter: RejectAfterTime,
 	})
-	s2 = NewSession(SessionParams{
-		IsInit:     false,
-		PrivateKey: p2ptest.NewTestKey(t, 1),
-		Now:        time.Now(),
+	s2 = NewSession(SessionConfig{
+		IsInit:      false,
+		PrivateKey:  p2ptest.NewTestKey(t, 1),
+		Now:         time.Now(),
+		Logger:      newTestLogger(t),
+		RejectAfter: RejectAfterTime,
 	})
 	return s1, s2
+}
+
+func newTestLogger(t testing.TB) logrus.FieldLogger {
+	log := logrus.New()
+	log.SetFormatter(&logrus.TextFormatter{ForceColors: true})
+	log.SetLevel(logrus.TraceLevel)
+	return log
 }
