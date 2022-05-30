@@ -3,7 +3,6 @@ package kademlia
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"testing"
 
 	"github.com/brendoncarroll/go-p2p"
@@ -15,8 +14,8 @@ import (
 
 // TestDHTSetup tests the setupNodes function used in the other tests.
 func TestDHTSetup(t *testing.T) {
-	const N = 100
-	const numPeers = 3
+	const N = 1000
+	const numPeers = 10
 	nodes := setupNodes(t, N, numPeers, 0)
 
 	t.Run("FullyConnected", func(t *testing.T) {
@@ -54,37 +53,37 @@ func TestDHTSetup(t *testing.T) {
 	})
 }
 
-func TestDHTJoin(t *testing.T) {
-	const N = 100
-	const peerSize = 10
-	nodes := make(map[p2p.PeerID]*DHTNode)
-	for i := 0; i < N; i++ {
-		id := newPeer(i)
-		nodes[id] = NewDHTNode(DHTNodeParams{
-			LocalID:       id,
-			PeerCacheSize: peerSize,
-		})
-	}
-	for localID := range nodes {
-		added := DHTJoin(DHTJoinParams{
-			Initial: nodes[localID].ListNodeInfos(localID[:], 10),
-			Target:  localID,
-			Ask: func(dst NodeInfo, req FindNodeReq) (FindNodeRes, error) {
-				if _, exists := nodes[dst.ID]; !exists {
-					return FindNodeRes{}, fmt.Errorf("node %v unreachable", dst)
-				}
-				nodes[dst.ID].AddPeer(localID, nil)
-				return nodes[dst.ID].HandleFindNode(localID, req)
-			},
-			AddPeer: nodes[localID].AddPeer,
-		})
-		require.Greater(t, added, 0)
-	}
-}
+// func TestDHTJoin(t *testing.T) {
+// 	const N = 100
+// 	const peerSize = 10
+// 	nodes := make(map[p2p.PeerID]*DHTNode)
+// 	for i := 0; i < N; i++ {
+// 		id := newPeer(i)
+// 		nodes[id] = NewDHTNode(DHTNodeParams{
+// 			LocalID:       id,
+// 			PeerCacheSize: peerSize,
+// 		})
+// 	}
+// 	for localID := range nodes {
+// 		added := DHTJoin(DHTJoinParams{
+// 			Initial: nodes[localID].ListNodeInfos(localID[:], 10),
+// 			Target:  localID,
+// 			Ask: func(dst NodeInfo, req FindNodeReq) (FindNodeRes, error) {
+// 				if _, exists := nodes[dst.ID]; !exists {
+// 					return FindNodeRes{}, fmt.Errorf("node %v unreachable", dst)
+// 				}
+// 				nodes[dst.ID].AddPeer(localID, nil)
+// 				return nodes[dst.ID].HandleFindNode(localID, req)
+// 			},
+// 			AddPeer: nodes[localID].AddPeer,
+// 		})
+// 		require.Greater(t, added, 0)
+// 	}
+// }
 
 func TestDHTFindNode(t *testing.T) {
-	const N = 100
-	const numPeers = 256
+	const N = 1000
+	const numPeers = 20
 	nodes := setupNodes(t, N, numPeers, 0)
 	ids := maps.Keys(nodes)
 

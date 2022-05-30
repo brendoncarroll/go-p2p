@@ -139,13 +139,13 @@ func (kc *Cache[V]) ForEach(fn func(e Entry[V]) bool) {
 func (kc *Cache[V]) ForEachAsc(k []byte, fn func(e Entry[V]) bool) {
 	d := Distance(kc.locus, k)
 	lz := Leading0s(d)
-	// everything in these buckets will have lz bits matching with k.
+	// everything in these buckets will have lz bits matching k.
 	for i := lz; i < len(kc.buckets); i++ {
 		if !kc.buckets[i].forEachAsc(k, fn) {
 			return
 		}
 	}
-	// each bucket will have fewer leading bits matching k.
+	// each bucket will have < lz bits matching k.
 	for i := min(lz-1, len(kc.buckets)-1); i >= 0; i-- {
 		if !kc.buckets[i].forEachAsc(k, fn) {
 			return
