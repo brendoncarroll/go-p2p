@@ -33,12 +33,17 @@ func NewDHTNode(params DHTNodeParams) *DHTNode {
 	if params.Now == nil {
 		params.Now = time.Now
 	}
+	minPerBucket := 1
+	locus := params.LocalID[:]
+	if params.PeerCacheSize < minPerBucket*len(locus)*8 {
+		locus = locus[:params.PeerCacheSize/8]
+	}
 	n := &DHTNode{
 		params: params,
-		peers:  *NewCache[[]byte](params.LocalID[:], params.PeerCacheSize, 0),
+		peers:  *NewCache[[]byte](locus, params.PeerCacheSize, minPerBucket),
 	}
 	if params.DataCacheSize > 0 {
-		n.data = *NewCache[[]byte](params.LocalID[:], params.DataCacheSize, 0)
+		n.data = *NewCache[[]byte](locus, params.DataCacheSize, 0)
 	}
 	return n
 }

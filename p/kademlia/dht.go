@@ -1,7 +1,7 @@
 package kademlia
 
 import (
-	"errors"
+	"fmt"
 	"log"
 
 	"github.com/brendoncarroll/go-p2p"
@@ -27,7 +27,7 @@ func DHTFindNode(params DHTFindNodeParams) (*DHTFindNodeResult, error) {
 		params.Validate = func(NodeInfo) bool { return true }
 	}
 	var res DHTFindNodeResult
-	dhtIterate(params.Initial, params.Target[:], 3, func(node NodeInfo) ([]NodeInfo, bool) {
+	dhtIterate(params.Initial, params.Target[:], 10, func(node NodeInfo) ([]NodeInfo, bool) {
 		log.Printf("looking for %v at %v lz=%v", params.Target, node.ID, Leading0s(Distance(params.Target[:], node.ID[:])))
 		if res.Closest.IsZero() || DistanceLt(params.Target[:], node.ID[:], res.Closest[:]) {
 			res.Closest = node.ID
@@ -55,8 +55,8 @@ func DHTFindNode(params DHTFindNodeParams) (*DHTFindNodeResult, error) {
 		return nodes2, true
 	})
 	var err error
-	if res.Info == nil {
-		err = errors.New("peer not found")
+	if res.Closest != params.Target {
+		err = fmt.Errorf("could not find %v closest %v", params.Target, res.Closest)
 	}
 	return &res, err
 }
@@ -69,9 +69,12 @@ type DHTJoinParams struct {
 }
 
 // DHTJoin joins a node to the rest of the DHT.
-func DHTJoin(params DHTJoinParams) error {
+func DHTJoin(params DHTJoinParams) int {
+	var added int
 	dhtIterate(params.Initial, params.Target[:], 10, func(node NodeInfo) ([]NodeInfo, bool) {
-		params.AddPeer(node.ID, node.Info)
+		if params.AddPeer(node.ID, node.Info) {
+			added++
+		}
 		resp, err := params.Ask(node, FindNodeReq{
 			Target: params.Target,
 			Limit:  10,
@@ -79,12 +82,9 @@ func DHTJoin(params DHTJoinParams) error {
 		if err != nil {
 			return nil, true
 		}
-		for _, node2 := range resp.Nodes {
-			params.AddPeer(node2.ID, node2.Info)
-		}
 		return resp.Nodes, true
 	})
-	return nil
+	return added
 }
 
 // type DHTGetParams struct {

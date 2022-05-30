@@ -1,6 +1,7 @@
 package kademlia
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"testing"
@@ -9,32 +10,81 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/sha3"
 	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 )
 
-func TestDHTBootstrap(t *testing.T) {
+// TestDHTSetup tests the setupNodes function used in the other tests.
+func TestDHTSetup(t *testing.T) {
 	const N = 100
-	const numPeers = 10
+	const numPeers = 3
 	nodes := setupNodes(t, N, numPeers, 0)
-	for _, node := range nodes {
-		require.Len(t, node.ListPeers(0), numPeers)
-	}
-	var improvements int
-	for local := range nodes {
-		t.Log(nodes[local])
-		for remote := range nodes {
-			if nodes[local].AddPeer(remote, nil) {
-				improvements++
+
+	t.Run("FullyConnected", func(t *testing.T) {
+		lt := func(a, b p2p.PeerID) bool {
+			return bytes.Compare(a[:], b[:]) < 0
+		}
+		clusters := computeClusters(nodes)
+		if len(clusters) != 1 {
+			for id, cluster := range clusters {
+				t.Log(id, len(cluster), sortedKeys(cluster, lt))
 			}
 		}
+		require.Equal(t, 1, len(clusters), "should only have 1 cluster")
+	})
+	t.Run("FullCaches", func(t *testing.T) {
+		for _, node := range nodes {
+			require.Len(t, node.ListPeers(0), numPeers)
+		}
+	})
+	t.Run("StablePeers", func(t *testing.T) {
+		var improvements int
+		for local := range nodes {
+			for remote := range nodes {
+				if local == remote {
+					continue
+				}
+				if nodes[local].peers.WouldAdd(remote[:]) {
+					improvements++
+				}
+			}
+		}
+		// all the nodes should have found the closest nodes, and there should not
+		// be any improvement
+		require.Equal(t, 0, improvements)
+	})
+}
+
+func TestDHTJoin(t *testing.T) {
+	const N = 100
+	const peerSize = 10
+	nodes := make(map[p2p.PeerID]*DHTNode)
+	for i := 0; i < N; i++ {
+		id := newPeer(i)
+		nodes[id] = NewDHTNode(DHTNodeParams{
+			LocalID:       id,
+			PeerCacheSize: peerSize,
+		})
 	}
-	// all the nodes should have found the closest nodes, and there should not
-	// be any improvement
-	require.Equal(t, 0, improvements)
+	for localID := range nodes {
+		added := DHTJoin(DHTJoinParams{
+			Initial: nodes[localID].ListNodeInfos(localID[:], 10),
+			Target:  localID,
+			Ask: func(dst NodeInfo, req FindNodeReq) (FindNodeRes, error) {
+				if _, exists := nodes[dst.ID]; !exists {
+					return FindNodeRes{}, fmt.Errorf("node %v unreachable", dst)
+				}
+				nodes[dst.ID].AddPeer(localID, nil)
+				return nodes[dst.ID].HandleFindNode(localID, req)
+			},
+			AddPeer: nodes[localID].AddPeer,
+		})
+		require.Greater(t, added, 0)
+	}
 }
 
 func TestDHTFindNode(t *testing.T) {
 	const N = 100
-	const numPeers = 10
+	const numPeers = 256
 	nodes := setupNodes(t, N, numPeers, 0)
 	ids := maps.Keys(nodes)
 
@@ -122,28 +172,11 @@ func setupNodes(t testing.TB, n, peerSize, dataSize int) map[p2p.PeerID]*DHTNode
 			PeerCacheSize: peerSize,
 			DataCacheSize: dataSize,
 		})
-		id2 := newPeer(0)
-		nodes[id].AddPeer(id2, nil)
 	}
-	join := func(localID p2p.PeerID) {
-		node := nodes[localID]
-		err := DHTJoin(DHTJoinParams{
-			Initial: node.ListNodeInfos(localID[:], 10),
-			Target:  localID,
-			Ask: func(dst NodeInfo, req FindNodeReq) (FindNodeRes, error) {
-				if _, exists := nodes[dst.ID]; !exists {
-					return FindNodeRes{}, fmt.Errorf("node %v unreachable", dst)
-				}
-				nodes[dst.ID].AddPeer(localID, nil)
-				return nodes[dst.ID].HandleFindNode(localID, req)
-			},
-			AddPeer: node.AddPeer,
-		})
-		require.NoError(t, err)
-	}
-	for i := 0; i < 3; i++ {
-		for id := range nodes {
-			join(id)
+	for id1 := range nodes {
+		for id2 := range nodes {
+			nodes[id1].AddPeer(id2, nil)
+			nodes[id2].AddPeer(id1, nil)
 		}
 	}
 	return nodes
@@ -153,4 +186,56 @@ func newPeer(i int) p2p.PeerID {
 	buf := [8]byte{}
 	binary.BigEndian.PutUint64(buf[:], uint64(i))
 	return sha3.Sum256(buf[:])
+}
+
+func computeClusters(nodes map[p2p.PeerID]*DHTNode) map[int]map[p2p.PeerID]struct{} {
+	var clusterID int
+	clusters := make(map[int]map[p2p.PeerID]struct{})
+	id2Cluster := make(map[p2p.PeerID]int)
+	addToCluster := func(id p2p.PeerID, cid int) {
+		if clusters[cid] == nil {
+			clusters[cid] = make(map[p2p.PeerID]struct{})
+		}
+		clusters[cid][id] = struct{}{}
+		id2Cluster[id] = cid
+	}
+	mergeClusters := func(a, b int) int {
+		if a == b {
+			return a
+		}
+		if b < a {
+			a, b = b, a
+		}
+		if clusters[a] == nil {
+			clusters[a] = make(map[p2p.PeerID]struct{})
+		}
+		for id := range clusters[b] {
+			clusters[a][id] = struct{}{}
+			id2Cluster[id] = a
+		}
+		delete(clusters, b)
+		return a
+	}
+	for id := range nodes {
+		cid := clusterID
+		clusterID++
+		todo := []p2p.PeerID{id}
+		for len(todo) > 0 {
+			var id p2p.PeerID
+			id, todo = pop(todo)
+			if cid2, exists := id2Cluster[id]; exists {
+				cid = mergeClusters(cid, cid2)
+				continue
+			}
+			addToCluster(id, cid)
+			todo = append(todo, nodes[id].ListPeers(0)...)
+		}
+	}
+	return clusters
+}
+
+func sortedKeys[K comparable, V any, M map[K]V](m M, lt func(a, b K) bool) []K {
+	keys := maps.Keys(m)
+	slices.SortFunc(keys, lt)
+	return keys
 }

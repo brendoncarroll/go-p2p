@@ -33,8 +33,8 @@ type Cache[V any] struct {
 // from 0 to 256 buckets, and max must be sufficiently large to respect
 // each of those 256 buckets having a minimum number of keys.
 func NewCache[V any](locus []byte, max, minPerBucket int) *Cache[V] {
-	if max < 1 {
-		panic("max < 1")
+	if max < 0 {
+		panic("max < 0")
 	}
 	if minPerBucket*8*len(locus) > max {
 		panic(fmt.Sprintf("max must be >= 8 * len(locus) * minPerBucket, max=%d minPerBucket=%d", max, minPerBucket))
@@ -146,7 +146,7 @@ func (kc *Cache[V]) ForEachAsc(k []byte, fn func(e Entry[V]) bool) {
 		}
 	}
 	// each bucket will have fewer leading bits matching k.
-	for i := min(lz, len(kc.buckets)-1); i >= 0; i-- {
+	for i := min(lz-1, len(kc.buckets)-1); i >= 0; i-- {
 		if !kc.buckets[i].forEachAsc(k, fn) {
 			return
 		}

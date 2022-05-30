@@ -60,3 +60,25 @@ func TestCacheCloser(t *testing.T) {
 		return true
 	})
 }
+
+func TestCacheForEachAsc(t *testing.T) {
+	locus := []byte{0, 0, 0, 0}
+	c := NewCache[string](locus, 100, 0)
+	const N = 10000
+	rng := mrand.New(mrand.NewSource(0))
+	for i := 0; i < N; i++ {
+		buf := [4]byte{}
+		rng.Read(buf[:])
+		c.Put(buf[:], "")
+	}
+
+	k := []byte{1, 1, 1, 1}
+	var last []byte
+	c.ForEachAsc(k, func(e Entry[string]) bool {
+		if last != nil {
+			require.True(t, DistanceGt(k, e.Key, last), "%v not further than %v", e.Key, last)
+		}
+		last = e.Key
+		return true
+	})
+}
