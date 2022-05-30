@@ -226,7 +226,7 @@ func (s *Swarm[T]) withSession(ctx context.Context, dst Addr[T], fn func(sess qu
 	if err != nil {
 		return err
 	}
-	if !peerAddr.ID.Equals(dst.ID) {
+	if !(peerAddr.ID == dst.ID) {
 		return errors.Errorf("wrong peer HAVE: %v WANT: %v", peerAddr.ID, dst.ID)
 	}
 	s.putSession(peerAddr, sess, true)

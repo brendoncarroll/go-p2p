@@ -145,7 +145,7 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id2 := p2p.DefaultFingerprinter(pubKey)
-	if !id2.Equals(id) {
+	if !(id2 == id) {
 		err = errors.New("public key does not match id")
 		log.Error(err)
 		w.WriteHeader(http.StatusBadRequest)

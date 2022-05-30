@@ -66,5 +66,5 @@ func (a Addr[T]) Map(fn func(T) T) Addr[T] {
 }
 
 func (a Addr[T]) Equals(b Addr[T]) bool {
-	return a.ID.Equals(b.ID) && p2p.CompareAddrs(a.Addr, b.Addr) == 0
+	return (a.ID == b.ID) && p2p.CompareAddrs(a.Addr, b.Addr) == 0
 }
