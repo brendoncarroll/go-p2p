@@ -60,9 +60,8 @@ A swarm which transfers data to other swarms in memory. Useful for testing.
 Creates a multiplexed addressed space using names given to each subswarm.
 Applications can use this to "future-proof" their transport layer.
 
-- **Peer Swarm**
-A swarm that uses PeerIDs as addresses.
-It requires an underlying swarm, and a function that maps PeerIDs to addresses.
+- **P2PKE Swarm**
+A Secure Swarm which can secure any underlying Swarm.
 
 - **QUIC Swarm**
 A secure swarm supporting `Asks` built on the QUIC protocol.
@@ -78,21 +77,24 @@ An insecure swarm, included mainly as a building block.
 A higher order swarm which increases the MTU of an underlying swarm by breaking apart messages,
 and assembling them on the other side.
 
-The `swarmutil` package contains utilities for writing `Swarms` and a test suite to make sure it exhibits all the behaviors expected.
+The `swarmutil` package contains utilities for writing `Swarms`.
+The `swarmtest` package contains a test suite which checks that a given Swarm implementation exhibits all the behaviors expected.
 
 ### P is for Protocols
 
-The utility of this library is determined entirely by how easily well-known p2p algorithms can be built and composed using it's primitives.
-
 - **Chord**
-A package for the Chord protocol.  Provides functions for computing distance.
+A package for the Chord DHT algorithm.
 
 - **Kademlia**
-A package with a DHT, overlay network, and cache is in the works.  Right now a cache that evicts keys distant in XOR space is available.
+A package for the Kademlia DHT algorithm.
 
 - **Multiplexing**
 Multiplexing creates multiple logical swarms on top of a single swarm.
 The `p2pmux` package provides string and integer multiplexers.
+
+- **P2PKE**
+P2PKE is an authenticated key exchange suitable for securing `p2p.Swarms`.
+Provides a session state machine, and a long-lived secure channel, which is used by `s/p2pkeswarm`
 
 ## PKI
 A `PeerID` type is provided to be used as the hash of public keys, for identifying peers.
