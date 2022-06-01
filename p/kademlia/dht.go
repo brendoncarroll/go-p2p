@@ -136,7 +136,7 @@ func DHTGet(params DHTGetParams) (*DHTGetResult, error) {
 	})
 	var err error
 	if res.From.IsZero() {
-		err = fmt.Errorf("could not find key %q, closest peer %v", params.Key, res.From[:])
+		err = fmt.Errorf("could not find key %s, closest peer %v", params.Key, res.From[:])
 	}
 	return &res, err
 }
@@ -170,10 +170,6 @@ func DHTPut(params DHTPutParams) (*DHTPutResult, error) {
 	}
 	var res DHTPutResult
 	dhtIterate(params.Initial, params.Key, 3, func(node NodeInfo) ([]NodeInfo, bool) {
-		// If we have hit the acceptance target AND we are getting further away
-		if res.Accepted >= params.MinAccepted && DistanceLt(params.Key, res.Closest[:], node.ID[:]) {
-			return nil, false
-		}
 		res.Contacted++
 		resp, err := params.Ask(node, req)
 		if err != nil {

@@ -20,14 +20,10 @@ type DHTNode struct {
 type DHTNodeParams struct {
 	LocalID                      p2p.PeerID
 	PeerCacheSize, DataCacheSize int
-	Validate                     func(k, v []byte) bool
 	Now                          func() time.Time
 }
 
 func NewDHTNode(params DHTNodeParams) *DHTNode {
-	if params.Validate == nil {
-		params.Validate = func(k, v []byte) bool { return true }
-	}
 	if params.Now == nil {
 		params.Now = time.Now
 	}
@@ -118,25 +114,22 @@ func (node *DHTNode) closerNodes(key []byte) (ret []NodeInfo) {
 
 // Put attempts to insert the key into the DHTNode and returns all the peers
 // closer to that
-func (node *DHTNode) Put(key, value []byte, expiresAt time.Time) (bool, error) {
-	if !node.params.Validate(key, value) {
-		return false, fmt.Errorf("invalid entry key=%q value=%q", key, value)
-	}
+func (node *DHTNode) Put(key, value []byte, expiresAt time.Time) bool {
 	node.mu.Lock()
 	_, added := node.data.Put(key, value)
 	node.mu.Unlock()
-	return added, nil
+	return added
 }
 
 func (node *DHTNode) LocalID() p2p.PeerID {
 	return node.params.LocalID
 }
 
-func (node *DHTNode) Get(key []byte, now time.Time) (value []byte, closer []NodeInfo) {
+func (node *DHTNode) Get(key []byte, now time.Time) []byte {
 	node.mu.RLock()
 	defer node.mu.RUnlock()
 	v, _ := node.data.Get(key)
-	return v, node.closerNodes(key)
+	return v
 }
 
 func (node *DHTNode) WouldAdd(key []byte) bool {
@@ -156,10 +149,7 @@ func (n *DHTNode) String() string {
 // HandlePut handles a put from another node.
 func (n *DHTNode) HandlePut(from p2p.PeerID, req PutReq) (PutRes, error) {
 	expiresAt := time.Now().Add(time.Duration(req.TTLms) * time.Millisecond)
-	accepted, err := n.Put(req.Key, req.Value, expiresAt)
-	if err != nil {
-		return PutRes{}, err
-	}
+	accepted := n.Put(req.Key, req.Value, expiresAt)
 	return PutRes{
 		Accepted: accepted,
 		Closer:   n.closerNodes(req.Key),
@@ -167,10 +157,10 @@ func (n *DHTNode) HandlePut(from p2p.PeerID, req PutReq) (PutRes, error) {
 }
 
 func (n *DHTNode) HandleGet(from p2p.PeerID, req GetReq) (GetRes, error) {
-	v, closer := n.Get(req.Key, time.Now())
+	v := n.Get(req.Key, time.Now())
 	return GetRes{
 		Value:  v,
-		Closer: closer,
+		Closer: n.closerNodes(req.Key),
 	}, nil
 }
 
