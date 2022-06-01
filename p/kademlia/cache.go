@@ -138,7 +138,7 @@ func (kc *Cache[V]) ForEach(fn func(e Entry[V]) bool) {
 // ForEachAsc calls fn with entries in ascending distance from k
 func (kc *Cache[V]) ForEachAsc(k []byte, fn func(e Entry[V]) bool) {
 	d := Distance(kc.locus, k)
-	lz := Leading0s(d)
+	lz := LeadingZeros(d)
 	// everything in these buckets will have lz bits matching k.
 	for i := lz; i < len(kc.buckets); i++ {
 		if !kc.buckets[i].forEachAsc(k, fn) {
@@ -226,7 +226,7 @@ func (kc *Cache[V]) getBucket(key []byte) *bucket[V] {
 func (kc *Cache[V]) bucketIndex(key []byte) int {
 	dist := make([]byte, len(kc.locus))
 	XORBytes(dist, kc.locus, key)
-	return Leading0s(dist)
+	return LeadingZeros(dist)
 }
 
 func (kc *Cache[V]) evict() *Entry[V] {

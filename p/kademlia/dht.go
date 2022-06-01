@@ -3,6 +3,7 @@ package kademlia
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"golang.org/x/exp/slices"
@@ -28,7 +29,6 @@ func DHTFindNode(params DHTFindNodeParams) (*DHTFindNodeResult, error) {
 	}
 	var res DHTFindNodeResult
 	dhtIterate(params.Initial, params.Target[:], 10, func(node NodeInfo) ([]NodeInfo, bool) {
-		log.Printf("looking for %v at %v lz=%v", params.Target, node.ID, Leading0s(Distance(params.Target[:], node.ID[:])))
 		if res.Closest.IsZero() || DistanceLt(params.Target[:], node.ID[:], res.Closest[:]) {
 			res.Closest = node.ID
 			res.Info = node.Info
@@ -44,7 +44,6 @@ func DHTFindNode(params DHTFindNodeParams) (*DHTFindNodeResult, error) {
 			log.Println(err)
 			return nil, true
 		}
-		log.Println("found nodes", resp.Nodes)
 		res.Contacted++
 		nodes2 := resp.Nodes[:0]
 		for _, node2 := range resp.Nodes {
@@ -87,62 +86,60 @@ func DHTJoin(params DHTJoinParams) int {
 	return added
 }
 
-// type DHTGetParams struct {
-// 	Key      []byte
-// 	Initial  []p2p.PeerID
-// 	Validate func([]byte) bool
-// 	Ask      func(dst p2p.PeerID, req GetReq) (GetRes, error)
-// }
+type DHTGetParams struct {
+	Key      []byte
+	Initial  []NodeInfo
+	Validate func([]byte) bool
+	Ask      GetFunc
+}
 
-// type DHTGetResult struct {
-// 	Value        []byte
-// 	Peer         p2p.PeerID
-// 	ExpiresAt    time.Time
-// 	NumContacted int
-// 	NumResponded int
-// }
+type DHTGetResult struct {
+	// Value is the value associated with the key
+	Value []byte
+	// From is the node that returned the value
+	From p2p.PeerID
+	// ExpiresAt is when the entry expires
+	ExpiresAt time.Time
+	// Closest is the peer closest to the key that we contacted.
+	Closest      p2p.PeerID
+	NumContacted int
+	NumResponded int
+}
 
-// // DHTPGet performs the Kademlia FIND_VALUE operation.
-// func DHTGet(params DHTGetParams) (*DHTGetResult, error) {
-// 	if params.Validate == nil {
-// 		params.Validate = func([]byte) bool { return true }
-// 	}
-// 	req := GetReq{Key: params.Key}
-// 	peers := params.Initial
+// DHTPGet performs the Kademlia FIND_VALUE operation.
+func DHTGet(params DHTGetParams) (*DHTGetResult, error) {
+	if params.Validate == nil {
+		params.Validate = func([]byte) bool { return true }
+	}
+	req := GetReq{Key: params.Key}
+	peers := params.Initial
 
-// 	var value []byte
-// 	var closest p2p.PeerID
-// 	var contacted, responded int
-// 	dhtIterate(peers, params.Key, 3, func(peer p2p.PeerID) ([]p2p.PeerID, bool) {
-// 		// if we are getting further away then break
-// 		if !closest.IsZero() && DistanceLt(params.Key, closest[:], peer[:]) {
-// 			return nil, false
-// 		}
-// 		contacted++
-// 		res, err := params.Ask(peer, req)
-// 		if err != nil {
-// 			log.Println(err)
-// 			return nil, true
-// 		}
-// 		responded++
-// 		if res.Value != nil && params.Validate(res.Value) {
-// 			value = res.Value
-// 			closest = peer
-// 		} else {
-// 			log.Println("value not found on peer", peer)
-// 		}
-// 		return res.Closer, true
-// 	})
-// 	if !closest.IsZero() {
-// 		return &DHTGetResult{
-// 			Value:        value,
-// 			Peer:         closest,
-// 			NumContacted: contacted,
-// 			NumResponded: responded,
-// 		}, nil
-// 	}
-// 	return nil, errors.New("key not found")
-// }
+	var res DHTGetResult
+	dhtIterate(peers, params.Key, 3, func(node NodeInfo) ([]NodeInfo, bool) {
+		// if we are getting further away then break
+		if !res.From.IsZero() && DistanceLt(params.Key, res.From[:], node.ID[:]) {
+			return nil, false
+		}
+		res.NumContacted++
+		resp, err := params.Ask(node, req)
+		if err != nil {
+			log.Println(err)
+			return nil, true
+		}
+		res.NumResponded++
+		res.Closest = node.ID
+		if resp.Value != nil && params.Validate(resp.Value) {
+			res.Value = resp.Value
+			res.From = node.ID
+		}
+		return resp.Closer, true
+	})
+	var err error
+	if res.From.IsZero() {
+		err = fmt.Errorf("could not find key %q, closest peer %v", params.Key, res.From[:])
+	}
+	return &res, err
+}
 
 // type DHTPutParams struct {
 // 	Initial     []p2p.PeerID

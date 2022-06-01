@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
+	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,7 @@ func TestDHTSetup(t *testing.T) {
 		lt := func(a, b p2p.PeerID) bool {
 			return bytes.Compare(a[:], b[:]) < 0
 		}
-		clusters := computeClusters(nodes)
+		clusters := computeComponents(nodes)
 		if len(clusters) != 1 {
 			for id, cluster := range clusters {
 				t.Log(id, len(cluster), sortedKeys(cluster, lt))
@@ -53,6 +54,59 @@ func TestDHTSetup(t *testing.T) {
 	})
 }
 
+func TestDHTFindNode(t *testing.T) {
+	const (
+		N        = 1000
+		numPeers = 20
+	)
+	nodes := setupNodes(t, N, numPeers, 0)
+	ids := maps.Keys(nodes)
+
+	for i := 0; i < 10; i++ {
+		a, b := ids[i], ids[len(ids)-1-i]
+		res, err := DHTFindNode(DHTFindNodeParams{
+			Initial: nodes[a].ListNodeInfos(b[:], 10),
+			Target:  b,
+			Ask: func(dst NodeInfo, req FindNodeReq) (FindNodeRes, error) {
+				return nodes[dst.ID].HandleFindNode(a, req)
+			},
+		})
+		require.NoError(t, err)
+		t.Log(res)
+	}
+}
+
+func TestDHTGet(t *testing.T) {
+	const (
+		N        = 1000
+		peerSize = 20
+		dataSize = 2
+	)
+	nodes := setupNodes(t, N, peerSize, dataSize)
+
+	// create test key and value
+	key := sha3.Sum256([]byte("test key"))
+	expectedValue := "test value"
+	// find the closest node to that value.
+	closest := findClosest(nodes, key[:])
+	// give the entry to only that node.
+	accepted, err := nodes[closest].Put(key[:], []byte(expectedValue), time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.True(t, accepted)
+	t.Logf("put key %q on node %v lz=%v", key, closest, DistanceLz(closest[:], key[:]))
+	for src, node := range nodes {
+		_, err := DHTGet(DHTGetParams{
+			Initial: node.ListNodeInfos(key[:], 3),
+			Key:     key[:],
+			Ask: func(node NodeInfo, req GetReq) (GetRes, error) {
+				dst := nodes[node.ID]
+				return dst.HandleGet(src, req)
+			},
+		})
+		require.NoError(t, err, "Get failed on node %v", src)
+	}
+}
+
 // func TestDHTJoin(t *testing.T) {
 // 	const N = 100
 // 	const peerSize = 10
@@ -80,26 +134,6 @@ func TestDHTSetup(t *testing.T) {
 // 		require.Greater(t, added, 0)
 // 	}
 // }
-
-func TestDHTFindNode(t *testing.T) {
-	const N = 1000
-	const numPeers = 20
-	nodes := setupNodes(t, N, numPeers, 0)
-	ids := maps.Keys(nodes)
-
-	for i := 0; i < 10; i++ {
-		a, b := ids[i], ids[len(ids)-1-i]
-		res, err := DHTFindNode(DHTFindNodeParams{
-			Initial: nodes[a].ListNodeInfos(b[:], 10),
-			Target:  b,
-			Ask: func(dst NodeInfo, req FindNodeReq) (FindNodeRes, error) {
-				return nodes[dst.ID].HandleFindNode(a, req)
-			},
-		})
-		require.NoError(t, err)
-		t.Log(res)
-	}
-}
 
 // func TestDHTPut(t *testing.T) {
 // 	const N = 100
@@ -187,7 +221,7 @@ func newPeer(i int) p2p.PeerID {
 	return sha3.Sum256(buf[:])
 }
 
-func computeClusters(nodes map[p2p.PeerID]*DHTNode) map[int]map[p2p.PeerID]struct{} {
+func computeComponents(nodes map[p2p.PeerID]*DHTNode) map[int]map[p2p.PeerID]struct{} {
 	var clusterID int
 	clusters := make(map[int]map[p2p.PeerID]struct{})
 	id2Cluster := make(map[p2p.PeerID]int)
@@ -230,6 +264,9 @@ func computeClusters(nodes map[p2p.PeerID]*DHTNode) map[int]map[p2p.PeerID]struc
 			todo = append(todo, nodes[id].ListPeers(0)...)
 		}
 	}
+	if len(clusters) == 0 && len(nodes) != 0 {
+		panic("len(clusters)==0")
+	}
 	return clusters
 }
 
@@ -237,4 +274,13 @@ func sortedKeys[K comparable, V any, M map[K]V](m M, lt func(a, b K) bool) []K {
 	keys := maps.Keys(m)
 	slices.SortFunc(keys, lt)
 	return keys
+}
+
+func findClosest(nodes map[p2p.PeerID]*DHTNode, key []byte) (closest p2p.PeerID) {
+	for id := range nodes {
+		if DistanceLt(key[:], id[:], closest[:]) {
+			closest = id
+		}
+	}
+	return closest
 }

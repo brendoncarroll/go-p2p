@@ -34,7 +34,7 @@ type GetReq struct {
 type GetRes struct {
 	Value     []byte       `json:"value"`
 	ExpiresAt tai64.TAI64N `json:"expires_at"`
-	Closer    []p2p.PeerID `json:"closer"`
+	Closer    []NodeInfo   `json:"closer"`
 }
 
 // GetFunc is the type of functions implementing the Get rpc.
@@ -49,8 +49,8 @@ type PutReq struct {
 
 // PutRes is the response in the Put rpc.
 type PutRes struct {
-	Accepted bool         `json:"accepted"`
-	Closer   []p2p.PeerID `json:"closer"`
+	Accepted bool       `json:"accepted"`
+	Closer   []NodeInfo `json:"closer"`
 }
 
 // PutFunc is the type of functions implementing the Put rpc.

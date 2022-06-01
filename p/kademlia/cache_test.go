@@ -55,7 +55,7 @@ func TestCacheCloser(t *testing.T) {
 		c.Put(buf[:], "")
 	}
 	c.ForEach(func(e Entry[string]) bool {
-		assert.Greater(t, Leading0s(e.Key), 8)
+		assert.Greater(t, LeadingZeros(e.Key), 8)
 		t.Log(e)
 		return true
 	})

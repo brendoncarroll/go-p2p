@@ -3,7 +3,6 @@ package kademlia
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -107,9 +106,12 @@ func (node *DHTNode) ListNodeInfos(key []byte, n int) (ret []NodeInfo) {
 	return ret
 }
 
-func (node *DHTNode) closerPeers(key []byte) (ret []p2p.PeerID) {
+func (node *DHTNode) closerNodes(key []byte) (ret []NodeInfo) {
 	node.peers.ForEachCloser(key, func(peerEnt Entry[[]byte]) bool {
-		ret = append(ret, peerIDFromBytes(peerEnt.Key))
+		ret = append(ret, NodeInfo{
+			ID:   peerIDFromBytes(peerEnt.Key),
+			Info: peerEnt.Value,
+		})
 		return true
 	})
 	return ret
@@ -117,29 +119,26 @@ func (node *DHTNode) closerPeers(key []byte) (ret []p2p.PeerID) {
 
 // Put attempts to insert the key into the DHTNode and returns all the peers
 // closer to that
-func (node *DHTNode) Put(key, value []byte, expiresAt time.Time) (accepted bool, ret []p2p.PeerID) {
+func (node *DHTNode) Put(key, value []byte, expiresAt time.Time) (accepted bool, _ error) {
 	if !node.params.Validate(key, value) {
-		log.Printf("invalid key %q", key)
-		return false, nil
+		return false, fmt.Errorf("invalid entry key=%q value=%q", key, value)
 	}
 	node.mu.Lock()
 	e, _ := node.data.Put(key, value)
 	accepted = e == nil || !bytes.Equal(e.Key, key)
 	node.mu.Unlock()
-	node.mu.RLock()
-	defer node.mu.RUnlock()
-	return accepted, node.closerPeers(key)
+	return accepted, nil
 }
 
 func (node *DHTNode) LocalID() p2p.PeerID {
 	return node.params.LocalID
 }
 
-func (node *DHTNode) Get(key []byte, now time.Time) (value []byte, closer []p2p.PeerID) {
+func (node *DHTNode) Get(key []byte, now time.Time) (value []byte, closer []NodeInfo) {
 	node.mu.RLock()
 	defer node.mu.RUnlock()
 	v, _ := node.data.Get(key)
-	return v, node.closerPeers(key)
+	return v, node.closerNodes(key)
 }
 
 func (node *DHTNode) WouldAdd(key []byte) bool {
@@ -159,10 +158,13 @@ func (n *DHTNode) String() string {
 // HandlePut handles a put from another node.
 func (n *DHTNode) HandlePut(from p2p.PeerID, req PutReq) (PutRes, error) {
 	expiresAt := time.Now().Add(time.Duration(req.TTLms) * time.Millisecond)
-	accepted, closer := n.Put(req.Key, req.Value, expiresAt)
+	accepted, err := n.Put(req.Key, req.Value, expiresAt)
+	if err != nil {
+		return PutRes{}, err
+	}
 	return PutRes{
 		Accepted: accepted,
-		Closer:   closer,
+		Closer:   n.closerNodes(req.Key),
 	}, nil
 }
 
