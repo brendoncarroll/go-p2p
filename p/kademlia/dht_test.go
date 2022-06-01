@@ -136,24 +136,43 @@ func TestDHTGet(t *testing.T) {
 // }
 
 // func TestDHTPut(t *testing.T) {
-// 	const N = 100
-// 	nodes := setupNodes(t, N, 2, 10)
+// 	const (
+// 		N        = 1000
+// 		peerSize = 20
+// 		dataSize = 1000
+// 	)
+// 	nodes := setupNodes(t, N, peerSize, dataSize)
+// 	makeKey := func(i int) []byte {
+// 		ret := sha3.Sum256([]byte(strconv.Itoa(i)))
+// 		return ret[:]
+// 	}
+// 	makeValue := func(i int) []byte {
+// 		return []byte("value-" + strconv.Itoa(i))
+// 	}
 // 	var count int
-// 	for localID := range nodes {
-// 		key := sha3.Sum256([]byte(strconv.Itoa(count)))
-// 		value := []byte(strconv.Itoa(count) + "value")
-// 		res, err := DHTPut(DHTPutParams{
-// 			Initial: nodes[localID].ListPeers(2),
+// 	for src := range nodes {
+// 		key := makeKey(count)
+// 		value := makeValue(count)
+// 		_, err := DHTPut(DHTPutParams{
+// 			Initial: nodes[src].ListNodeInfos(key, 3),
 // 			Key:     key[:],
 // 			Value:   value,
 // 			TTL:     time.Hour,
-// 			Ask: func(dst p2p.PeerID, req PutReq) (PutRes, error) {
-// 				return nodes[dst].HandlePut(localID, req)
+// 			Ask: func(dst NodeInfo, req PutReq) (PutRes, error) {
+// 				return nodes[dst.ID].HandlePut(src, req)
 // 			},
 // 		})
-// 		t.Log("put result", res)
 // 		require.NoError(t, err, "adding key number %d", count)
 // 		count++
+// 	}
+// 	for i := 0; i < count; i++ {
+// 		key := makeKey(i)
+// 		expectedValue := makeValue(i)
+// 		closest := findClosest(nodes, key)
+// 		actualValue, closer := nodes[closest].Get(key, time.Now())
+// 		require.NotNil(t, actualValue, "key %q missing from node %v lz=%v", key, closest, DistanceLz(key[:], closest[:]))
+// 		require.Equal(t, expectedValue, actualValue)
+// 		require.Len(t, closer, 0)
 // 	}
 // }
 

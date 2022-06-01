@@ -1,7 +1,6 @@
 package kademlia
 
 import (
-	"bytes"
 	"fmt"
 	"sync"
 	"time"
@@ -119,15 +118,14 @@ func (node *DHTNode) closerNodes(key []byte) (ret []NodeInfo) {
 
 // Put attempts to insert the key into the DHTNode and returns all the peers
 // closer to that
-func (node *DHTNode) Put(key, value []byte, expiresAt time.Time) (accepted bool, _ error) {
+func (node *DHTNode) Put(key, value []byte, expiresAt time.Time) (bool, error) {
 	if !node.params.Validate(key, value) {
 		return false, fmt.Errorf("invalid entry key=%q value=%q", key, value)
 	}
 	node.mu.Lock()
-	e, _ := node.data.Put(key, value)
-	accepted = e == nil || !bytes.Equal(e.Key, key)
+	_, added := node.data.Put(key, value)
 	node.mu.Unlock()
-	return accepted, nil
+	return added, nil
 }
 
 func (node *DHTNode) LocalID() p2p.PeerID {

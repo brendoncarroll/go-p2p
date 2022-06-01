@@ -141,55 +141,59 @@ func DHTGet(params DHTGetParams) (*DHTGetResult, error) {
 	return &res, err
 }
 
-// type DHTPutParams struct {
-// 	Initial     []p2p.PeerID
-// 	Key, Value  []byte
-// 	TTL         time.Duration
-// 	Ask         func(peer p2p.PeerID, req PutReq) (PutRes, error)
-// 	MinAccepted int
-// }
+type DHTPutParams struct {
+	Initial    []NodeInfo
+	Key, Value []byte
+	TTL        time.Duration
 
-// type DHTPutResult struct {
-// 	Contacted int
-// 	Accepted  int
-// 	Closest   p2p.PeerID
-// }
+	Ask         PutFunc
+	MinAccepted int
+}
 
-// // DHTPut performs the Kademlia STORE operation
-// func DHTPut(params DHTPutParams) (*DHTPutResult, error) {
-// 	if params.MinAccepted < 1 {
-// 		params.MinAccepted = 2
-// 	}
-// 	req := PutReq{
-// 		Key:   params.Key,
-// 		Value: params.Value,
-// 		TTLms: uint64(params.TTL.Milliseconds()),
-// 	}
-// 	peers := params.Initial
+type DHTPutResult struct {
+	Closest  p2p.PeerID
+	Accepted int
 
-// 	var res DHTPutResult
-// 	dhtIterate(peers, params.Key, 3, func(peer p2p.PeerID) ([]p2p.PeerID, bool) {
-// 		if res.Accepted >= params.MinAccepted && DistanceLt(params.Key, res.Closest[:], peer[:]) {
-// 			return nil, false
-// 		}
-// 		resp, err := params.Ask(peer, req)
-// 		if err != nil {
-// 			log.Println(err)
-// 			return nil, true
-// 		}
-// 		res.Contacted++
-// 		if resp.Accepted {
-// 			res.Accepted++
-// 			res.Closest = peer
-// 		}
-// 		return resp.Closer, true
-// 	})
-// 	var err error
-// 	if res.Accepted < params.MinAccepted {
-// 		err = fmt.Errorf("failed to put accepted=%d min=%d", res.Accepted, params.MinAccepted)
-// 	}
-// 	return &res, err
-// }
+	Contacted int
+	Responded int
+}
+
+// DHTPut performs the Kademlia STORE operation
+func DHTPut(params DHTPutParams) (*DHTPutResult, error) {
+	if params.MinAccepted < 1 {
+		params.MinAccepted = 2
+	}
+	req := PutReq{
+		Key:   params.Key,
+		Value: params.Value,
+		TTLms: uint64(params.TTL.Milliseconds()),
+	}
+	var res DHTPutResult
+	dhtIterate(params.Initial, params.Key, 3, func(node NodeInfo) ([]NodeInfo, bool) {
+		// If we have hit the acceptance target AND we are getting further away
+		if res.Accepted >= params.MinAccepted && DistanceLt(params.Key, res.Closest[:], node.ID[:]) {
+			return nil, false
+		}
+		res.Contacted++
+		resp, err := params.Ask(node, req)
+		if err != nil {
+			return nil, true
+		}
+		res.Responded++
+		if resp.Accepted {
+			res.Accepted++
+			if DistanceLt(params.Key, node.ID[:], res.Closest[:]) {
+				res.Closest = node.ID
+			}
+		}
+		return resp.Closer, true
+	})
+	var err error
+	if res.Accepted < params.MinAccepted {
+		err = fmt.Errorf("failed to put accepted=%d min=%d", res.Accepted, params.MinAccepted)
+	}
+	return &res, err
+}
 
 // dhtIterate calls fn with the closest known peer, and updates the set of known peers
 // with newPeers.
