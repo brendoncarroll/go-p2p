@@ -3,6 +3,9 @@ package kademlia
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
+	"math"
+	"strconv"
 	"testing"
 	"time"
 
@@ -15,10 +18,14 @@ import (
 
 // TestDHTSetup tests the setupNodes function used in the other tests.
 func TestDHTSetup(t *testing.T) {
+	t.Parallel()
 	const N = 1000
 	const numPeers = 10
 	nodes := setupNodes(t, N, numPeers, 0)
+	testNetwork(t, nodes, numPeers)
+}
 
+func testNetwork(t *testing.T, nodes map[p2p.PeerID]*DHTNode, numPeers int) {
 	t.Run("FullyConnected", func(t *testing.T) {
 		lt := func(a, b p2p.PeerID) bool {
 			return bytes.Compare(a[:], b[:]) < 0
@@ -55,6 +62,7 @@ func TestDHTSetup(t *testing.T) {
 }
 
 func TestDHTFindNode(t *testing.T) {
+	t.Parallel()
 	const (
 		N        = 1000
 		numPeers = 20
@@ -77,6 +85,7 @@ func TestDHTFindNode(t *testing.T) {
 }
 
 func TestDHTGet(t *testing.T) {
+	t.Parallel()
 	const (
 		N        = 1000
 		peerSize = 20
@@ -90,8 +99,7 @@ func TestDHTGet(t *testing.T) {
 	// find the closest node to that value.
 	closest := findClosest(nodes, key[:])
 	// give the entry to only that node.
-	accepted, err := nodes[closest].Put(key[:], []byte(expectedValue), time.Now().Add(time.Hour))
-	require.NoError(t, err)
+	accepted := nodes[closest].Put(key[:], []byte(expectedValue), time.Now().Add(time.Hour))
 	require.True(t, accepted)
 	t.Logf("put key %q on node %v lz=%v", key, closest, DistanceLz(closest[:], key[:]))
 	for src, node := range nodes {
@@ -107,113 +115,137 @@ func TestDHTGet(t *testing.T) {
 	}
 }
 
-// func TestDHTJoin(t *testing.T) {
-// 	const N = 100
-// 	const peerSize = 10
-// 	nodes := make(map[p2p.PeerID]*DHTNode)
-// 	for i := 0; i < N; i++ {
-// 		id := newPeer(i)
-// 		nodes[id] = NewDHTNode(DHTNodeParams{
-// 			LocalID:       id,
-// 			PeerCacheSize: peerSize,
-// 		})
-// 	}
-// 	for localID := range nodes {
-// 		added := DHTJoin(DHTJoinParams{
-// 			Initial: nodes[localID].ListNodeInfos(localID[:], 10),
-// 			Target:  localID,
-// 			Ask: func(dst NodeInfo, req FindNodeReq) (FindNodeRes, error) {
-// 				if _, exists := nodes[dst.ID]; !exists {
-// 					return FindNodeRes{}, fmt.Errorf("node %v unreachable", dst)
-// 				}
-// 				nodes[dst.ID].AddPeer(localID, nil)
-// 				return nodes[dst.ID].HandleFindNode(localID, req)
-// 			},
-// 			AddPeer: nodes[localID].AddPeer,
-// 		})
-// 		require.Greater(t, added, 0)
-// 	}
-// }
+func TestDHTPut(t *testing.T) {
+	t.Parallel()
+	const (
+		N        = 1000
+		peerSize = 20
+		dataSize = 10
+	)
+	nodes := setupNodes(t, N, peerSize, dataSize)
+	makeKey := func(i int) []byte {
+		ret := sha3.Sum256([]byte(strconv.Itoa(i)))
+		return ret[:]
+	}
+	makeValue := func(i int) []byte {
+		return []byte("value-" + strconv.Itoa(i))
+	}
+	var count int
+	for src := range nodes {
+		key := makeKey(count)
+		value := makeValue(count)
+		_, err := DHTPut(DHTPutParams{
+			Initial: nodes[src].ListNodeInfos(key, 3),
+			Key:     key[:],
+			Value:   value,
+			TTL:     time.Hour,
+			Ask: func(dst NodeInfo, req PutReq) (PutRes, error) {
+				return nodes[dst.ID].HandlePut(src, req)
+			},
+		})
+		require.NoError(t, err, "adding key number %d", count)
+		count++
+	}
+	for i := 0; i < count; i++ {
+		key := makeKey(i)
+		expectedValue := makeValue(i)
+		closest := findClosest(nodes, key)
+		actualValue := nodes[closest].Get(key, time.Now())
+		require.NotNil(t, actualValue, "key %x missing from node %v lz=%v", key, closest, DistanceLz(key[:], closest[:]))
+		require.Equal(t, expectedValue, actualValue)
+	}
+}
 
-// func TestDHTPut(t *testing.T) {
-// 	const (
-// 		N        = 1000
-// 		peerSize = 20
-// 		dataSize = 1000
-// 	)
-// 	nodes := setupNodes(t, N, peerSize, dataSize)
-// 	makeKey := func(i int) []byte {
-// 		ret := sha3.Sum256([]byte(strconv.Itoa(i)))
-// 		return ret[:]
-// 	}
-// 	makeValue := func(i int) []byte {
-// 		return []byte("value-" + strconv.Itoa(i))
-// 	}
-// 	var count int
-// 	for src := range nodes {
-// 		key := makeKey(count)
-// 		value := makeValue(count)
-// 		_, err := DHTPut(DHTPutParams{
-// 			Initial: nodes[src].ListNodeInfos(key, 3),
-// 			Key:     key[:],
-// 			Value:   value,
-// 			TTL:     time.Hour,
-// 			Ask: func(dst NodeInfo, req PutReq) (PutRes, error) {
-// 				return nodes[dst.ID].HandlePut(src, req)
-// 			},
-// 		})
-// 		require.NoError(t, err, "adding key number %d", count)
-// 		count++
-// 	}
-// 	for i := 0; i < count; i++ {
-// 		key := makeKey(i)
-// 		expectedValue := makeValue(i)
-// 		closest := findClosest(nodes, key)
-// 		actualValue, closer := nodes[closest].Get(key, time.Now())
-// 		require.NotNil(t, actualValue, "key %q missing from node %v lz=%v", key, closest, DistanceLz(key[:], closest[:]))
-// 		require.Equal(t, expectedValue, actualValue)
-// 		require.Len(t, closer, 0)
-// 	}
-// }
+func TestDHTPutGet(t *testing.T) {
+	t.Parallel()
+	const (
+		N          = 1000
+		peerSize   = 20
+		dataSize   = 10
+		numEntries = 100
+	)
+	nodes := setupNodes(t, N, peerSize, dataSize)
+	makeKey := func(i int) []byte {
+		k := sha3.Sum256([]byte(strconv.Itoa(i)))
+		return k[:]
+	}
+	makeValue := func(i int) []byte {
+		return []byte(strconv.Itoa(i) + "-value")
+	}
+	var count int
+	for src := range nodes {
+		key := makeKey(count)
+		value := makeValue(count)
+		_, err := DHTPut(DHTPutParams{
+			Initial: nodes[src].ListNodeInfos(key, 3),
+			Key:     key[:],
+			Value:   value,
+			TTL:     time.Hour,
+			Ask: func(dst NodeInfo, req PutReq) (PutRes, error) {
+				return nodes[dst.ID].HandlePut(src, req)
+			},
+		})
+		require.NoError(t, err)
+		count++
+		if count > numEntries {
+			break
+		}
+	}
+	for src := range nodes {
+		for i := 0; i < count; i++ {
+			key := makeKey(i)
+			res, err := DHTGet(DHTGetParams{
+				Initial: nodes[src].ListNodeInfos(key, 3),
+				Key:     key[:],
+				Ask: func(dst NodeInfo, req GetReq) (GetRes, error) {
+					return nodes[dst.ID].HandleGet(src, req)
+				},
+			})
+			require.NoError(t, err)
+			require.Equal(t, makeValue(i), res.Value)
+		}
+	}
+}
 
-// func TestDHTPutGet(t *testing.T) {
-// 	const N = 10
-// 	nodes := setupNodes(t, N, 3, 3)
-// 	var keys [][32]byte
-// 	var values [][]byte
-// 	var count int
-// 	for localID := range nodes {
-// 		key := sha3.Sum256([]byte(strconv.Itoa(count)))
-// 		keys = append(keys, key)
-// 		value := []byte(strconv.Itoa(count) + "_value")
-// 		values = append(values, value)
-// 		_, err := DHTPut(DHTPutParams{
-// 			Initial: nodes[localID].ListPeers(2),
-// 			Key:     key[:],
-// 			Value:   value,
-// 			TTL:     time.Hour,
-// 			Ask: func(dst p2p.PeerID, req PutReq) (PutRes, error) {
-// 				return nodes[dst].HandlePut(localID, req)
-// 			},
-// 		})
-// 		require.NoError(t, err)
-// 		count++
-// 	}
-// 	for localID := range nodes {
-// 		for i, key := range keys {
-// 			res, err := DHTGet(DHTGetParams{
-// 				Initial: nodes[localID].ListPeers(3),
-// 				Key:     key[:],
-// 				Ask: func(dst p2p.PeerID, req GetReq) (GetRes, error) {
-// 					return nodes[dst].HandleGet(localID, req)
-// 				},
-// 			})
-// 			require.NoError(t, err, "node ")
-// 			require.Equal(t, values[i], res.Value)
-// 			require.False(t, DistanceLt(key[:], localID[:], res.Peer[:]))
-// 		}
-// 	}
-// }
+func TestDHTJoin(t *testing.T) {
+	t.Parallel()
+	const (
+		N        = 1000
+		peerSize = 10
+	)
+	nodes := make(map[p2p.PeerID]*DHTNode)
+	for i := 0; i < N; i++ {
+		id := newPeer(i)
+		nodes[id] = NewDHTNode(DHTNodeParams{
+			LocalID:       id,
+			PeerCacheSize: peerSize,
+		})
+		id2 := newPeer(0)
+		nodes[id].AddPeer(id2, nil)
+
+		if i < 1 {
+			continue
+		}
+		src := id
+		DHTJoin(DHTJoinParams{
+			Initial: nodes[src].ListNodeInfos(src[:], peerSize),
+			Target:  src,
+			Ask: func(dst NodeInfo, req FindNodeReq) (FindNodeRes, error) {
+				if _, exists := nodes[dst.ID]; !exists {
+					return FindNodeRes{}, fmt.Errorf("node %v unreachable", dst)
+				}
+				nodes[dst.ID].AddPeer(src, nil)
+				return nodes[dst.ID].HandleFindNode(src, req)
+			},
+			AddPeer: nodes[src].AddPeer,
+		})
+	}
+	comps := computeComponents(nodes)
+	require.Len(t, comps, 1)
+	for k := range comps {
+		require.Len(t, comps[k], N)
+	}
+}
 
 func setupNodes(t testing.TB, n, peerSize, dataSize int) map[p2p.PeerID]*DHTNode {
 	nodes := make(map[p2p.PeerID]*DHTNode)
@@ -297,9 +329,13 @@ func sortedKeys[K comparable, V any, M map[K]V](m M, lt func(a, b K) bool) []K {
 
 func findClosest(nodes map[p2p.PeerID]*DHTNode, key []byte) (closest p2p.PeerID) {
 	for id := range nodes {
-		if DistanceLt(key[:], id[:], closest[:]) {
+		if closest.IsZero() || DistanceLt(key[:], id[:], closest[:]) {
 			closest = id
 		}
 	}
 	return closest
+}
+
+func logCeil(x int) int {
+	return int(math.Ceil(math.Log2(float64(x))))
 }

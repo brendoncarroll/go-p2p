@@ -70,7 +70,7 @@ type DHTJoinParams struct {
 // DHTJoin joins a node to the rest of the DHT.
 func DHTJoin(params DHTJoinParams) int {
 	var added int
-	dhtIterate(params.Initial, params.Target[:], 10, func(node NodeInfo) ([]NodeInfo, bool) {
+	dhtIterate(params.Initial, params.Target[:], len(params.Initial), func(node NodeInfo) ([]NodeInfo, bool) {
 		if params.AddPeer(node.ID, node.Info) {
 			added++
 		}

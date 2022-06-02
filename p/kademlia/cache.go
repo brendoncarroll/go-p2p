@@ -60,12 +60,18 @@ func (kc *Cache[V]) Get(key []byte) (ret V, exists bool) {
 // Put returns the evicted entry if there was one, and whether or not the Put
 // had an effect.
 func (kc *Cache[V]) Put(key []byte, v V) (evicted *Entry[V], added bool) {
+	return kc.Update(key, func(e Entry[V], exists bool) Entry[V] {
+		return Entry[V]{
+			Key:   key,
+			Value: v,
+		}
+	})
+}
+
+// Update calls fn with the entry in the cache for v.
+func (kc *Cache[V]) Update(key []byte, fn func(v Entry[V], exists bool) Entry[V]) (evicted *Entry[V], added bool) {
 	if kc.max == 0 {
 		return nil, false
-	}
-	e := Entry[V]{
-		Key:   slices.Clone(key),
-		Value: v,
 	}
 	lz := kc.bucketIndex(key)
 	// create buckets up to lz
@@ -73,14 +79,14 @@ func (kc *Cache[V]) Put(key []byte, v V) (evicted *Entry[V], added bool) {
 		kc.buckets = append(kc.buckets, newBucket[V]())
 	}
 	b := kc.buckets[lz]
-	added = b.put(e)
+	added = b.update(key, fn)
 	if added {
 		kc.count++
 	}
 	needToEvict := kc.count > kc.max
 	if needToEvict {
 		evicted = kc.evict()
-		added = !bytes.Equal(e.Key, evicted.Key)
+		added = !bytes.Equal(key, evicted.Key)
 	}
 	return evicted, added
 }
@@ -257,13 +263,18 @@ func newBucket[V any]() *bucket[V] {
 	}
 }
 
-func (b *bucket[V]) put(e Entry[V]) (added bool) {
-	if _, exists := b.entries[string(e.Key)]; !exists {
-		b.entries[string(e.Key)] = e
-		b.updateMinExpires(e.ExpiresAt)
-		return true
+func (b *bucket[V]) update(key []byte, fn func(e Entry[V], exists bool) Entry[V]) (added bool) {
+	prev, exists := b.entries[string(key)]
+	next := fn(prev, exists)
+	next.Key = append([]byte{}, next.Key...)
+	if !exists {
+		if prev.Key != nil && !bytes.Equal(prev.Key, next.Key) {
+			panic(next.Key)
+		}
+		b.entries[string(key)] = next
+		b.updateMinExpires(next.ExpiresAt)
 	}
-	return false
+	return !exists
 }
 
 func (b *bucket[V]) get(key []byte) (V, bool) {
