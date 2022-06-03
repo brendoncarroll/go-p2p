@@ -3,9 +3,9 @@ package kademlia
 import (
 	"bytes"
 	"fmt"
+	"sync"
 	"time"
 
-	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 )
 
@@ -13,18 +13,31 @@ import (
 type Entry[V any] struct {
 	Key       []byte
 	Value     V
+	CreatedAt time.Time
 	ExpiresAt time.Time
 }
 
 func (e Entry[V]) String() string {
-	return fmt.Sprintf("(%q -> %v, %v)", e.Key, e.Value, e.ExpiresAt)
+	return fmt.Sprintf("(%q -> %v, %v %v)", e.Key, e.Value, e.CreatedAt, e.ExpiresAt)
 }
 
+func (e Entry[V]) IsExpired(now time.Time) bool {
+	if e.ExpiresAt.IsZero() {
+		return false
+	}
+	return e.ExpiresAt.Before(now)
+}
+
+// Cache stores data and evicts based on the Kademlia distance metric, and the CreatedAt time.
+// Entries closer to the locus, that have existed for longer are more likely to remain in the cache.
 type Cache[V any] struct {
 	locus        []byte
 	minPerBucket int
-	count, max   int
-	buckets      []*bucket[V]
+	max          int
+
+	mu      sync.RWMutex
+	count   int
+	buckets []*bucket[V]
 }
 
 // NewCache returns a Cache with the provided parameters
@@ -48,35 +61,45 @@ func NewCache[V any](locus []byte, max, minPerBucket int) *Cache[V] {
 }
 
 // Get returns the value at key
-func (kc *Cache[V]) Get(key []byte) (ret V, exists bool) {
+func (kc *Cache[V]) Get(key []byte, now time.Time) (ret V, exists bool) {
+	kc.mu.Lock()
+	defer kc.mu.Unlock()
 	b := kc.getBucket(key)
 	if b == nil {
 		return ret, false
 	}
-	return b.get(key)
+	e, exists := b.get(key)
+	if !exists {
+		return ret, false
+	}
+	return e.Value, true
 }
 
 // Put puts an entry in the cache, replacing the entry at that key.
 // Put returns the evicted entry if there was one, and whether or not the Put
 // had an effect.
-func (kc *Cache[V]) Put(key []byte, v V) (evicted *Entry[V], added bool) {
+func (kc *Cache[V]) Put(key []byte, v V, now, expiresAt time.Time) (evicted *Entry[V], affected bool) {
 	return kc.Update(key, func(e Entry[V], exists bool) Entry[V] {
 		return Entry[V]{
-			Key:   key,
-			Value: v,
+			CreatedAt: now,
+			ExpiresAt: expiresAt,
+			Key:       key,
+			Value:     v,
 		}
 	})
 }
 
-// Update calls fn with the entry in the cache for v.
+// Update calls fn with the entry in the cache at key if it exists.
 func (kc *Cache[V]) Update(key []byte, fn func(v Entry[V], exists bool) Entry[V]) (evicted *Entry[V], added bool) {
+	kc.mu.Lock()
+	defer kc.mu.Unlock()
 	if kc.max == 0 {
 		return nil, false
 	}
 	lz := kc.bucketIndex(key)
 	// create buckets up to lz
 	for len(kc.buckets) <= lz {
-		kc.buckets = append(kc.buckets, newBucket[V]())
+		kc.buckets = append(kc.buckets, newBucket[V](kc.locus))
 	}
 	b := kc.buckets[lz]
 	added = b.update(key, fn)
@@ -92,8 +115,8 @@ func (kc *Cache[V]) Update(key []byte, fn func(v Entry[V], exists bool) Entry[V]
 }
 
 // WouldAdd returns true if the key would add a new entry
-func (kc *Cache[V]) WouldAdd(key []byte) bool {
-	if kc.Contains(key) {
+func (kc *Cache[V]) WouldAdd(key []byte, now time.Time) bool {
+	if kc.Contains(key, now) {
 		return false
 	}
 	return kc.WouldPut(key)
@@ -101,12 +124,16 @@ func (kc *Cache[V]) WouldAdd(key []byte) bool {
 
 // WouldPut returns true if a call to Put with key would add or overwrite an entry.
 func (kc *Cache[V]) WouldPut(key []byte) bool {
+	kc.mu.RLock()
+	defer kc.mu.RUnlock()
 	i := kc.bucketIndex(key)
 	// if we are below the max or we would create a bucket.
 	if kc.count+1 <= kc.max || i >= len(kc.buckets) {
 		return true
 	}
-	// i will be a valid bucket
+	if _, exists := kc.buckets[i].get(key); exists {
+		return true
+	}
 	i--
 	for ; i >= 0; i-- {
 		b := kc.buckets[i]
@@ -119,13 +146,15 @@ func (kc *Cache[V]) WouldPut(key []byte) bool {
 }
 
 // Contains returns true if the key is in the cache
-func (kc *Cache[V]) Contains(key []byte) bool {
-	_, exists := kc.Get(key)
+func (kc *Cache[V]) Contains(key []byte, now time.Time) bool {
+	_, exists := kc.Get(key, now)
 	return exists
 }
 
 // Delete removes the entry at the given key
 func (kc *Cache[V]) Delete(key []byte) *Entry[V] {
+	kc.mu.Lock()
+	defer kc.mu.Unlock()
 	b := kc.getBucket(key)
 	if b == nil {
 		return nil
@@ -137,23 +166,23 @@ func (kc *Cache[V]) Delete(key []byte) *Entry[V] {
 	return &e
 }
 
-func (kc *Cache[V]) ForEach(fn func(e Entry[V]) bool) {
-	kc.ForEachAsc(kc.locus, fn)
-}
-
-// ForEachAsc calls fn with entries in ascending distance from k
-func (kc *Cache[V]) ForEachAsc(k []byte, fn func(e Entry[V]) bool) {
+// ForEach calls fn with entries.
+// All of the entries with n bits in common with k will be emitted
+// before any of the entries with n-1 bits in common with k.
+func (kc *Cache[V]) ForEach(k []byte, fn func(e Entry[V]) bool) {
+	kc.mu.RLock()
+	defer kc.mu.RUnlock()
 	d := Distance(kc.locus, k)
 	lz := LeadingZeros(d)
 	// everything in these buckets will have lz bits matching k.
 	for i := lz; i < len(kc.buckets); i++ {
-		if !kc.buckets[i].forEachAsc(k, fn) {
+		if !kc.buckets[i].forEach(k, fn) {
 			return
 		}
 	}
 	// each bucket will have < lz bits matching k.
 	for i := min(lz-1, len(kc.buckets)-1); i >= 0; i-- {
-		if !kc.buckets[i].forEachAsc(k, fn) {
+		if !kc.buckets[i].forEach(k, fn) {
 			return
 		}
 	}
@@ -161,7 +190,7 @@ func (kc *Cache[V]) ForEachAsc(k []byte, fn func(e Entry[V]) bool) {
 
 // Closest returns the Entry in the cache where e.Key is closest to key.
 func (kc *Cache[V]) Closest(key []byte) (ret *Entry[V]) {
-	kc.ForEachAsc(key, func(e Entry[V]) bool {
+	kc.ForEach(key, func(e Entry[V]) bool {
 		ret = &e
 		return false
 	})
@@ -202,7 +231,7 @@ func (kc *Cache[V]) ForEachMatching(prefix []byte, nbits int, fn func(Entry[V]) 
 	if l%8 > 0 {
 		l++
 	}
-	kc.ForEachAsc(prefix[:l], func(e Entry[V]) bool {
+	kc.ForEach(prefix[:l], func(e Entry[V]) bool {
 		if HasPrefix(e.Key, prefix, nbits) {
 			return fn(e)
 		}
@@ -213,7 +242,7 @@ func (kc *Cache[V]) ForEachMatching(prefix []byte, nbits int, fn func(Entry[V]) 
 // ForEachCloser calls fn with all the entries in the Cache which are closer to x
 // than they are to the locus.
 func (kc *Cache[V]) ForEachCloser(x []byte, fn func(Entry[V]) bool) {
-	kc.ForEachAsc(x, func(e Entry[V]) bool {
+	kc.ForEach(x, func(e Entry[V]) bool {
 		if !DistanceLt(x, e.Key, kc.locus) {
 			return false
 		}
@@ -252,78 +281,105 @@ func (kc *Cache[V]) evict() *Entry[V] {
 	return &ent
 }
 
+// Expire expires items from the cache and appends them to out
+func (kc *Cache[V]) Expire(out []Entry[V], now time.Time) []Entry[V] {
+	kc.mu.Lock()
+	defer kc.mu.Unlock()
+	for _, b := range kc.buckets {
+		if b.minExpiresAt.Before(now) {
+			out = b.expire(out, now)
+		}
+	}
+	return out
+}
+
 type bucket[V any] struct {
+	locus        []byte
 	entries      map[string]Entry[V]
 	minExpiresAt time.Time
 }
 
-func newBucket[V any]() *bucket[V] {
+func newBucket[V any](locus []byte) *bucket[V] {
 	return &bucket[V]{
+		locus:   locus,
 		entries: make(map[string]Entry[V]),
 	}
 }
 
+// get retrieves the entry at the key.
+func (b *bucket[V]) get(key []byte) (ret Entry[V], exists bool) {
+	e, exists := b.entries[string(key)]
+	return e, exists
+}
+
 func (b *bucket[V]) update(key []byte, fn func(e Entry[V], exists bool) Entry[V]) (added bool) {
-	prev, exists := b.entries[string(key)]
+	prev, exists := b.get(key)
 	next := fn(prev, exists)
 	next.Key = append([]byte{}, next.Key...)
-	if !exists {
-		if prev.Key != nil && !bytes.Equal(prev.Key, next.Key) {
-			panic(next.Key)
-		}
-		b.entries[string(key)] = next
-		b.updateMinExpires(next.ExpiresAt)
+	if !bytes.Equal(key, next.Key) {
+		panic(next.Key)
 	}
+	b.put(next)
 	return !exists
 }
 
-func (b *bucket[V]) get(key []byte) (V, bool) {
-	e, exists := b.entries[string(key)]
-	return e.Value, exists
+// put replaces an entry with the same key in the bucket.
+func (bu *bucket[V]) put(e Entry[V]) {
+	bu.entries[string(e.Key)] = e
+	bu.updateMinExpires(e.ExpiresAt)
 }
 
-func (b *bucket[V]) delete(key []byte) (Entry[V], bool) {
-	e, exists := b.entries[string(key)]
-	delete(b.entries, string(key))
-	if e.ExpiresAt == b.minExpiresAt {
+func (b *bucket[V]) delete(key []byte) (ret Entry[V], exists bool) {
+	ret, exists = b.entries[string(key)]
+	if exists {
+		delete(b.entries, string(key))
+		b.minExpiresAt = time.Time{}
 		for _, e := range b.entries {
 			b.updateMinExpires(e.ExpiresAt)
 		}
 	}
-	return e, exists
+	return ret, exists
 }
 
 func (b *bucket[V]) evict(locus []byte) Entry[V] {
 	if len(b.entries) < 1 {
 		panic("evict from bucket with len=0")
 	}
-	k := b.pickFurthest(locus)
-	e := b.entries[k]
-	delete(b.entries, k)
+	var maxIndex string
+	for i := range b.entries {
+		if b.entries[i].CreatedAt.After(b.entries[maxIndex].CreatedAt) {
+			maxIndex = i
+		}
+	}
+	e := b.entries[maxIndex]
+	delete(b.entries, maxIndex)
 	return e
 }
 
-func (b *bucket[V]) pickFurthest(locus []byte) string {
-	var furthest string
-	for k := range b.entries {
-		if furthest == "" || DistanceLt(locus, []byte(k), []byte(furthest)) {
-			furthest = k
+func (b *bucket[V]) expire(ret []Entry[V], now time.Time) []Entry[V] {
+	for k, e := range b.entries {
+		if e.IsExpired(now) {
+			ret = append(ret, e)
+			delete(b.entries, k)
 		}
 	}
-	return furthest
+	return ret
 }
 
 func (b *bucket[V]) len() int {
 	return len(b.entries)
 }
 
-func (b *bucket[V]) forEachAsc(locus []byte, fn func(e Entry[V]) bool) bool {
-	keys := maps.Keys(b.entries)
-	slices.SortFunc(keys, func(a, b string) bool {
-		return DistanceLt(locus, []byte(a), []byte(b))
+func (b *bucket[V]) forEach(locus []byte, fn func(e Entry[V]) bool) bool {
+	var ents []Entry[V]
+	for _, e := range b.entries {
+		ents = append(ents, e)
+	}
+	slices.SortFunc(ents, func(a, b Entry[V]) bool {
+		return DistanceLt(locus, a.Key, b.Key)
 	})
-	for _, k := range keys {
-		if !fn(b.entries[k]) {
+	for _, e := range ents {
+		if !fn(e) {
 			return false
 		}
 	}

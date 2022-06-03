@@ -50,7 +50,10 @@ func testNetwork(t *testing.T, nodes map[p2p.PeerID]*DHTNode, numPeers int) {
 				if local == remote {
 					continue
 				}
-				if nodes[local].peers.WouldAdd(remote[:]) {
+				if nodes[local].peers.WouldAdd(remote[:], time.Now()) {
+					t.Logf("%v contains %v %v", local, remote, nodes[local].peers.Contains(remote[:], time.Now()))
+					t.Logf("%v would add %v", local, remote)
+					t.Logf("%v has %v", local, nodes[local].ListPeers(0))
 					improvements++
 				}
 			}
@@ -99,7 +102,7 @@ func TestDHTGet(t *testing.T) {
 	// find the closest node to that value.
 	closest := findClosest(nodes, key[:])
 	// give the entry to only that node.
-	accepted := nodes[closest].Put(key[:], []byte(expectedValue), time.Now().Add(time.Hour))
+	accepted := nodes[closest].Put(key[:], []byte(expectedValue), time.Hour)
 	require.True(t, accepted)
 	t.Logf("put key %q on node %v lz=%v", key, closest, DistanceLz(closest[:], key[:]))
 	for src, node := range nodes {
@@ -120,7 +123,7 @@ func TestDHTPut(t *testing.T) {
 	const (
 		N        = 1000
 		peerSize = 20
-		dataSize = 10
+		dataSize = 30
 	)
 	nodes := setupNodes(t, N, peerSize, dataSize)
 	makeKey := func(i int) []byte {
@@ -150,7 +153,14 @@ func TestDHTPut(t *testing.T) {
 		key := makeKey(i)
 		expectedValue := makeValue(i)
 		closest := findClosest(nodes, key)
-		actualValue := nodes[closest].Get(key, time.Now())
+		actualValue := nodes[closest].Get(key)
+		if actualValue == nil {
+			t.Logf("node %x data:", closest[:])
+			nodes[closest].data.ForEach(nil, func(e Entry[[]byte]) bool {
+				t.Logf("%x", e.Key)
+				return true
+			})
+		}
 		require.NotNil(t, actualValue, "key %x missing from node %v lz=%v", key, closest, DistanceLz(key[:], closest[:]))
 		require.Equal(t, expectedValue, actualValue)
 	}

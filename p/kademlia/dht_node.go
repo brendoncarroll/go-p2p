@@ -1,6 +1,7 @@
 package kademlia
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"time"
@@ -21,11 +22,19 @@ type DHTNodeParams struct {
 	LocalID                      p2p.PeerID
 	PeerCacheSize, DataCacheSize int
 	Now                          func() time.Time
+	MaxPeerTTL                   time.Duration
+	MaxDataTTL                   time.Duration
 }
 
 func NewDHTNode(params DHTNodeParams) *DHTNode {
 	if params.Now == nil {
 		params.Now = time.Now
+	}
+	if params.MaxPeerTTL == 0 {
+		params.MaxPeerTTL = 60 * time.Second
+	}
+	if params.MaxDataTTL == 0 {
+		params.MaxDataTTL = 300 * time.Second
 	}
 	minPerBucket := 1
 	locus := params.LocalID[:]
@@ -48,7 +57,19 @@ func (node *DHTNode) AddPeer(id p2p.PeerID, info []byte) bool {
 	if id == node.params.LocalID {
 		return false
 	}
-	_, added := node.peers.Put(id[:], info)
+	k := id[:]
+	_, added := node.peers.Update(k, func(e Entry[[]byte], exists bool) Entry[[]byte] {
+		v := append([]byte{}, info...)
+		now := time.Now()
+		e2 := e
+		if !exists {
+			e2.Key = k
+			e2.CreatedAt = now
+		}
+		e2.ExpiresAt = now.Add(node.params.MaxPeerTTL)
+		e2.Value = v
+		return e2
+	})
 	return added
 }
 
@@ -63,7 +84,7 @@ func (node *DHTNode) RemovePeer(localID p2p.PeerID) bool {
 func (node *DHTNode) GetPeer(x p2p.PeerID) ([]byte, bool) {
 	node.mu.RLock()
 	defer node.mu.RUnlock()
-	return node.peers.Get(x[:])
+	return node.peers.Get(x[:], node.params.Now())
 }
 
 func (node *DHTNode) HasPeer(x p2p.PeerID) bool {
@@ -74,7 +95,7 @@ func (node *DHTNode) HasPeer(x p2p.PeerID) bool {
 func (node *DHTNode) ListPeers(limit int) (ret []p2p.PeerID) {
 	node.mu.RLock()
 	defer node.mu.RUnlock()
-	node.peers.ForEach(func(e Entry[[]byte]) bool {
+	node.peers.ForEach(nil, func(e Entry[[]byte]) bool {
 		if limit > 0 && len(ret) >= limit {
 			return false
 		}
@@ -88,7 +109,7 @@ func (node *DHTNode) ListPeers(limit int) (ret []p2p.PeerID) {
 func (node *DHTNode) ListNodeInfos(key []byte, n int) (ret []NodeInfo) {
 	node.mu.RLock()
 	defer node.mu.RUnlock()
-	node.peers.ForEachAsc(key, func(e Entry[[]byte]) bool {
+	node.peers.ForEach(key, func(e Entry[[]byte]) bool {
 		if len(ret) >= n {
 			return false
 		}
@@ -112,11 +133,12 @@ func (node *DHTNode) closerNodes(key []byte) (ret []NodeInfo) {
 	return ret
 }
 
-// Put attempts to insert the key into the DHTNode and returns all the peers
-// closer to that
-func (node *DHTNode) Put(key, value []byte, expiresAt time.Time) bool {
+// Put attempts to insert the key into the nodes's data cache.
+func (node *DHTNode) Put(key, value []byte, ttl time.Duration) bool {
+	createdAt := time.Now()
+	expiresAt := createdAt.Add(ttl)
 	node.mu.Lock()
-	_, added := node.data.Put(key, value)
+	_, added := node.data.Put(key, value, createdAt, expiresAt)
 	node.mu.Unlock()
 	return added
 }
@@ -125,15 +147,16 @@ func (node *DHTNode) LocalID() p2p.PeerID {
 	return node.params.LocalID
 }
 
-func (node *DHTNode) Get(key []byte, now time.Time) []byte {
+func (node *DHTNode) Get(key []byte) []byte {
 	node.mu.RLock()
 	defer node.mu.RUnlock()
-	v, _ := node.data.Get(key)
+	now := node.params.Now()
+	v, _ := node.data.Get(key, now)
 	return v
 }
 
 func (node *DHTNode) WouldAdd(key []byte) bool {
-	return node.data.WouldAdd(key)
+	return node.data.WouldAdd(key, node.params.Now())
 }
 
 func (node *DHTNode) Count() int {
@@ -147,17 +170,24 @@ func (n *DHTNode) String() string {
 }
 
 // HandlePut handles a put from another node.
-func (n *DHTNode) HandlePut(from p2p.PeerID, req PutReq) (PutRes, error) {
-	expiresAt := time.Now().Add(time.Duration(req.TTLms) * time.Millisecond)
-	accepted := n.Put(req.Key, req.Value, expiresAt)
+func (node *DHTNode) HandlePut(from p2p.PeerID, req PutReq) (PutRes, error) {
+	ttl := time.Duration(req.TTLms) * time.Millisecond
+	if ttl > node.params.MaxDataTTL {
+		ttl = node.params.MaxDataTTL
+	}
+	createdAt := time.Now()
+	expiresAt := createdAt.Add(ttl)
+	node.mu.Lock()
+	evicted, added := node.data.Put(req.Key, req.Value, createdAt, expiresAt)
+	node.mu.Unlock()
 	return PutRes{
-		Accepted: accepted,
-		Closer:   n.closerNodes(req.Key),
+		Accepted: wasAccepted(req.Key, evicted, added),
+		Closer:   node.closerNodes(req.Key),
 	}, nil
 }
 
 func (n *DHTNode) HandleGet(from p2p.PeerID, req GetReq) (GetRes, error) {
-	v := n.Get(req.Key, time.Now())
+	v := n.Get(req.Key)
 	return GetRes{
 		Value:  v,
 		Closer: n.closerNodes(req.Key),
@@ -178,4 +208,8 @@ func (n *DHTNode) HandleFindNode(from p2p.PeerID, req FindNodeReq) (FindNodeRes,
 func peerIDFromBytes(x []byte) (ret p2p.PeerID) {
 	copy(ret[:], x)
 	return ret
+}
+
+func wasAccepted[V any](key []byte, evicted *Entry[V], added bool) bool {
+	return added || evicted == nil || !bytes.Equal(evicted.Key, key)
 }

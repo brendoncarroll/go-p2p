@@ -5,7 +5,7 @@ import (
 )
 
 // LeadingZeros returns the number of 0s that occur before the first 1
-// when iterating bit by bit, most significant bit first low
+// when iterating bit by bit, most significant bit first, low
 // indexed byte to high indexed byte.
 func LeadingZeros(x []byte) int {
 	total := 0

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"runtime"
+	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"golang.org/x/sync/errgroup"
@@ -14,10 +15,7 @@ type Request struct {
 	Get      *GetReq      `json:"get,omitempty"`
 	Put      *PutReq      `json:"put,omitempty"`
 	FindNode *FindNodeReq `json:"find_node,omitempty"`
-}
-
-type peerInfo struct {
-	Addr p2p.Addr
+	Ping     *PingReq     `json:"ping,omitempty"`
 }
 
 // DHTService runs a DHT using a p2p.SecureAskSwarm for communication
@@ -49,35 +47,54 @@ func NewDHTService[A p2p.Addr](swarm p2p.SecureAskSwarm[A], peerCacheSize, dataC
 			return s.readLoop(ctx)
 		})
 	}
+	s.eg.Go(func() error {
+		return s.pingLoop(ctx)
+	})
 	return s
 }
 
-// func (s *DHTService[A]) Put(ctx context.Context, key, value []byte, ttl time.Duration) error {
-// 	_, err := DHTPut(DHTPutParams{
-// 		Key: key,
-// 		Ask: func(dst p2p.PeerID, req PutReq) (PutRes, error) {
-// 			if dst == s.dhtNode.LocalID() {
-// 				return s.dhtNode.HandlePut(s.dhtNode.LocalID(), req)
-// 			}
-// 			addr, err := s.findPeer(ctx, dst)
-// 			if err != nil {
-// 				return PutRes{}, err
-// 			}
-// 			return askJSON[A, Request, PutRes](ctx, s.swarm, addr, Request{
-// 				Put: &req,
-// 			})
-// 		},
-// 	})
-// 	return err
-// }
+func (s *DHTService[A]) Put(ctx context.Context, key, value []byte, ttl time.Duration) error {
+	_, err := DHTPut(DHTPutParams{
+		Key:     key,
+		Initial: s.dhtNode.ListNodeInfos(key, 3),
+		Ask: func(node NodeInfo, req PutReq) (PutRes, error) {
+			if node.ID == s.dhtNode.LocalID() {
+				return s.dhtNode.HandlePut(s.dhtNode.LocalID(), req)
+			}
+			addr, err := s.swarm.ParseAddr(node.Info)
+			if err != nil {
+				return PutRes{}, err
+			}
+			return askJSON[A, Request, PutRes](ctx, s.swarm, addr, Request{
+				Put: &req,
+			})
+		},
+	})
+	return err
+}
 
-// func (s *DHTService[A]) Get(ctx context.Context, key []byte) ([]byte, error) {
-// 	res, err := DHTGet(DHTGetParams{})
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return res.Value, nil
-// }
+func (s *DHTService[A]) Get(ctx context.Context, key []byte) ([]byte, error) {
+	res, err := DHTGet(DHTGetParams{
+		Key:     key,
+		Initial: s.dhtNode.ListNodeInfos(key, 3),
+		Ask: func(node NodeInfo, req GetReq) (GetRes, error) {
+			if node.ID == s.dhtNode.LocalID() {
+				return s.dhtNode.HandleGet(s.dhtNode.LocalID(), req)
+			}
+			addr, err := s.swarm.ParseAddr(node.Info)
+			if err != nil {
+				return GetRes{}, err
+			}
+			return askJSON[A, Request, GetRes](ctx, s.swarm, addr, Request{
+				Get: &req,
+			})
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res.Value, nil
+}
 
 func (s *DHTService[A]) Close() error {
 	s.cf()
@@ -97,6 +114,7 @@ func (s *DHTService[A]) readLoop(ctx context.Context) error {
 func (s *DHTService[A]) handleAsk(ctx context.Context, resp []byte, msg p2p.Message[A]) int {
 	var req Request
 	var n int
+	var peerID p2p.PeerID
 	if err := func() error {
 		if err := json.Unmarshal(msg.Payload, &req); err != nil {
 			return err
@@ -105,7 +123,7 @@ func (s *DHTService[A]) handleAsk(ctx context.Context, resp []byte, msg p2p.Mess
 		if err != nil {
 			return err
 		}
-		peerID := s.fingerprinter(pubKey)
+		peerID = s.fingerprinter(pubKey)
 		var res any
 		switch {
 		case req.Get != nil:
@@ -127,6 +145,9 @@ func (s *DHTService[A]) handleAsk(ctx context.Context, resp []byte, msg p2p.Mess
 	}(); err != nil {
 		return -1
 	}
+	if data, err := msg.Src.MarshalText(); err == nil {
+		s.dhtNode.AddPeer(peerID, data)
+	}
 	return n
 }
 
@@ -136,6 +157,41 @@ func (s *DHTService[A]) handleGet(ctx context.Context, from p2p.PeerID, req GetR
 
 func (s *DHTService[A]) handlePut(ctx context.Context, from p2p.PeerID, req PutReq) (PutRes, error) {
 	return s.dhtNode.HandlePut(from, req)
+}
+
+func (s *DHTService[A]) pingLoop(ctx context.Context) error {
+	period := s.dhtNode.params.MaxPeerTTL / 3
+	ticker := time.NewTicker(period)
+	defer ticker.Stop()
+	for {
+		func() error {
+			ctx, cf := context.WithTimeout(ctx, period*3/4)
+			defer cf()
+			eg := errgroup.Group{}
+			for _, nodeInfo := range s.dhtNode.ListNodeInfos(nil, 0) {
+				nodeInfo := nodeInfo
+				eg.Go(func() error {
+					addr, err := s.swarm.ParseAddr(nodeInfo.Info)
+					if err != nil {
+						return err
+					}
+					_, err = askJSON[A, Request, PingRes](ctx, s.swarm, addr, Request{
+						Ping: &PingReq{},
+					})
+					if err != nil {
+						return err
+					}
+					return nil
+				})
+			}
+			return eg.Wait()
+		}()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func askJSON[A p2p.Addr, Req, Res any](ctx context.Context, swarm p2p.AskSwarm[A], dst A, req Req) (Res, error) {

@@ -55,3 +55,9 @@ type PutRes struct {
 
 // PutFunc is the type of functions implementing the Put rpc.
 type PutFunc = func(NodeInfo, PutReq) (PutRes, error)
+
+type PingReq struct{}
+
+type PingRes struct {
+	Timestamp tai64.TAI64N `json:"timestamp"`
+}
