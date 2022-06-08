@@ -4,10 +4,10 @@ import (
 	"math/bits"
 )
 
-// Leading0s returns the number of 0s that occur before the first 1
-// when iterating bit by bit, most significant bit first low
+// LeadingZeros returns the number of 0s that occur before the first 1
+// when iterating bit by bit, most significant bit first, low
 // indexed byte to high indexed byte.
-func Leading0s(x []byte) int {
+func LeadingZeros(x []byte) int {
 	total := 0
 	for i := range x {
 		lz := bits.LeadingZeros8(x[i])
@@ -39,7 +39,7 @@ func HasPrefix(x []byte, prefix []byte, nbits int) bool {
 	}
 	xor := make([]byte, len(x))
 	XORBytes(xor, x, prefix)
-	lz := Leading0s(xor)
+	lz := LeadingZeros(xor)
 	return lz >= nbits
 }
 
@@ -84,6 +84,20 @@ func DistanceLt(x []byte, a, b []byte) bool {
 // DistanceGt returns true if Distance(x, a) > Distance(x, b)
 func DistanceGt(x []byte, a, b []byte) bool {
 	return DistanceCmp(x, a, b) > 0
+}
+
+// DistanceLz returns the number of leading zeros in the distance between a and b
+// DistanceLz == LeadingZeros(Distance(a, b))
+func DistanceLz(a, b []byte) (ret int) {
+	l := min(len(a), len(b))
+	for i := 0; i < l; i++ {
+		lz := bits.LeadingZeros8(a[i] ^ b[i])
+		ret += lz
+		if lz < 8 {
+			break
+		}
+	}
+	return ret
 }
 
 func min(xs ...int) (ret int) {
