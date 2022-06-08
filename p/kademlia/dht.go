@@ -169,7 +169,7 @@ func DHTPut(params DHTPutParams) (*DHTPutResult, error) {
 		TTLms: uint64(params.TTL.Milliseconds()),
 	}
 	var res DHTPutResult
-	dhtIterate(params.Initial, params.Key, 2*len(params.Initial), func(node NodeInfo) ([]NodeInfo, bool) {
+	dhtIterate(params.Initial, params.Key, len(params.Initial)*3/2, func(node NodeInfo) ([]NodeInfo, bool) {
 		res.Contacted++
 		resp, err := params.Ask(node, req)
 		if err != nil {

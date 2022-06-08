@@ -73,7 +73,7 @@ func TestDHTFindNode(t *testing.T) {
 	nodes := setupNodes(t, N, numPeers, 0)
 	ids := maps.Keys(nodes)
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < len(ids)/2; i++ {
 		a, b := ids[i], ids[len(ids)-1-i]
 		res, err := DHTFindNode(DHTFindNodeParams{
 			Initial: nodes[a].ListNodeInfos(b[:], 10),
