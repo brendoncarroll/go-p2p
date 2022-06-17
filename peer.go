@@ -8,8 +8,13 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-// PeerIDSize is the size of a PeerID in bytes
-const PeerIDSize = 32
+const (
+	// PeerIDSize is the size of a PeerID in bytes
+	PeerIDSize = 32
+	// Base64Alphabet is used when encoding IDs as base64 strings.
+	// It is a URL and filepath safe encoding, which maintains ordering.
+	Base64Alphabet = "-0123456789" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + "_" + "abcdefghijklmnopqrstuvwxyz"
+)
 
 // PeerID is a identifier cryptographically related to a public key
 type PeerID [32]byte
@@ -26,19 +31,23 @@ func DefaultFingerprinter(pubKey PublicKey) PeerID {
 }
 
 func (pid PeerID) String() string {
+	return pid.Base64String()
+}
+
+func (pid PeerID) Base64String() string {
 	data, _ := pid.MarshalText()
 	return string(data)
 }
 
+var enc = base64.NewEncoding(Base64Alphabet).WithPadding(base64.NoPadding)
+
 func (pid PeerID) MarshalText() ([]byte, error) {
-	enc := base64.RawURLEncoding
 	data := make([]byte, enc.EncodedLen(len(pid)))
 	enc.Encode(data, pid[:])
 	return data, nil
 }
 
 func (pid *PeerID) UnmarshalText(data []byte) error {
-	enc := base64.RawURLEncoding
 	if len(data) != enc.EncodedLen(len(pid)) {
 		return errors.New("data is wrong length")
 	}

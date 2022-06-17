@@ -28,7 +28,7 @@ func GenerateToken(endpoint string) string {
 	}
 	privateKey := derivePrivateKey(secret)
 	id := p2p.DefaultFingerprinter(privateKey.Public())
-	u.Path = "/" + base64.URLEncoding.EncodeToString(id[:])
+	u.Path = "/" + id.Base64String()
 	u.Fragment = base64.URLEncoding.EncodeToString(secret)
 	return u.String()
 }

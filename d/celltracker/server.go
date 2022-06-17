@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"sync"
@@ -226,21 +225,15 @@ func (s *Server) evict(ctx context.Context) (count int) {
 		}
 		return true
 	})
-
 	return count
 }
 
 func idFromPath(r *http.Request) (p2p.PeerID, error) {
 	p := r.URL.Path[1:]
-	data, err := base64.URLEncoding.DecodeString(p)
-	if err != nil {
+	var id p2p.PeerID
+	if err := id.UnmarshalText([]byte(p)); err != nil {
 		return p2p.PeerID{}, errors.Wrap(err, "error extracting peer id from path")
 	}
-	if len(data) != 32 {
-		return p2p.PeerID{}, fmt.Errorf("wrong length for peer id: %d", len(data))
-	}
-	id := p2p.PeerID{}
-	copy(id[:], data)
 	return id, nil
 }
 
