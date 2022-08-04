@@ -1,6 +1,6 @@
 module github.com/brendoncarroll/go-p2p
 
-go 1.18
+go 1.19
 
 require (
 	github.com/brendoncarroll/go-state v0.0.0-20210627233638-99c825eb7040

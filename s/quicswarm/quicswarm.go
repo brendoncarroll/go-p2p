@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"io"
-	"io/ioutil"
 	"net"
 	"strings"
 	"sync"
@@ -216,7 +215,7 @@ func (s *Swarm[T]) withSession(ctx context.Context, dst Addr[T], fn func(sess qu
 		return fn(sess)
 	}
 
-	raddr := p2pconn.NewAddr(s.inner, dst.Addr.(T))
+	raddr := p2pconn.NewAddr(s.inner, dst.Addr)
 	host := ""
 	sess, err := quic.DialContext(ctx, s.pconn, raddr, host, generateClientTLS(s.privKey), generateQUICConfig())
 	if err != nil {
@@ -334,7 +333,7 @@ func (s *Swarm[T]) handleTells(ctx context.Context, sess quic.Connection, srcAdd
 		}
 		go func() {
 			lr := io.LimitReader(stream, int64(s.mtu))
-			data, err := ioutil.ReadAll(lr)
+			data, err := io.ReadAll(lr)
 			if err != nil {
 				s.log.Error(err)
 				return

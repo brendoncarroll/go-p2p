@@ -105,7 +105,7 @@ func (s *Swarm[T]) LookupPublicKey(ctx context.Context, dst Addr[T]) (p2p.Public
 }
 
 func (s *Swarm[T]) MTU(ctx context.Context, target Addr[T]) int {
-	n := s.inner.MTU(ctx, target.Addr.(T)) - Overhead
+	n := s.inner.MTU(ctx, target.Addr) - Overhead
 	return min(n, p2pke.MaxMessageLen)
 }
 
@@ -125,7 +125,7 @@ func (s *Swarm[T]) Close() error {
 // getFullAddr returns a p2pke.Channel which matches the full Addr addr.
 func (s *Swarm[T]) getFullAddr(ctx context.Context, addr Addr[T]) (*p2pke.Channel, error) {
 	for {
-		c := s.store.getOrCreate(s.keyForAddr(addr.Addr.(T)), func() *channelState {
+		c := s.store.getOrCreate(s.keyForAddr(addr.Addr), func() *channelState {
 			return &channelState{
 				CreatedAt: time.Now(),
 				Channel: p2pke.NewChannel(p2pke.ChannelConfig{
@@ -134,7 +134,7 @@ func (s *Swarm[T]) getFullAddr(ctx context.Context, addr Addr[T]) (*p2pke.Channe
 						id := s.fingerprinter(pubKey)
 						return id == addr.ID
 					},
-					Send: s.getSender(addr.Addr.(T)),
+					Send: s.getSender(addr.Addr),
 				}),
 			}
 		})
@@ -145,7 +145,7 @@ func (s *Swarm[T]) getFullAddr(ctx context.Context, addr Addr[T]) (*p2pke.Channe
 		if remoteID == addr.ID {
 			return c.Channel, nil
 		}
-		s.store.deleteMatching(s.keyForAddr(addr.Addr.(T)), func(v *channelState) bool {
+		s.store.deleteMatching(s.keyForAddr(addr.Addr), func(v *channelState) bool {
 			return v.Channel == c.Channel
 		})
 	}
