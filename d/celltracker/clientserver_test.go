@@ -22,7 +22,7 @@ func TestClientServer(t *testing.T) {
 	token := GenerateToken("http://" + addr + "/")
 	t.Logf("token: %s", token)
 	c, err := NewClient(token)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	go func() {
 		if err := http.ListenAndServe(addr, s); err != nil {
@@ -32,14 +32,14 @@ func TestClientServer(t *testing.T) {
 	pollServer("http://" + addr)
 
 	data, err := cells.GetBytes(ctx, c.cell)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	assert.Len(t, data, 0)
 
 	err = c.Announce(ctx, p2p.PeerID{}, []string{"addr1", "addr2"}, time.Minute)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	addrs, err := c.Find(ctx, p2p.PeerID{})
-	require.Nil(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, addrs, []string{"addr1", "addr2"})
 }
 

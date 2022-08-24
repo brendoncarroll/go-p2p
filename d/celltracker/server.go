@@ -16,8 +16,12 @@ import (
 	"golang.org/x/crypto/sha3"
 	"golang.org/x/exp/slog"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/c/cryptocell"
+	"github.com/brendoncarroll/go-p2p/c/signedcell"
+	"github.com/brendoncarroll/go-p2p/crypto/sign"
+	"github.com/brendoncarroll/go-p2p/crypto/sign/sig_ed25519"
+	"github.com/brendoncarroll/go-state/cells/httpcell"
+	"github.com/pkg/errors"
+	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -29,15 +33,16 @@ const (
 	gracePeriod = time.Minute
 )
 
-type serverCell struct {
-	publicKey ed25519.PublicKey
+type serverCell[Private, Public any] struct {
+	scheme    sign.Scheme[Private, Public]
+	publicKey Public
 
 	mu      sync.Mutex
 	mtime   time.Time
 	payload []byte
 }
 
-func (c *serverCell) shouldEvict() bool {
+func (c *serverCell[Private, Public]) shouldEvict() bool {
 	c.mu.Lock()
 	mtime := c.mtime
 	c.mu.Unlock()
@@ -46,14 +51,14 @@ func (c *serverCell) shouldEvict() bool {
 	return mtime.Add(gracePeriod).Before(now)
 }
 
-func (c *serverCell) get(ctx context.Context) []byte {
+func (c *serverCell[Private, Public]) get(ctx context.Context) []byte {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.payload
 }
 
-func (c *serverCell) cas(ctx context.Context, believedHash, next []byte) (bool, []byte, error) {
-	if err := cryptocell.Validate(c.publicKey, purposeCellTracker, next); err != nil {
+func (c *serverCell[Private, Public]) cas(ctx context.Context, believedHash, next []byte) (bool, []byte, error) {
+	if err := signedcell.Validate(c.scheme, &c.publicKey, next); err != nil {
 		return false, nil, err
 	}
 
@@ -198,26 +203,27 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) loadCell(id p2p.PeerID) *serverCell {
+func (s *Server) loadCell(id p2p.PeerID) *serverCell[sig_ed25519.PrivateKey, sig_ed25519.PublicKey] {
 	v, exists := s.cells.Load(id)
 	if !exists {
 		return nil
 	}
-	return v.(*serverCell)
+	return v.(*serverCell[sig_ed25519.PrivateKey, sig_ed25519.PublicKey])
 }
 
-func (s *Server) loadOrStoreCell(publicKey ed25519.PublicKey) *serverCell {
+func (s *Server) loadOrStoreCell(publicKey ed25519.PublicKey) *serverCell[sig_ed25519.PrivateKey, sig_ed25519.PublicKey] {
 	id := p2p.DefaultFingerprinter(publicKey)
-	c := &serverCell{
-		publicKey: publicKey,
+	c := &serverCell[sig_ed25519.PrivateKey, sig_ed25519.PublicKey]{
+		scheme:    sig_ed25519.Ed25519{},
+		publicKey: *(*[32]byte)(publicKey),
 	}
 	v, _ := s.cells.LoadOrStore(id, c)
-	return v.(*serverCell)
+	return v.(*serverCell[sig_ed25519.PrivateKey, sig_ed25519.PublicKey])
 }
 
 func (s *Server) evict(ctx context.Context) (count int) {
 	s.cells.Range(func(k, v interface{}) bool {
-		cell := v.(*serverCell)
+		cell := v.(*serverCell[sig_ed25519.PrivateKey, sig_ed25519.PublicKey])
 		if cell.shouldEvict() {
 			s.cells.Delete(k)
 			count++

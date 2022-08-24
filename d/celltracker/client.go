@@ -7,12 +7,16 @@ import (
 	"io"
 	"net/url"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/c/cryptocell"
 	"github.com/brendoncarroll/go-state/cells"
 	"github.com/brendoncarroll/go-state/cells/httpcell"
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/sha3"
+
+	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/c/secretboxcell"
+	"github.com/brendoncarroll/go-p2p/c/signedcell"
+	"github.com/brendoncarroll/go-p2p/crypto/sign"
+	"github.com/brendoncarroll/go-p2p/crypto/sign/sig_ed25519"
 )
 
 const purposeCellTracker = "p2p/cell-tracker"
@@ -26,8 +30,9 @@ func GenerateToken(endpoint string) string {
 	if _, err := rand.Read(secret); err != nil {
 		panic(err)
 	}
-	privateKey := derivePrivateKey(secret)
-	id := p2p.DefaultFingerprinter(privateKey.Public())
+	var privateKey sig_ed25519.PrivateKey
+	deriveKey(privateKey[:], secret, "ed25519-private")
+	id := p2p.DefaultFingerprinter((ed25519.PrivateKey)(privateKey[:]).Public())
 	u.Path = "/" + id.Base64String()
 	u.Fragment = base64.URLEncoding.EncodeToString(secret)
 	return u.String()
@@ -41,6 +46,12 @@ type Client struct {
 }
 
 func NewClient(token string) (*Client, error) {
+	type (
+		PrivateKey = sig_ed25519.PrivateKey
+		PublicKey  = sig_ed25519.PublicKey
+	)
+	scheme := sign.WithPurpose[PrivateKey, PublicKey](sig_ed25519.Ed25519{}, purposeCellTracker)
+
 	u, err := url.Parse(token)
 	if err != nil {
 		return nil, err
@@ -51,9 +62,12 @@ func NewClient(token string) (*Client, error) {
 	}
 	u.Fragment = ""
 
-	symmetricKey := deriveSymmetricKey(secret)
-	privateKey := derivePrivateKey(secret)
-	pubKeyBytes := p2p.MarshalPublicKey(privateKey.Public())
+	var privateKey PrivateKey
+	var symmetricKey [32]byte
+	deriveKey(privateKey[:], secret, "ed25519-private")
+	deriveKey(symmetricKey[:], secret, "secret-box")
+	pubKey := scheme.DerivePublic(&privateKey)
+	pubKeyBytes := p2p.MarshalPublicKey(ed25519.PublicKey(pubKey[:]))
 
 	var cell cells.Cell
 	cell = httpcell.New(httpcell.Spec{
@@ -62,8 +76,8 @@ func NewClient(token string) (*Client, error) {
 			SignerHeader: base64.URLEncoding.EncodeToString(pubKeyBytes),
 		},
 	})
-	cell = cryptocell.NewSigned(cell, purposeCellTracker, privateKey.Public(), privateKey)
-	cell = cryptocell.NewSecretBox(cell, symmetricKey)
+	cell = signedcell.New[PrivateKey, PublicKey](cell, scheme, &privateKey, []PublicKey{pubKey})
+	cell = secretboxcell.New(cell, symmetricKey[:])
 
 	return &Client{
 		url:         u.String(),
@@ -72,19 +86,9 @@ func NewClient(token string) (*Client, error) {
 	}, nil
 }
 
-func deriveKey(secret []byte, purpose string, n int) []byte {
+func deriveKey(dst []byte, secret []byte, purpose string) {
 	r := hkdf.Expand(sha3.New256, secret, []byte(purpose))
-	key := make([]byte, n)
-	if _, err := io.ReadFull(r, key); err != nil {
+	if _, err := io.ReadFull(r, dst); err != nil {
 		panic(err)
 	}
-	return key
-}
-
-func derivePrivateKey(secret []byte) ed25519.PrivateKey {
-	return ed25519.NewKeyFromSeed(deriveKey(secret, "ed25519-private-key", ed25519.SeedSize))
-}
-
-func deriveSymmetricKey(secret []byte) []byte {
-	return deriveKey(secret, "secretbox-symmetric-key", 32)
 }
