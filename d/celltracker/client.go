@@ -14,7 +14,6 @@ import (
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/c/secretboxcell"
-	"github.com/brendoncarroll/go-p2p/c/signedcell"
 	"github.com/brendoncarroll/go-p2p/crypto/sign"
 	"github.com/brendoncarroll/go-p2p/crypto/sign/sig_ed25519"
 )
@@ -50,7 +49,7 @@ func NewClient(token string) (*Client, error) {
 		PrivateKey = sig_ed25519.PrivateKey
 		PublicKey  = sig_ed25519.PublicKey
 	)
-	scheme := sign.WithPurpose[PrivateKey, PublicKey](sig_ed25519.Ed25519{}, purposeCellTracker)
+	scheme := newScheme()
 
 	u, err := url.Parse(token)
 	if err != nil {
@@ -76,7 +75,7 @@ func NewClient(token string) (*Client, error) {
 			SignerHeader: base64.URLEncoding.EncodeToString(pubKeyBytes),
 		},
 	})
-	cell = signedcell.New[PrivateKey, PublicKey](cell, scheme, &privateKey, []PublicKey{pubKey})
+	//cell = signedcell.New[PrivateKey, PublicKey](cell, scheme, &privateKey, []PublicKey{pubKey})
 	cell = secretboxcell.New(cell, symmetricKey[:])
 
 	return &Client{
@@ -91,4 +90,8 @@ func deriveKey(dst []byte, secret []byte, purpose string) {
 	if _, err := io.ReadFull(r, dst); err != nil {
 		panic(err)
 	}
+}
+
+func newScheme() sign.Scheme[sig_ed25519.PrivateKey, sig_ed25519.PublicKey] {
+	return sign.NewPurpose[sig_ed25519.PrivateKey, sig_ed25519.PublicKey](sig_ed25519.Ed25519{}, purposeCellTracker)
 }
