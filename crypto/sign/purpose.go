@@ -12,7 +12,7 @@ type Purpose[Private, Public any] struct {
 	Purpose string
 }
 
-func WithPurpose[Private, Public any](s Scheme[Private, Public], purpose string) Purpose[Private, Public] {
+func NewPurpose[Private, Public any](s Scheme[Private, Public], purpose string) Purpose[Private, Public] {
 	return Purpose[Private, Public]{Scheme: s, Purpose: purpose}
 }
 
