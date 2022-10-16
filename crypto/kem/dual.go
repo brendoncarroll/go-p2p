@@ -37,14 +37,14 @@ func (s Dual[APriv, APub, BPriv, BPub]) DerivePublic(x *DualKey[APriv, BPriv]) D
 	}
 }
 
-func (s Dual[APriv, APub, BPriv, BPub]) Encapsulate(ss *SharedSecret, ct []byte, pub *DualKey[APub, BPub], seed *Seed) error {
+func (s Dual[APriv, APub, BPriv, BPub]) Encapsulate(ss *Secret, ct []byte, pub *DualKey[APub, BPub], seed *Seed) error {
 	var seedA, seedB [SeedSize]byte
 	sha3.ShakeSum256(seedA[:], append(seed[:], 0))
 	sha3.ShakeSum256(seedB[:], append(seed[:], 255))
 
 	var sharedConcat [64]byte
-	sharedA := (*[SharedSecretSize]byte)(sharedConcat[:SharedSecretSize])
-	sharedB := (*[SharedSecretSize]byte)(sharedConcat[SharedSecretSize:])
+	sharedA := (*[SecretSize]byte)(sharedConcat[:SecretSize])
+	sharedB := (*[SecretSize]byte)(sharedConcat[SecretSize:])
 
 	s.A.Encapsulate(sharedA, ct[:s.A.CiphertextSize()], &pub.A, &seedA)
 	s.B.Encapsulate(sharedB, ct[s.A.CiphertextSize():], &pub.B, &seedB)
@@ -53,10 +53,10 @@ func (s Dual[APriv, APub, BPriv, BPub]) Encapsulate(ss *SharedSecret, ct []byte,
 	return nil
 }
 
-func (s Dual[APriv, APub, BPriv, BPub]) Decapsulate(ss *SharedSecret, priv *DualKey[APriv, BPriv], ct []byte) error {
-	var sharedConcat [2 * SharedSecretSize]byte
-	sharedA := (*[SharedSecretSize]byte)(sharedConcat[:SharedSecretSize])
-	sharedB := (*[SharedSecretSize]byte)(sharedConcat[SharedSecretSize:])
+func (s Dual[APriv, APub, BPriv, BPub]) Decapsulate(ss *Secret, priv *DualKey[APriv, BPriv], ct []byte) error {
+	var sharedConcat [2 * SecretSize]byte
+	sharedA := (*[SecretSize]byte)(sharedConcat[:SecretSize])
+	sharedB := (*[SecretSize]byte)(sharedConcat[SecretSize:])
 
 	s.A.Decapsulate(sharedA, &priv.A, ct[:s.A.CiphertextSize()])
 	s.B.Decapsulate(sharedB, &priv.B, ct[s.A.CiphertextSize():])

@@ -23,7 +23,7 @@ func (s Scheme[Private, Public]) DerivePublic(priv *Private) Public {
 	return s.DH.DerivePublic(priv)
 }
 
-func (s Scheme[Private, Public]) Encapsulate(ss *kem.SharedSecret, ctext []byte, pub *Public, seed *kem.Seed) error {
+func (s Scheme[Private, Public]) Encapsulate(ss *kem.Secret, ctext []byte, pub *Public, seed *kem.Seed) error {
 	h := sha3.NewShake256()
 	h.Write(seed[:])
 	ePub, ePriv, err := s.DH.Generate(h)
@@ -39,7 +39,7 @@ func (s Scheme[Private, Public]) Encapsulate(ss *kem.SharedSecret, ctext []byte,
 	return nil
 }
 
-func (s Scheme[Private, Public]) Decapsulate(ss *kem.SharedSecret, priv *Private, ctext []byte) error {
+func (s Scheme[Private, Public]) Decapsulate(ss *kem.Secret, priv *Private, ctext []byte) error {
 	ePub, err := s.DH.ParsePublic(ctext)
 	if err != nil {
 		return err

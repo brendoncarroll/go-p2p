@@ -32,7 +32,7 @@ func TestScheme[Priv, Pub any](t *testing.T, scheme Scheme[Priv, Pub]) {
 	t.Run("EncapDecap", func(t *testing.T) {
 		pub, priv := generate(0)
 		var seed [SeedSize]byte
-		var shared1, shared2 [SharedSecretSize]byte
+		var shared1, shared2 [SecretSize]byte
 		ctext := make([]byte, scheme.CiphertextSize())
 		scheme.Encapsulate(&shared1, ctext, &pub, &seed)
 

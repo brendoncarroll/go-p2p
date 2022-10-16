@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/brendoncarroll/go-p2p/crypto/aead"
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
 	"github.com/brendoncarroll/go-p2p/crypto/sign"
-	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -25,6 +25,7 @@ type PublicKey[KEMPub, SigPub any] struct {
 type Scheme[KEMPriv, KEMPub, SigPriv, SigPub any] struct {
 	KEM  kem.Scheme[KEMPriv, KEMPub]
 	Sign sign.Scheme[SigPriv, SigPub]
+	AEAD aead.SchemeSUV32
 }
 
 func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) Generate(rng io.Reader) (retPub PublicKey[KEMPub, SigPub], retPriv PrivateKey[KEMPriv, SigPriv], _ error) {
@@ -80,9 +81,8 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) Encrypt(out []byte, private *
 		}
 	}
 	slotsEnd := len(out)
-	nonce := [12]byte{}
-	out = appendVarint(out, uint64(len(ptext)+aeadOverhead))
-	out = aeadSeal(out, &dek, &nonce, ptext, out[slotsBegin:slotsEnd])
+	out = appendVarint(out, uint64(len(ptext)+s.AEAD.Overhead()))
+	out = s.AEAD.Seal(out, &dek, ptext, out[slotsBegin:slotsEnd])
 	return out, nil
 }
 
@@ -108,8 +108,7 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) Decrypt(out []byte, private *
 		if err != nil {
 			continue
 		}
-		nonce := [12]byte{}
-		ptex, err := aeadOpen(out, dek, &nonce, m.Main, m.Slots)
+		ptex, err := s.AEAD.Open(out, dek, m.Main, m.Slots)
 		return sender, ptex, err
 	}
 	return -1, nil, errors.New("could not decrypt message")
@@ -126,8 +125,7 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) encryptSlot(out []byte, priva
 	ptext := make([]byte, s.Sign.SignatureSize()+32)
 	s.Sign.Sign(ptext[:s.Sign.SignatureSize()], &private.Sign, kemct[:])
 	copy(ptext[s.Sign.SignatureSize():], dek[:])
-	nonce := [12]byte{}
-	out = aeadSeal(out, &ss, &nonce, ptext[:], kemct)
+	out = s.AEAD.Seal(out, &ss, ptext[:], kemct)
 	return out, nil
 }
 
@@ -140,8 +138,7 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) decryptSlot(private *PrivateK
 	if err := s.KEM.Decapsulate(&ss, &private.KEM, kemCtext); err != nil {
 		return -1, nil, err
 	}
-	nonce := [12]byte{}
-	ptext, err := aeadOpen(nil, &ss, &nonce, aeadCtext, kemCtext)
+	ptext, err := s.AEAD.Open(nil, &ss, aeadCtext, kemCtext)
 	if err != nil {
 		return -1, nil, err
 	}
@@ -160,12 +157,12 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) decryptSlot(private *PrivateK
 
 func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) slotSize() int {
 	const AEADKeySize = 32
-	return s.KEM.CiphertextSize() + s.Sign.SignatureSize() + AEADKeySize + aeadOverhead
+	return s.KEM.CiphertextSize() + s.Sign.SignatureSize() + AEADKeySize + s.AEAD.Overhead()
 }
 
 func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) CiphertextSize(numParties, ptextLen int) int {
 	slotsLen := numParties * s.slotSize()
-	mainLen := ptextLen + aeadOverhead
+	mainLen := ptextLen + s.AEAD.Overhead()
 	return lpLen(slotsLen) + lpLen(mainLen)
 }
 
@@ -174,7 +171,7 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) PlaintextSize(ctext []byte) (
 	if err != nil {
 		return 0, err
 	}
-	return len(m.Main) - aeadOverhead, nil
+	return len(m.Main) - s.AEAD.Overhead(), nil
 }
 
 type Message struct {
@@ -207,24 +204,6 @@ func ParseMessage(x []byte) (*Message, error) {
 		Slots: slots,
 		Main:  main,
 	}, nil
-}
-
-const aeadOverhead = chacha20poly1305.Overhead
-
-func aeadSeal(out []byte, secret *[32]byte, nonce *[chacha20poly1305.NonceSize]byte, ptext []byte, additional []byte) []byte {
-	aead, err := chacha20poly1305.New(secret[:])
-	if err != nil {
-		panic(err)
-	}
-	return aead.Seal(out, nonce[:], ptext, additional)
-}
-
-func aeadOpen(out []byte, secret *[32]byte, nonce *[chacha20poly1305.NonceSize]byte, ctext []byte, additional []byte) ([]byte, error) {
-	aead, err := chacha20poly1305.New(secret[:])
-	if err != nil {
-		return nil, err
-	}
-	return aead.Open(out, nonce[:], ctext, additional)
 }
 
 func lpLen(x int) int {

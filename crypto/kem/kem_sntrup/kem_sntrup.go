@@ -36,7 +36,7 @@ func (s Scheme4591761) DerivePublic(priv *PrivateKey4591761) (pub PublicKey45917
 	return pub
 }
 
-func (s Scheme4591761) Encapsulate(ss *kem.SharedSecret, ctext []byte, pk *PublicKey4591761, seed *kem.Seed) error {
+func (s Scheme4591761) Encapsulate(ss *kem.Secret, ctext []byte, pk *PublicKey4591761, seed *kem.Seed) error {
 	h := sha3.NewShake256()
 	h.Write(seed[:])
 	ct, shared, err := ntru.Encapsulate(h, pk)
@@ -51,7 +51,7 @@ func (s Scheme4591761) Encapsulate(ss *kem.SharedSecret, ctext []byte, pk *Publi
 	return nil
 }
 
-func (s Scheme4591761) Decapsulate(ss *kem.SharedSecret, priv *PrivateKey4591761, ctext []byte) error {
+func (s Scheme4591761) Decapsulate(ss *kem.Secret, priv *PrivateKey4591761, ctext []byte) error {
 	shared, ec := ntru.Decapsulate((*ntru.Ciphertext)(ctext), priv)
 	if ec == 0 {
 		return errors.New("ciphertext is invalid")
