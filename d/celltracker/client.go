@@ -14,6 +14,7 @@ import (
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/c/secretboxcell"
+	"github.com/brendoncarroll/go-p2p/c/signedcell"
 	"github.com/brendoncarroll/go-p2p/crypto/sign"
 	"github.com/brendoncarroll/go-p2p/crypto/sign/sig_ed25519"
 )
@@ -75,7 +76,7 @@ func NewClient(token string) (*Client, error) {
 			SignerHeader: base64.URLEncoding.EncodeToString(pubKeyBytes),
 		},
 	})
-	//cell = signedcell.New[PrivateKey, PublicKey](cell, scheme, &privateKey, []PublicKey{pubKey})
+	cell = signedcell.New[PrivateKey, PublicKey](cell, scheme, &privateKey, []PublicKey{pubKey})
 	cell = secretboxcell.New(cell, symmetricKey[:])
 
 	return &Client{

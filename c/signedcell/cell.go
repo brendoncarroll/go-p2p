@@ -38,11 +38,11 @@ func (s *Cell[Private, Public]) CAS(ctx context.Context, actual, prev, next []by
 	if s.privateKey == nil {
 		return false, 0, errors.Errorf("cannot write to signing cell without private key")
 	}
-	actual2, err := cells.GetBytes(ctx, s.inner)
+	prev2, err := cells.GetBytes(ctx, s.inner)
 	if err != nil {
 		return false, 0, err
 	}
-	n, err := s.unwrap(actual, actual2)
+	n, err := s.unwrap(actual, prev2)
 	if err != nil {
 		return false, 0, err
 	}
@@ -52,15 +52,13 @@ func (s *Cell[Private, Public]) CAS(ctx context.Context, actual, prev, next []by
 	buf := make([]byte, s.inner.MaxSize())
 	n = s.wrap(buf, next)
 	next2 := buf[:n]
-	swapped, n, err := s.inner.CAS(ctx, buf, actual2, next2)
+	swapped, n, err := s.inner.CAS(ctx, buf, prev2, next2)
 	if err != nil {
 		return false, 0, err
 	}
-	if n > 0 {
-		n, err = s.unwrap(actual, buf[:n])
-		if err != nil {
-			return false, 0, err
-		}
+	n, err = s.unwrap(actual, buf[:n])
+	if err != nil {
+		return false, 0, err
 	}
 	return swapped, n, nil
 }
@@ -118,9 +116,6 @@ func (s *Cell[Private, Public]) unwrap(dst, x []byte) (int, error) {
 }
 
 func Validate[Private, Public any](scheme sign.Scheme[Private, Public], pubKey *Public, contents []byte) error {
-	if len(contents) == 0 {
-		return nil
-	}
 	payload, sig, err := splitContents(scheme.SignatureSize(), contents)
 	if err != nil {
 		return err
