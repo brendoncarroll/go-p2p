@@ -17,12 +17,14 @@ type SchemeK32N24 interface {
 	Seal(out []byte, key *[32]byte, nonce *[24]byte, ptext, ad []byte) []byte
 	// Open authenticates and decryptes ctext and appends the result to out or returns an error.
 	Open(out []byte, key *[32]byte, nonce *[24]byte, ctext, ad []byte) ([]byte, error)
+	// Overhead is the ciphertext_size - plaintext_size
+	Overhead() int
 }
 
 // SchemeSUV32 is an AEAD which takes a Secret and Unique Value instead of a key and a nonce
 type SchemeSUV32 interface {
-	Seal(out []byte, key *[32]byte, ptext, ad []byte) []byte
-	Open(out []byte, key *[32]byte, ctext, ad []byte) ([]byte, error)
+	Seal(out []byte, suv *[32]byte, ptext, ad []byte) []byte
+	Open(out []byte, suv *[32]byte, ctext, ad []byte) ([]byte, error)
 	// Overhead is the ciphertext_size - plaintext_size
 	Overhead() int
 }
