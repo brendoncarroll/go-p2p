@@ -2,14 +2,16 @@ package mbapp
 
 import (
 	"context"
+	"io"
 	"runtime"
 	"sync/atomic"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -23,7 +25,7 @@ const (
 type Swarm[A p2p.Addr] struct {
 	inner      p2p.SecureSwarm[A]
 	mtu        int
-	log        *logrus.Logger
+	log        slog.Logger
 	numWorkers int
 
 	cf        context.CancelFunc
@@ -36,17 +38,18 @@ type Swarm[A p2p.Addr] struct {
 
 func New[A p2p.Addr](x p2p.SecureSwarm[A], mtu int, opts ...Option) *Swarm[A] {
 	config := swarmConfig{
-		log:        logrus.StandardLogger(),
+		log:        slog.New(slog.NewTextHandler(io.Discard)),
 		numWorkers: runtime.GOMAXPROCS(0),
 	}
 	for _, opt := range opts {
 		opt(&config)
 	}
-	ctx, cf := context.WithCancel(context.Background())
+	ctx := context.Background()
+	ctx = logctx.NewContext(ctx, config.log)
+	ctx, cf := context.WithCancel(ctx)
 	s := &Swarm[A]{
 		inner:      x,
 		mtu:        mtu,
-		log:        config.log,
 		numWorkers: config.numWorkers,
 
 		cf:        cf,
@@ -55,7 +58,6 @@ func New[A p2p.Addr](x p2p.SecureSwarm[A], mtu int, opts ...Option) *Swarm[A] {
 		tells:     swarmutil.NewTellHub[A](),
 		asks:      swarmutil.NewAskHub[A](),
 	}
-	s.log.SetLevel(logrus.ErrorLevel)
 	go s.recvLoops(ctx, s.numWorkers)
 	return s
 }
@@ -170,7 +172,7 @@ func (s *Swarm[A]) recvLoop(ctx context.Context) error {
 			return err
 		}
 		if err := s.handleMessage(ctx, m.Src, m.Dst, m.Payload); err != nil {
-			s.log.Errorf("got %v while handling message from %v", err, m.Src)
+			logctx.Errorf(ctx, "got %v while handling message from %v", err, m.Src)
 		}
 	}
 }

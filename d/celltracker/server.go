@@ -10,12 +10,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brendoncarroll/go-state/cells/httpcell"
+	"github.com/brendoncarroll/stdctx/logctx"
+	"github.com/pkg/errors"
+	"golang.org/x/crypto/sha3"
+	"golang.org/x/exp/slog"
+
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/c/cryptocell"
-	"github.com/brendoncarroll/go-state/cells/httpcell"
-	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -96,18 +98,15 @@ func (s *Server) evictLoop(ctx context.Context) {
 		case <-ticker.C:
 			count := s.evict(ctx)
 			if count > 0 {
-				log.Infof("evicted %d cells", count)
+				logctx.Infof(ctx, "evicted %d cells", count)
 			}
 		}
 	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	log.WithFields(log.Fields{
-		"path":    r.URL.Path,
-		"method":  r.Method,
-		"headers": r.Header,
-	}).Info()
+	log := logctx.FromContext(r.Context()).With(slog.String("path", r.URL.Path), slog.String("method", r.Method), slog.Any("headers", r.Header))
+	log.Info("ServeHTTP")
 	switch r.Method {
 	case http.MethodPut:
 		s.handlePut(w, r)
@@ -123,7 +122,7 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 
 	id, err := idFromPath(r)
 	if err != nil {
-		log.Error(err)
+		logctx.Errorln(ctx, err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("error parsing id from path"))
 	}
@@ -131,14 +130,14 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 	believedHashb64 := r.Header.Get(httpcell.CurrentHeader)
 	believedHash, err := base64.URLEncoding.DecodeString(believedHashb64)
 	if err != nil {
-		log.Error(err)
+		logctx.Errorln(ctx, err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	pubKey, err := keyFromReq(r)
 	if err != nil {
-		log.Error(err)
+		logctx.Errorln(ctx, err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -146,14 +145,14 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 	id2 := p2p.DefaultFingerprinter(pubKey)
 	if !(id2 == id) {
 		err = errors.New("public key does not match id")
-		log.Error(err)
+		logctx.Errorln(ctx, err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	proposed, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		log.Error(err)
+		logctx.Errorln(ctx, err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("couldn't read body"))
 		return
@@ -166,12 +165,12 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
 	c := s.loadOrStoreCell(pubKey)
 	_, actual, err := c.cas(ctx, believedHash, proposed)
 	if err != nil {
-		log.Error(err)
+		logctx.Errorln(ctx, err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(err.Error()))
 	}
 	if _, err := w.Write(actual); err != nil {
-		log.Error(err)
+		logctx.Errorln(ctx, err)
 	}
 }
 
@@ -195,7 +194,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, err := w.Write(data); err != nil {
-		log.Error(err)
+		logctx.Errorln(ctx, err)
 	}
 }
 

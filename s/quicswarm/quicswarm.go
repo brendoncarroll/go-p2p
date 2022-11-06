@@ -13,9 +13,10 @@ import (
 	"github.com/brendoncarroll/go-p2p/p2pconn"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/brendoncarroll/go-p2p/s/udpswarm"
+	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -27,7 +28,7 @@ type Swarm[T p2p.Addr] struct {
 	fingerprinter p2p.Fingerprinter
 	allowFunc     func(p2p.Addr) bool
 	privKey       p2p.PrivateKey
-	log           *logrus.Logger
+	log           slog.Logger
 	pconn         net.PacketConn
 	l             quic.Listener
 	cf            context.CancelFunc
@@ -50,16 +51,14 @@ func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option[udpswarm.Addr
 // New creates a new swarm on top of x, using privKey for authentication
 func New[T p2p.Addr](x p2p.Swarm[T], privKey p2p.PrivateKey, opts ...Option[T]) (*Swarm[T], error) {
 	pconn := connWrapper{p2pconn.NewPacketConn(x)}
-	ctx, cf := context.WithCancel(context.Background())
 	s := &Swarm[T]{
 		inner:         x,
 		mtu:           DefaultMTU,
 		fingerprinter: p2p.DefaultFingerprinter,
 		allowFunc:     func(p2p.Addr) bool { return true },
-		log:           logrus.StandardLogger(),
+		log:           slog.New(slog.NewTextHandler(io.Discard)),
 		pconn:         pconn,
 		privKey:       privKey,
-		cf:            cf,
 
 		sessCache: map[sessionKey]quic.Connection{},
 		tells:     swarmutil.NewTellHub[Addr[T]](),
@@ -68,6 +67,10 @@ func New[T p2p.Addr](x p2p.Swarm[T], privKey p2p.PrivateKey, opts ...Option[T]) 
 	for _, opt := range opts {
 		opt(s)
 	}
+	ctx := context.Background()
+	ctx = slog.NewContext(ctx, s.log)
+	ctx, cf := context.WithCancel(ctx)
+	s.cf = cf
 	tlsConfig := s.generateServerTLS(privKey)
 	l, err := quic.Listen(pconn, tlsConfig, generateQUICConfig())
 	if err != nil {
@@ -110,9 +113,7 @@ func (s *Swarm[T]) Ask(ctx context.Context, resp []byte, dst Addr[T], data p2p.I
 	if p2p.VecSize(data) > s.mtu {
 		return 0, p2p.ErrMTUExceeded
 	}
-	log := s.log.WithFields(logrus.Fields{
-		"remote_addr": dst,
-	})
+	log := logctx.FromContext(ctx)
 	var n int
 	if err := s.withSession(ctx, dst, func(sess quic.Connection) error {
 		// stream
@@ -122,7 +123,7 @@ func (s *Swarm[T]) Ask(ctx context.Context, resp []byte, dst Addr[T], data p2p.I
 		}
 		defer stream.Close()
 
-		log.Debugf("opened bidi-stream %d", stream.StreamID())
+		log.Debug("opened bidi-stream", slog.Any("stream-id", stream.StreamID()))
 		// deadlines
 		if deadline, yes := ctx.Deadline(); yes {
 			if err := stream.SetWriteDeadline(deadline); err != nil {
@@ -229,9 +230,7 @@ func (s *Swarm[T]) withSession(ctx context.Context, dst Addr[T], fn func(sess qu
 		return errors.Errorf("wrong peer HAVE: %v WANT: %v", peerAddr.ID, dst.ID)
 	}
 	s.putSession(peerAddr, sess, true)
-	s.log.WithFields(logrus.Fields{
-		"remote_addr": peerAddr,
-	}).Debug("session established via dial")
+	s.log.With(slog.Any("remote_addr", peerAddr)).Debug("session established via dial")
 	go s.handleSession(context.Background(), sess, peerAddr, true)
 	return fn(sess)
 }
@@ -241,22 +240,20 @@ func (s *Swarm[T]) serve(ctx context.Context) {
 		sess, err := s.l.Accept(ctx)
 		if err != nil {
 			if err != context.Canceled {
-				s.log.Error(err)
+				logctx.Errorln(ctx, err)
 			}
 			return
 		}
 		addr, err := s.remoteAddrFromSession(sess)
 		if err != nil {
-			s.log.Warn(err)
+			logctx.Warnln(ctx, err)
 			continue
 		}
 		if !s.allowFunc(addr) {
 			continue
 		}
 		s.putSession(addr, sess, false)
-		s.log.WithFields(logrus.Fields{
-			"remote_addr": addr,
-		}).Debug("session established via listen")
+		s.log.With(slog.Any("remote_addr", addr)).Debug("session established via listen")
 		go s.handleSession(ctx, sess, addr, false)
 	}
 }
@@ -276,14 +273,14 @@ func (s *Swarm[T]) handleSession(ctx context.Context, sess quic.Connection, src 
 	})
 	if err := eg.Wait(); quicErr(err) != nil && err != context.Canceled {
 		if err := sess.CloseWithError(1, err.Error()); err != nil {
-			s.log.Error(err)
+			logctx.Errorln(ctx, err)
 		}
 	}
 	sess.CloseWithError(0, "")
 }
 
 func (s *Swarm[T]) handleAsks(ctx context.Context, sess quic.Connection, srcAddr Addr[T]) error {
-	log := s.log.WithFields(logrus.Fields{"remote_addr": srcAddr})
+	log := s.log.With(slog.Any("remote_addr", srcAddr))
 	for {
 		stream, err := sess.AcceptStream(ctx)
 		if err != nil {
@@ -292,20 +289,20 @@ func (s *Swarm[T]) handleAsks(ctx context.Context, sess quic.Connection, srcAddr
 		log.Debug("accepted bidi-stream ", stream.StreamID())
 		go func() {
 			if err := s.handleAsk(ctx, stream, srcAddr, s.makeLocalAddr(sess.LocalAddr())); err != nil {
-				log.Errorf("error handling ask: %v", err)
+				log.Error("error handling ask", err)
 			}
 		}()
 	}
 }
 
 func (s *Swarm[T]) handleAsk(ctx context.Context, stream quic.Stream, srcAddr, dstAddr Addr[T]) error {
-	log := s.log.WithFields(logrus.Fields{"remote_addr": srcAddr})
+	log := s.log.With(slog.Any("remote_addr", srcAddr))
 	reqData := make([]byte, s.mtu)
 	n, err := readFrame(stream, reqData, s.mtu)
 	if err != nil {
 		return err
 	}
-	log.Debugf("received ask request len=%d", n)
+	log.Debug("received ask request", slog.Int("len", n))
 	m := p2p.Message[Addr[T]]{
 		Dst:     dstAddr,
 		Src:     srcAddr,
@@ -335,7 +332,7 @@ func (s *Swarm[T]) handleTells(ctx context.Context, sess quic.Connection, srcAdd
 			lr := io.LimitReader(stream, int64(s.mtu))
 			data, err := io.ReadAll(lr)
 			if err != nil {
-				s.log.Error(err)
+				logctx.Errorln(ctx, err)
 				return
 			}
 			m := p2p.Message[Addr[T]]{
@@ -344,7 +341,7 @@ func (s *Swarm[T]) handleTells(ctx context.Context, sess quic.Connection, srcAdd
 				Payload: data,
 			}
 			if err := s.tells.Deliver(ctx, m); err != nil {
-				s.log.Errorf("during tell delivery: %v", err)
+				logctx.Errorf(ctx, "during tell delivery: %v", err)
 			}
 		}()
 	}

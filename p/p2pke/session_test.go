@@ -1,12 +1,13 @@
 package p2pke
 
 import (
+	"os"
 	"testing"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p/p2ptest"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/slog"
 )
 
 func TestHandshake(t *testing.T) {
@@ -92,9 +93,7 @@ func newTestPair(t *testing.T) (s1, s2 *Session) {
 	return s1, s2
 }
 
-func newTestLogger(t testing.TB) logrus.FieldLogger {
-	log := logrus.New()
-	log.SetFormatter(&logrus.TextFormatter{ForceColors: true})
-	log.SetLevel(logrus.TraceLevel)
+func newTestLogger(t testing.TB) slog.Logger {
+	log := slog.New(slog.NewTextHandler(os.Stderr))
 	return log
 }

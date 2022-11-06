@@ -1,15 +1,15 @@
 package mbapp
 
-import "github.com/sirupsen/logrus"
+import "golang.org/x/exp/slog"
 
 type swarmConfig struct {
-	log        *logrus.Logger
+	log        slog.Logger
 	numWorkers int
 }
 
 type Option = func(c *swarmConfig)
 
-func WithLogger(log *logrus.Logger) Option {
+func WithLogger(log slog.Logger) Option {
 	return func(c *swarmConfig) {
 		c.log = log
 	}

@@ -3,9 +3,10 @@ package wlswarm
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 )
 
 type AllowFunc[A p2p.Addr] func(addr A) bool
@@ -13,12 +14,13 @@ type AllowFunc[A p2p.Addr] func(addr A) bool
 type swarm[A p2p.Addr] struct {
 	p2p.SecureSwarm[A]
 	af  AllowFunc[A]
-	log *logrus.Logger
+	log slog.Logger
 }
 
 func WrapSecureAsk[A p2p.Addr](x p2p.SecureAskSwarm[A], af AllowFunc[A]) p2p.SecureAskSwarm[A] {
-	swarm := &swarm[A]{x, af, logrus.StandardLogger()}
-	asker := &asker[A]{x, af, logrus.StandardLogger()}
+	log := slog.New(slog.NewTextHandler(io.Discard))
+	swarm := &swarm[A]{x, af, log}
+	asker := &asker[A]{x, af, log}
 	return p2p.ComposeSecureAskSwarm[A](swarm, asker, swarm)
 }
 
@@ -53,7 +55,7 @@ func (s *swarm[A]) Receive(ctx context.Context, fn func(p2p.Message[A])) error {
 type asker[A p2p.Addr] struct {
 	p2p.SecureAskSwarm[A]
 	af  AllowFunc[A]
-	log *logrus.Logger
+	log slog.Logger
 }
 
 func (s *asker[A]) Ask(ctx context.Context, resp []byte, dst A, data p2p.IOVec) (int, error) {
@@ -81,7 +83,7 @@ func (s *asker[A]) ServeAsk(ctx context.Context, fn func(context.Context, []byte
 }
 
 // checkAddr is called inside TellHandler
-func checkAddr[A p2p.Addr](sec p2p.Secure[A], log *logrus.Logger, af AllowFunc[A], addr A, isSend bool) bool {
+func checkAddr[A p2p.Addr](sec p2p.Secure[A], log slog.Logger, af AllowFunc[A], addr A, isSend bool) bool {
 	if !af(addr) {
 		if isSend {
 			logAttemptSend(log, addr)
@@ -93,16 +95,12 @@ func checkAddr[A p2p.Addr](sec p2p.Secure[A], log *logrus.Logger, af AllowFunc[A
 	return true
 }
 
-func logAttemptSend(log *logrus.Logger, addr p2p.Addr) {
+func logAttemptSend(log slog.Logger, addr p2p.Addr) {
 	data, _ := addr.MarshalText()
-	log.WithFields(logrus.Fields{
-		"addr": string(data),
-	}).Warn("tried to send message to peer not in whitelist")
+	log.With(slog.String("addr", string(data))).Warn("tried to send message to peer not in whitelist")
 }
 
-func logReceive(log *logrus.Logger, addr p2p.Addr) {
-	data, _ := addr.MarshalText()
-	log.WithFields(logrus.Fields{
-		"addr": string(data),
-	}).Warn("recieved message from peer not in whitelist")
+func logReceive(log slog.Logger, addr p2p.Addr) {
+	addrData, _ := addr.MarshalText()
+	log.With(slog.String("addr", string(addrData))).Warn("recieved message from peer not in whitelist")
 }

@@ -3,12 +3,14 @@ package p2pmux
 import (
 	"context"
 	"encoding/binary"
+	"io"
 	"sync"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 )
 
 type Mux[A p2p.Addr, C any] interface {
@@ -36,19 +38,19 @@ type muxCore[A p2p.Addr, C any] struct {
 	secure    p2p.Secure[A]
 	muxFunc   muxFunc[C]
 	demuxFunc demuxFunc[C]
-	log       *logrus.Logger
 
 	cf     context.CancelFunc
 	swarms sync.Map
 }
 
 func newMuxCore[A p2p.Addr, C any](swarm p2p.Swarm[A], mf muxFunc[C], dmf demuxFunc[C]) *muxCore[A, C] {
-	ctx, cf := context.WithCancel(context.Background())
+	ctx := context.Background()
+	ctx = logctx.NewContext(ctx, slog.New(slog.NewTextHandler(io.Discard)))
+	ctx, cf := context.WithCancel(ctx)
 	mc := &muxCore[A, C]{
 		swarm:     swarm,
 		muxFunc:   mf,
 		demuxFunc: dmf,
-		log:       logrus.StandardLogger(),
 		cf:        cf,
 	}
 	if asker, ok := swarm.(p2p.Asker[A]); ok {
@@ -59,13 +61,13 @@ func newMuxCore[A p2p.Addr, C any](swarm p2p.Swarm[A], mf muxFunc[C], dmf demuxF
 	}
 	go func() {
 		if err := mc.recvLoop(ctx); err != nil && !p2p.IsErrClosed(err) {
-			mc.log.Error(err)
+			logctx.Errorln(ctx, err)
 		}
 	}()
 	if mc.asker != nil {
 		go func() {
 			if err := mc.serveLoop(ctx); err != nil && !p2p.IsErrClosed(err) {
-				mc.log.Error(err)
+				logctx.Errorln(ctx, err)
 			}
 		}()
 	}
@@ -76,7 +78,7 @@ func (mc *muxCore[A, C]) recvLoop(ctx context.Context) error {
 	for {
 		if err := mc.swarm.Receive(ctx, func(m p2p.Message[A]) {
 			if err := mc.handleRecv(ctx, m); err != nil {
-				mc.log.Warn(err)
+				logctx.Warnln(ctx, err)
 			}
 		}); err != nil {
 			return err
@@ -120,7 +122,7 @@ func (mc *muxCore[A, C]) serveLoop(ctx context.Context) error {
 				})
 				return err
 			}(); err != nil {
-				mc.log.Warn(err)
+				logctx.Warnln(ctx, err)
 				return -1
 			}
 			return respN

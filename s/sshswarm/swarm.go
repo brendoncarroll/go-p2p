@@ -2,6 +2,7 @@ package sshswarm
 
 import (
 	"context"
+	"io"
 	"log"
 	"net"
 	"net/netip"
@@ -11,12 +12,15 @@ import (
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"github.com/brendoncarroll/stdctx/logctx"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/exp/slog"
 )
 
 const MTU = 1 << 17
 
 type Swarm struct {
+	ctx    context.Context
 	pubKey p2p.PublicKey
 	signer ssh.Signer
 	l      net.Listener
@@ -37,7 +41,10 @@ func New(laddr string, privateKey p2p.PrivateKey, opts ...Option) (*Swarm, error
 	if err != nil {
 		return nil, err
 	}
+	ctx := context.Background()
+	ctx = logctx.NewContext(ctx, slog.New(slog.NewTextHandler(io.Discard)))
 	s := &Swarm{
+		ctx:    ctx,
 		pubKey: privateKey.Public(),
 		signer: signer,
 		l:      l,
@@ -48,7 +55,7 @@ func New(laddr string, privateKey p2p.PrivateKey, opts ...Option) (*Swarm, error
 		conns: map[string]*Conn{},
 	}
 
-	go s.serveLoop()
+	go s.serveLoop(ctx)
 
 	return s, nil
 }
@@ -167,12 +174,12 @@ func (s *Swarm) getConn(ctx context.Context, addr Addr) (*Conn, error) {
 		return c2, nil
 	}
 	s.conns[remoteAddr.Key()] = c
-	go c.loop()
+	go c.loop(s.ctx)
 
 	return c, nil
 }
 
-func (s *Swarm) serveLoop() {
+func (s *Swarm) serveLoop(ctx context.Context) {
 	for {
 		conn, err := s.l.Accept()
 		if err != nil {
@@ -188,7 +195,7 @@ func (s *Swarm) serveLoop() {
 				return
 			}
 			s.addConn(c)
-			go c.loop()
+			go c.loop(ctx)
 		}()
 	}
 }
