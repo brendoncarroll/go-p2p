@@ -68,7 +68,9 @@ func (s *Store[K, V]) ForEach(fn func(k K, v *Promise[V]) bool) bool {
 	keys := maps.Keys(s.m)
 	s.mu.RUnlock()
 	for _, k := range keys {
+		s.mu.RLock()
 		v, exists := s.m[k]
+		s.mu.RUnlock()
 		if exists {
 			if !fn(k, v) {
 				return false
