@@ -1,6 +1,10 @@
 package futures
 
-import "sync"
+import (
+	"sync"
+
+	"golang.org/x/exp/maps"
+)
 
 type Store[K comparable, V any] struct {
 	mu sync.RWMutex
@@ -57,4 +61,19 @@ func (s *Store[K, V]) Delete(k K, p *Promise[V]) {
 	if p == nil || p == p2 {
 		delete(s.m, k)
 	}
+}
+
+func (s *Store[K, V]) ForEach(fn func(k K, v *Promise[V]) bool) bool {
+	s.mu.RLock()
+	keys := maps.Keys(s.m)
+	s.mu.RUnlock()
+	for _, k := range keys {
+		v, exists := s.m[k]
+		if exists {
+			if !fn(k, v) {
+				return false
+			}
+		}
+	}
+	return true
 }
