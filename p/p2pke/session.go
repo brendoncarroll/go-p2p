@@ -9,15 +9,15 @@ import (
 	"github.com/brendoncarroll/go-tai64"
 	"github.com/flynn/noise"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/blake2b"
+	"golang.org/x/exp/slog"
 	"golang.zx2c4.com/wireguard/replay"
 )
 
 type Session struct {
 	privateKey p2p.PrivateKey
 	isInit     bool
-	log        logrus.FieldLogger
+	log        slog.Logger
 	expiresAt  time.Time
 
 	// handshake
@@ -39,7 +39,7 @@ type SessionConfig struct {
 	PrivateKey  p2p.PrivateKey
 	Now         time.Time
 	RejectAfter time.Duration
-	Logger      logrus.FieldLogger
+	Logger      slog.Logger
 }
 
 func NewSession(params SessionConfig) *Session {
@@ -77,9 +77,11 @@ func (s *Session) Handshake(out []byte) []byte {
 // If there is not data, then a nil slice, and nil error will be returned.
 //
 // isApp, out, err := s.Deliver(out, incoming, now)
-// if err != nil {
-// 		// handle err
-// }
+//
+//	if err != nil {
+//			// handle err
+//	}
+//
 // if !isApp && len(out) > 0 {
 //
 // } else if isApp {

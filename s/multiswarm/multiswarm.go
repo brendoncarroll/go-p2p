@@ -2,11 +2,13 @@ package multiswarm
 
 import (
 	"context"
+	"io"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -70,13 +72,14 @@ func NewSecureAsk(m map[string]DynSecureAskSwarm) p2p.SecureAskSwarm[Addr] {
 	go ms.recvLoops(ctx)
 	go func() {
 		if err := ma.serveLoops(ctx); err != nil && err != p2p.ErrClosed {
-			logrus.Error(err)
+			logctx.Errorln(ctx, err)
 		}
 	}()
 	return p2p.ComposeSecureAskSwarm[Addr](ms, ma, msec)
 }
 
 type multiSwarm struct {
+	log        slog.Logger
 	addrSchema AddrSchema
 	swarms     map[string]DynSwarm
 	tells      *swarmutil.TellHub[Addr]
@@ -84,6 +87,7 @@ type multiSwarm struct {
 
 func newMultiSwarm(m map[string]DynSwarm) multiSwarm {
 	s := multiSwarm{
+		log:        slog.New(slog.NewTextHandler(io.Discard)),
 		addrSchema: NewSchemaFromSwarms(m),
 		swarms:     m,
 		tells:      swarmutil.NewTellHub[Addr](),
@@ -166,7 +170,7 @@ func (mt multiSwarm) Close() error {
 	for _, t := range mt.swarms {
 		if err2 := t.Close(); err2 != nil {
 			err = err2
-			logrus.Error(err2)
+			mt.log.Error("closing swarms", err)
 		}
 	}
 	mt.tells.CloseWithError(p2p.ErrClosed)
@@ -219,7 +223,7 @@ func (ma multiAsker) serveLoops(ctx context.Context) error {
 					}
 					n, err := ma.asks.Deliver(ctx, reqData, msg2)
 					if err != nil {
-						logrus.Error("multiswarm: while handling ask", err)
+						logctx.Errorln(ctx, "multiswarm: while handling ask", err)
 						return -1
 					}
 					return n

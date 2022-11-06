@@ -13,14 +13,14 @@ import (
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/jonboulle/clockwork"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 )
 
 type Message = p2p.Message[Addr]
 
 type Realm struct {
 	clock         clockwork.Clock
-	log           *logrus.Logger
+	log           slog.Logger
 	trafficLog    io.Writer
 	tellTransform func(Message) *Message
 	mtu           int
@@ -34,7 +34,7 @@ type Realm struct {
 func NewRealm(opts ...Option) *Realm {
 	r := &Realm{
 		clock:         clockwork.NewRealClock(),
-		log:           logrus.StandardLogger(),
+		log:           slog.New(slog.NewTextHandler(io.Discard)),
 		trafficLog:    ioutil.Discard,
 		tellTransform: func(x Message) *Message { return &x },
 		mtu:           1 << 20,
@@ -132,7 +132,7 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, addr Addr, data p2p.IOVec)
 	return n, nil
 }
 
-func (s *Swarm) Tell(ctx context.Context, addr Addr, data p2p.IOVec) error {
+func (s *Swarm) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
 	if err := s.checkClosed(); err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func (s *Swarm) Tell(ctx context.Context, addr Addr, data p2p.IOVec) error {
 	}
 	msg := &p2p.Message[Addr]{
 		Src:     s.LocalAddrs()[0],
-		Dst:     addr,
+		Dst:     dst,
 		Payload: p2p.VecBytes(nil, data),
 	}
 	msg = s.r.tellTransform(*msg)
@@ -149,14 +149,14 @@ func (s *Swarm) Tell(ctx context.Context, addr Addr, data p2p.IOVec) error {
 		return nil
 	}
 	s.r.logTraffic(false, msg)
-	s2 := s.r.getSwarm(addr.N)
+	s2 := s.r.getSwarm(dst.N)
 	if s2 == nil {
-		s.r.log.Debugf("swarm %v does not exist in same memswarm.Realm", addr.N)
+		s.r.log.Debug("swarm does not exist in same memswarm.Realm", slog.Any("dst", dst.N))
 		return nil
 	}
 	select {
 	case <-ctx.Done():
-		s.r.log.Debugf("memswarm: timeout delivering tell %v -> %v", s.n, addr.N)
+		s.r.log.Debug("memswarm: timeout delivering tell", slog.Any("src", s.n), slog.Any("dst", dst.N))
 		return nil
 	case s2.tells <- *msg:
 		return nil

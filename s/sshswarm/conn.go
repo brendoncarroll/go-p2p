@@ -7,6 +7,7 @@ import (
 	"net/netip"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 )
@@ -106,7 +107,7 @@ func newClient(s *Swarm, remoteAddr Addr, netConn net.Conn) (*Conn, error) {
 	return c, nil
 }
 
-func (c *Conn) loop() {
+func (c *Conn) loop(ctx context.Context) {
 	resp := make([]byte, MTU)
 	for {
 		select {
@@ -130,11 +131,11 @@ func (c *Conn) loop() {
 					n = 0
 				}
 				if err := req.Reply(ok, resp[:n]); err != nil {
-					log.Println(err)
+					logctx.Errorln(ctx, err)
 				}
 			} else {
 				if err := c.swarm.tellHub.Deliver(ctx, msg); err != nil {
-					log.Println(err)
+					logctx.Errorln(ctx, err)
 				}
 			}
 		case ncr, ok := <-c.newChanReqs:
@@ -142,7 +143,7 @@ func (c *Conn) loop() {
 				return
 			}
 			if err := ncr.Reject(ssh.Prohibited, "don't do that"); err != nil {
-				log.Println(err)
+				logctx.Errorln(ctx, err)
 			}
 		case <-c.shutdown:
 			return

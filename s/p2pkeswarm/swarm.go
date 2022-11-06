@@ -8,7 +8,7 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/p/p2pke"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
-	"github.com/sirupsen/logrus"
+	"github.com/brendoncarroll/stdctx/logctx"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/sync/errgroup"
 )
@@ -23,21 +23,19 @@ type Swarm[T p2p.Addr] struct {
 	localID p2p.PeerID
 	hub     *swarmutil.TellHub[Addr[T]]
 	store   *store[string, *channelState]
+	ctx     context.Context
 	cf      context.CancelFunc
 	eg      errgroup.Group
 }
 
 func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Option[T]) *Swarm[T] {
-	config := swarmConfig[T]{
-		log:           logrus.StandardLogger(),
-		fingerprinter: p2p.DefaultFingerprinter,
-		tellTimeout:   3 * time.Second,
-		whitelist:     func(Addr[T]) bool { return true },
-	}
+	config := newDefaultConfig[T]()
 	for _, opt := range opts {
 		opt(&config)
 	}
-	ctx, cf := context.WithCancel(context.Background())
+	ctx := context.Background()
+	ctx = logctx.NewContext(ctx, config.log)
+	ctx, cf := context.WithCancel(ctx)
 	s := &Swarm[T]{
 		inner:       inner,
 		privateKey:  privateKey,
@@ -45,6 +43,7 @@ func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Opti
 
 		hub:   swarmutil.NewTellHub[Addr[T]](),
 		store: newStore[string, *channelState](),
+		ctx:   ctx,
 		cf:    cf,
 	}
 	s.localID = s.fingerprinter(privateKey.Public())
@@ -155,7 +154,7 @@ func (s *Swarm[T]) recvLoop(ctx context.Context) error {
 	for {
 		if err := s.inner.Receive(ctx, func(msg p2p.Message[T]) {
 			if err := s.handleMessage(ctx, msg); err != nil {
-				s.log.Warnf("p2pkeswarm: handling message from %v: %v", msg.Src, err)
+				logctx.Warnf(ctx, "p2pkeswarm: handling message from %v: %v", msg.Src, err)
 			}
 		}); err != nil {
 			return err
@@ -194,10 +193,10 @@ func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error 
 
 func (s *Swarm[T]) getSender(dst T) p2pke.SendFunc {
 	return func(x []byte) {
-		ctx, cf := context.WithTimeout(context.Background(), s.tellTimeout)
+		ctx, cf := context.WithTimeout(s.ctx, s.tellTimeout)
 		defer cf()
 		if err := s.inner.Tell(ctx, dst, p2p.IOVec{x}); err != nil {
-			s.log.Debug("p2pkeswarm: during tell ", err)
+			logctx.Debugln(ctx, "p2pkeswarm: during tell ", err)
 		}
 	}
 }

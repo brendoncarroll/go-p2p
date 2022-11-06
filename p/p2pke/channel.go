@@ -10,8 +10,8 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-tai64"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/blake2b"
+	"golang.org/x/exp/slog"
 )
 
 // SendFunc is the type of functions called to send messages by the channel.
@@ -28,7 +28,7 @@ type ChannelConfig struct {
 	// *REQUIRED*.
 	AcceptKey func(p2p.PublicKey) bool
 	// Logger is used for logging, nil disables logs.
-	Logger logrus.FieldLogger
+	Logger slog.Logger
 
 	// KeepAliveTimeout is the amount of time to consider a session alive wihtout receiving a message
 	// through it.
@@ -44,7 +44,7 @@ type ChannelConfig struct {
 
 type Channel struct {
 	params ChannelConfig
-	log    logrus.FieldLogger
+	log    slog.Logger
 
 	mu sync.RWMutex
 	// sessions holds the 3 sessions: previous, current, next
@@ -74,11 +74,8 @@ func NewChannel(params ChannelConfig) *Channel {
 	if params.AcceptKey == nil {
 		panic("AcceptKey must be set")
 	}
-	if params.Logger == nil {
-		nullLogger := &logrus.Logger{
-			Level: logrus.FatalLevel,
-			Out:   io.Discard,
-		}
+	if params.Logger == (slog.Logger{}) {
+		nullLogger := slog.New(slog.NewTextHandler(io.Discard))
 		params.Logger = nullLogger
 	}
 	if params.KeepAliveTimeout == 0 {
@@ -125,13 +122,16 @@ func (c *Channel) Send(ctx context.Context, x p2p.IOVec) error {
 //
 // e.g.
 // out, err := c.Deliver(nil, input)
-// if err != nil {
-//   // handle the error
-// } else if out != nil {
-//   // deliver application data
-// } else {
-//   // nothing to do
-// }
+//
+//	if err != nil {
+//	  // handle the error
+//	} else if out != nil {
+//
+//	  // deliver application data
+//	} else {
+//
+//	  // nothing to do
+//	}
 func (c *Channel) Deliver(out, x []byte) ([]byte, error) {
 	now := time.Now()
 	var appData []byte
@@ -144,7 +144,6 @@ func (c *Channel) Deliver(out, x []byte) ([]byte, error) {
 			readyBefore := s.IsReady()
 			isApp, out, err := s.Deliver(out, x, now)
 			if err != nil {
-				c.log.Debug(err, " continuing...")
 				continue
 			}
 			if isApp {
@@ -296,13 +295,13 @@ func (c *Channel) newResp(m0 []byte, minTime tai64.TAI64N) (*Session, error) {
 // replacing an existing prospective session.
 func (c *Channel) proposeNewSession(sid [32]byte, newS *Session) (ret *Session) {
 	if s := c.sessions[2].Session; s != nil && bytes.Compare(c.sessions[2].ID[:], sid[:]) < 0 {
-		c.log.Debugf("not replacing prospective session old=%v new=%v", s, newS)
+		c.log.Debug("not replacing prospective session")
 		return s
 	} else if s != nil {
-		c.log.Debugf("replacing prospective session old=%v new=%v", s, newS)
+		c.log.Debug("replacing prospective session", slog.Any("old", s), slog.Any("new", newS))
 		ret = newS
 	} else {
-		c.log.Debugf("creating new session %v", newS)
+		c.log.Debug("creating new session", slog.Any("new", newS))
 		ret = newS
 	}
 	c.setNext(sessionEntry{

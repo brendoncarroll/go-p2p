@@ -3,12 +3,12 @@ package memswarm
 import (
 	"io"
 
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 )
 
 type Option func(r *Realm)
 
-func WithLogger(l *logrus.Logger) Option {
+func WithLogger(l slog.Logger) Option {
 	return func(r *Realm) {
 		r.log = l
 	}

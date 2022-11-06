@@ -5,18 +5,27 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/multiswarm"
 	"github.com/brendoncarroll/go-p2p/s/sshswarm"
-	"github.com/sirupsen/logrus"
+	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/spf13/cobra"
+	"golang.org/x/exp/slog"
 )
+
+var ctx = func() context.Context {
+	ctx := context.Background()
+	ctx = logctx.NewContext(ctx, slog.New(slog.NewTextHandler(os.Stderr)))
+	return ctx
+}()
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		logrus.Fatal(err)
+		log.Fatal(err)
 	}
 }
 
@@ -55,7 +64,7 @@ var testConnectCmd = &cobra.Command{
 				if err := s3.Tell(ctx, src, p2p.IOVec{msg.Payload}); err != nil {
 					return err
 				}
-				logrus.Printf("MSG: %v -> %v : %q", src, dst, msg.Payload)
+				logctx.Infof(ctx, "MSG: %v -> %v : %q", src, dst, msg.Payload)
 			}
 		}()
 

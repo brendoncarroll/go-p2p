@@ -1,23 +1,33 @@
 package p2pkeswarm
 
 import (
+	"io"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 )
 
 type Option[T p2p.Addr] func(*swarmConfig[T])
 
 type swarmConfig[T p2p.Addr] struct {
-	log           logrus.FieldLogger
+	log           slog.Logger
 	fingerprinter p2p.Fingerprinter
 	tellTimeout   time.Duration
 	whitelist     func(Addr[T]) bool
 }
 
+func newDefaultConfig[T p2p.Addr]() swarmConfig[T] {
+	return swarmConfig[T]{
+		log:           slog.New(slog.NewTextHandler(io.Discard)),
+		fingerprinter: p2p.DefaultFingerprinter,
+		tellTimeout:   3 * time.Second,
+		whitelist:     func(Addr[T]) bool { return true },
+	}
+}
+
 // WithLogger sets the logger used by the swarm
-func WithLogger[T p2p.Addr](log logrus.FieldLogger) Option[T] {
+func WithLogger[T p2p.Addr](log slog.Logger) Option[T] {
 	return func(c *swarmConfig[T]) {
 		c.log = log
 	}
