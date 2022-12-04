@@ -1,7 +1,7 @@
 package multipartybox
 
 import (
-	"github.com/brendoncarroll/go-p2p/crypto/aead"
+	"github.com/brendoncarroll/go-p2p/crypto/aead/aead_chacha20poly1305"
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
 	"github.com/brendoncarroll/go-p2p/crypto/kem/kem_sntrup"
 	"github.com/brendoncarroll/go-p2p/crypto/kem/kem_x25519"
@@ -27,6 +27,6 @@ func NewV1() SchemeV1 {
 			B: kem_sntrup.New4591761(),
 		},
 		Sign: sig_ed25519.New(),
-		AEAD: aead.ChaChaSUV{},
+		AEAD: aead_chacha20poly1305.SUV{},
 	}
 }

@@ -25,3 +25,12 @@ func TestSchemeK32N24(t *testing.T, s SchemeK32N24) {
 	require.NoError(t, err)
 	require.Equal(t, in, string(pt))
 }
+
+func TestSchemeSUV32(t *testing.T, s SchemeSUV32) {
+	var suv [32]byte
+	in := "hello world"
+	ct := s.Seal(nil, &suv, []byte(in), []byte{1, 2, 3})
+	pt, err := s.Open(nil, &suv, ct, []byte{1, 2, 3})
+	require.NoError(t, err)
+	require.Equal(t, in, string(pt))
+}

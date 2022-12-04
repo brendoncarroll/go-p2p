@@ -1,17 +1,17 @@
 package kem_x25519
 
 import (
-	"github.com/brendoncarroll/go-p2p/crypto/dhke"
+	"github.com/brendoncarroll/go-p2p/crypto/dhke/dhke_x25519"
 	"github.com/brendoncarroll/go-p2p/crypto/dhkem"
 )
 
 type (
-	PrivateKey = dhke.X25519Private
-	PublicKey  = dhke.X25519Public
+	PrivateKey = dhke_x25519.PrivateKey
+	PublicKey  = dhke_x25519.PublicKey
 )
 
 func New() dhkem.Scheme[PrivateKey, PublicKey] {
 	return dhkem.Scheme[PrivateKey, PublicKey]{
-		DH: dhke.X25519{},
+		DH: dhke_x25519.Scheme{},
 	}
 }
