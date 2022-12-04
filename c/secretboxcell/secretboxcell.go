@@ -1,4 +1,5 @@
-package cryptocell
+// secretboxcell implements a cell which encrypts the contents using NaCl's secret box
+package secretboxcell
 
 import (
 	"github.com/brendoncarroll/go-state/cells"
@@ -7,6 +8,6 @@ import (
 
 type Cell cells.Cell
 
-func NewSecretBox(inner Cell, secret []byte) Cell {
+func New(inner Cell, secret []byte) Cell {
 	return cryptocell.NewSecretBox(inner, secret)
 }
