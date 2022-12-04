@@ -1,6 +1,7 @@
 package signedcell
 
 import (
+	"context"
 	"crypto/rand"
 	"testing"
 
@@ -10,6 +11,8 @@ import (
 
 	"github.com/brendoncarroll/go-p2p/crypto/sign/sig_ed25519"
 )
+
+var ctx = context.Background()
 
 const defaultSize = 1 << 16
 
@@ -36,4 +39,19 @@ func TestSigWrapUnwrap(t *testing.T) {
 
 	_, err := s.unwrap(buf, buf[:n])
 	require.NoError(t, err)
+}
+
+func TestWriteRead(t *testing.T) {
+	c := newTestCell(t)
+	buf := make([]byte, c.MaxSize())
+
+	testInput := "test input string 1"
+	swapped, _, err := c.CAS(ctx, buf, nil, []byte(testInput))
+	require.NoError(t, err)
+	require.True(t, swapped)
+
+	buf2 := make([]byte, c.MaxSize())
+	n, err := c.Read(ctx, buf2)
+	require.NoError(t, err)
+	require.Equal(t, testInput, string(buf2[:n]))
 }
