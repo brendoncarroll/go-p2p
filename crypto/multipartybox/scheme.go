@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"io"
 
+	"golang.org/x/crypto/sha3"
+
 	"github.com/brendoncarroll/go-p2p/crypto/aead"
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
 	"github.com/brendoncarroll/go-p2p/crypto/sign"
-	"golang.org/x/crypto/sha3"
 )
 
 type PrivateKey[KEMPriv, SigPriv any] struct {
@@ -23,9 +24,9 @@ type PublicKey[KEMPub, SigPub any] struct {
 }
 
 type Scheme[KEMPriv, KEMPub, SigPriv, SigPub any] struct {
-	KEM  kem.Scheme[KEMPriv, KEMPub]
+	KEM  kem.Scheme256[KEMPriv, KEMPub]
 	Sign sign.Scheme[SigPriv, SigPub]
-	AEAD aead.SchemeSUV32
+	AEAD aead.SchemeSUV256
 }
 
 func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) Generate(rng io.Reader) (retPub PublicKey[KEMPub, SigPub], retPriv PrivateKey[KEMPriv, SigPriv], _ error) {
@@ -49,10 +50,9 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) DerivePublic(priv PrivateKey[
 	}
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) MarshalPublic(pub PublicKey[KEMPub, SigPub]) []byte {
-	data := s.KEM.MarshalPublic(pub.KEM)
-	data = append(data, s.Sign.MarshalPublic(pub.Sign)...)
-	return data
+func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) MarshalPublic(dst []byte, pub *PublicKey[KEMPub, SigPub]) {
+	s.KEM.MarshalPublic(dst[:s.KEM.PublicKeySize()], &pub.KEM)
+	s.Sign.MarshalPublic(dst[s.KEM.PublicKeySize():], &pub.Sign)
 }
 
 func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) ParsePublic(x []byte) (ret PublicKey[KEMPub, SigPub], _ error) {

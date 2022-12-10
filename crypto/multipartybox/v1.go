@@ -22,7 +22,7 @@ type (
 // NewV1 returns the version 1 Multiparty Box encryption scheme
 func NewV1() SchemeV1 {
 	return SchemeV1{
-		KEM: kem.Dual[kem_x25519.PrivateKey, kem_x25519.PublicKey, kem_sntrup.PrivateKey4591761, kem_sntrup.PublicKey4591761]{
+		KEM: kem.Dual256[kem_x25519.PrivateKey, kem_x25519.PublicKey, kem_sntrup.PrivateKey4591761, kem_sntrup.PublicKey4591761]{
 			A: kem_x25519.New(),
 			B: kem_sntrup.New4591761(),
 		},

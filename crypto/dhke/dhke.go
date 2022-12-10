@@ -10,7 +10,7 @@ type Scheme[Private, Public any] interface {
 	DerivePublic(*Private) Public
 	ComputeShared(shared []byte, priv *Private, pub *Public) error
 
-	MarshalPublic(Public) []byte
+	MarshalPublic(dst []byte, pub *Public)
 	ParsePublic([]byte) (Public, error)
 
 	SharedSize() int

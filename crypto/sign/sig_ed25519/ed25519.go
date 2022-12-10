@@ -49,8 +49,11 @@ func (s Ed25519) Verify(pub *PublicKey, msg, sig []byte) bool {
 	return ed25519.Verify(pub[:], msg, sig)
 }
 
-func (s Ed25519) MarshalPublic(pub PublicKey) []byte {
-	return pub[:]
+func (s Ed25519) MarshalPublic(dst []byte, pub *PublicKey) {
+	if len(dst) < s.PublicKeySize() {
+		panic(fmt.Sprintf("len(dst) < %d", s.PublicKeySize()))
+	}
+	copy(dst[:], pub[:])
 }
 
 func (s Ed25519) ParsePublic(x []byte) (PublicKey, error) {

@@ -10,9 +10,14 @@ import (
 	"github.com/brendoncarroll/go-p2p/crypto/dhke"
 )
 
-type PrivateKey = [curve25519.ScalarSize]byte
+const (
+	PrivateKeySize = curve25519.ScalarSize
+	PublicKeySize  = curve25519.PointSize
+)
 
-type PublicKey = [curve25519.PointSize]byte
+type PrivateKey = [PrivateKeySize]byte
+
+type PublicKey = [PublicKeySize]byte
 
 var _ dhke.Scheme[PrivateKey, PublicKey] = Scheme{}
 
@@ -27,7 +32,7 @@ func (s Scheme) Generate(rng io.Reader) (PublicKey, PrivateKey, error) {
 	return *(*[32]byte)(pub), priv, err
 }
 
-func (s Scheme) DerivePublic(priv *[curve25519.ScalarSize]byte) [curve25519.PointSize]byte {
+func (s Scheme) DerivePublic(priv *PrivateKey) PublicKey {
 	pub, err := curve25519.X25519(priv[:], curve25519.Basepoint)
 	if err != nil {
 		panic(err)
@@ -47,11 +52,14 @@ func (s Scheme) ComputeShared(dst []byte, priv *PrivateKey, pub *PublicKey) erro
 	return nil
 }
 
-func (s Scheme) MarshalPublic(x [curve25519.PointSize]byte) []byte {
-	return x[:]
+func (s Scheme) MarshalPublic(dst []byte, x *PublicKey) {
+	if len(dst) < s.PublicKeySize() {
+		panic(fmt.Sprintf("len(dst) < %d", s.PublicKeySize()))
+	}
+	copy(dst, x[:])
 }
 
-func (s Scheme) ParsePublic(x []byte) ([curve25519.PointSize]byte, error) {
+func (s Scheme) ParsePublic(x []byte) (PublicKey, error) {
 	if len(x) != 32 {
 		return PublicKey{}, errors.New("wrong length for public key")
 	}

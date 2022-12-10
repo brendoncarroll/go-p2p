@@ -1,6 +1,7 @@
 package sign
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -37,25 +38,27 @@ func (s Dual[APriv, APub, BPriv, BPub]) DerivePublic(priv *DualKey[APriv, BPriv]
 	}
 }
 
-func (s Dual[APriv, APub, BPriv, BPub]) Sign(dst []byte, priv *DualKey[APriv, BPriv], msg []byte) {
+func (s Dual[APriv, APub, BPriv, BPub]) Sign(dst []byte, priv *DualKey[APriv, BPriv], input []byte) {
 	adst := dst[:s.A.SignatureSize()]
 	bdst := dst[s.A.SignatureSize():]
-	s.A.Sign(adst, &priv.A, msg)
-	s.B.Sign(bdst, &priv.B, msg)
+	s.A.Sign(adst, &priv.A, input)
+	s.B.Sign(bdst, &priv.B, input)
 }
 
-func (s Dual[APriv, APub, BPriv, BPub]) Verify(pub *DualKey[APub, BPub], msg []byte, sig []byte) bool {
+func (s Dual[APriv, APub, BPriv, BPub]) Verify(pub *DualKey[APub, BPub], input []byte, sig []byte) bool {
 	asig := sig[:s.A.SignatureSize()]
 	bsig := sig[s.A.SignatureSize():]
-	av := s.A.Verify(&pub.A, msg, asig)
-	bv := s.B.Verify(&pub.B, msg, bsig)
+	av := s.A.Verify(&pub.A, input, asig)
+	bv := s.B.Verify(&pub.B, input, bsig)
 	return av && bv
 }
 
-func (s Dual[APriv, APub, BPriv, BPub]) MarshalPublic(x DualKey[APub, BPub]) (ret []byte) {
-	ret = append(ret, s.A.MarshalPublic(x.A)...)
-	ret = append(ret, s.B.MarshalPublic(x.B)...)
-	return ret
+func (s Dual[APriv, APub, BPriv, BPub]) MarshalPublic(dst []byte, x *DualKey[APub, BPub]) {
+	if len(dst) < s.PublicKeySize() {
+		panic(fmt.Sprintf("len(dst) < %d", s.PublicKeySize()))
+	}
+	s.A.MarshalPublic(dst[:s.A.PublicKeySize()], &x.A)
+	s.B.MarshalPublic(dst[s.A.PublicKeySize():], &x.B)
 }
 
 func (s Dual[APriv, APub, BPriv, BPub]) ParsePublic(x []byte) (DualKey[APub, BPub], error) {

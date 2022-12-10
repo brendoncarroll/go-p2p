@@ -28,7 +28,8 @@ func TestScheme[Priv, Pub any](t *testing.T, scheme Scheme[Priv, Pub]) {
 	})
 	t.Run("MarshalParsePublic", func(t *testing.T) {
 		pub, _ := generate(0)
-		data := scheme.MarshalPublic(pub)
+		data := make([]byte, scheme.PublicKeySize())
+		scheme.MarshalPublic(data, &pub)
 		require.Len(t, data, scheme.PublicKeySize())
 		pub2, err := scheme.ParsePublic(data)
 		require.NoError(t, err)

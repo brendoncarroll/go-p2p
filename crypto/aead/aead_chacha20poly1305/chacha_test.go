@@ -5,17 +5,17 @@ import (
 	"testing"
 )
 
-func TestN8(t *testing.T) {
-	s := N8{}
+func TestN64(t *testing.T) {
+	s := N64{}
 	aead.TestSchemeK32N8(t, s)
 }
 
-func TestN24(t *testing.T) {
-	s := N24{}
-	aead.TestSchemeK32N24(t, s)
+func TestN192(t *testing.T) {
+	s := N192{}
+	aead.TestSchemeK256N192(t, s)
 }
 
 func TestSUV(t *testing.T) {
 	s := SUV{}
-	aead.TestSchemeSUV32(t, s)
+	aead.TestSchemeSUV256(t, s)
 }

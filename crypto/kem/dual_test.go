@@ -9,11 +9,11 @@ import (
 )
 
 func TestDual(t *testing.T) {
-	s := kem.Dual[kem_x25519.PrivateKey, kem_x25519.PublicKey, kem_sntrup.PrivateKey4591761, kem_sntrup.PublicKey4591761]{
+	s := kem.Dual256[kem_x25519.PrivateKey, kem_x25519.PublicKey, kem_sntrup.PrivateKey4591761, kem_sntrup.PublicKey4591761]{
 		A: kem_x25519.New(),
 		B: kem_sntrup.New4591761(),
 	}
 	type Private = kem.DualKey[kem_x25519.PrivateKey, kem_sntrup.PrivateKey4591761]
 	type Public = kem.DualKey[kem_x25519.PublicKey, kem_sntrup.PublicKey4591761]
-	kem.TestScheme[Private, Public](t, s)
+	kem.TestScheme256[Private, Public](t, s)
 }

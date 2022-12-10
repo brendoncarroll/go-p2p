@@ -2,28 +2,30 @@
 package dhkem
 
 import (
+	"errors"
 	"io"
+
+	"golang.org/x/crypto/sha3"
 
 	"github.com/brendoncarroll/go-p2p/crypto/dhke"
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
-	"golang.org/x/crypto/sha3"
 )
 
-var _ kem.Scheme[struct{}, struct{}] = Scheme[struct{}, struct{}]{}
+var _ kem.Scheme256[struct{}, struct{}] = Scheme256[struct{}, struct{}]{}
 
-type Scheme[Private, Public any] struct {
+type Scheme256[Private, Public any] struct {
 	DH dhke.Scheme[Private, Public]
 }
 
-func (s Scheme[Private, Public]) Generate(rng io.Reader) (Public, Private, error) {
+func (s Scheme256[Private, Public]) Generate(rng io.Reader) (Public, Private, error) {
 	return s.DH.Generate(rng)
 }
 
-func (s Scheme[Private, Public]) DerivePublic(priv *Private) Public {
+func (s Scheme256[Private, Public]) DerivePublic(priv *Private) Public {
 	return s.DH.DerivePublic(priv)
 }
 
-func (s Scheme[Private, Public]) Encapsulate(ss *kem.Secret, ctext []byte, pub *Public, seed *kem.Seed) error {
+func (s Scheme256[Private, Public]) Encapsulate(ss *kem.Secret256, ctext []byte, pub *Public, seed *kem.Seed) error {
 	h := sha3.NewShake256()
 	h.Write(seed[:])
 	ePub, ePriv, err := s.DH.Generate(h)
@@ -34,12 +36,15 @@ func (s Scheme[Private, Public]) Encapsulate(ss *kem.Secret, ctext []byte, pub *
 	if err := s.DH.ComputeShared(shared, &ePriv, pub); err != nil {
 		return err
 	}
-	copy(ctext, s.DH.MarshalPublic(ePub))
+	if len(ctext) < s.CiphertextSize() {
+		return errors.New("len(dst) < CipherTextSize")
+	}
+	s.DH.MarshalPublic(ctext, &ePub)
 	sha3.ShakeSum256(ss[:], shared)
 	return nil
 }
 
-func (s Scheme[Private, Public]) Decapsulate(ss *kem.Secret, priv *Private, ctext []byte) error {
+func (s Scheme256[Private, Public]) Decapsulate(ss *kem.Secret256, priv *Private, ctext []byte) error {
 	ePub, err := s.DH.ParsePublic(ctext)
 	if err != nil {
 		return err
@@ -52,18 +57,18 @@ func (s Scheme[Private, Public]) Decapsulate(ss *kem.Secret, priv *Private, ctex
 	return nil
 }
 
-func (s Scheme[Private, Public]) MarshalPublic(x Public) []byte {
-	return s.DH.MarshalPublic(x)
+func (s Scheme256[Private, Public]) MarshalPublic(dst []byte, x *Public) {
+	s.DH.MarshalPublic(dst, x)
 }
 
-func (s Scheme[Private, Public]) ParsePublic(x []byte) (Public, error) {
+func (s Scheme256[Private, Public]) ParsePublic(x []byte) (Public, error) {
 	return s.DH.ParsePublic(x)
 }
 
-func (s Scheme[Private, Public]) PublicKeySize() int {
+func (s Scheme256[Private, Public]) PublicKeySize() int {
 	return s.DH.PublicKeySize()
 }
 
-func (s Scheme[Private, Public]) CiphertextSize() int {
+func (s Scheme256[Private, Public]) CiphertextSize() int {
 	return s.DH.PublicKeySize()
 }

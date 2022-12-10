@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSchemeK32N8(t *testing.T, s SchemeK32N8) {
+func TestSchemeK32N8(t *testing.T, s SchemeK256N64) {
 	var key [32]byte
 	var nonce [8]byte
 	in := "hello world"
@@ -16,7 +16,7 @@ func TestSchemeK32N8(t *testing.T, s SchemeK32N8) {
 	require.Equal(t, in, string(pt))
 }
 
-func TestSchemeK32N24(t *testing.T, s SchemeK32N24) {
+func TestSchemeK256N192(t *testing.T, s SchemeK256N192) {
 	var key [32]byte
 	var nonce [24]byte
 	in := "hello world"
@@ -26,7 +26,7 @@ func TestSchemeK32N24(t *testing.T, s SchemeK32N24) {
 	require.Equal(t, in, string(pt))
 }
 
-func TestSchemeSUV32(t *testing.T, s SchemeSUV32) {
+func TestSchemeSUV256(t *testing.T, s SchemeSUV256) {
 	var suv [32]byte
 	in := "hello world"
 	ct := s.Seal(nil, &suv, []byte(in), []byte{1, 2, 3})

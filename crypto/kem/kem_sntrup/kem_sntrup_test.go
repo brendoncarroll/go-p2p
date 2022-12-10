@@ -7,5 +7,5 @@ import (
 )
 
 func TestSNTRUP4591761(t *testing.T) {
-	kem.TestScheme[PrivateKey4591761, PublicKey4591761](t, New4591761())
+	kem.TestScheme256[PrivateKey4591761, PublicKey4591761](t, New4591761())
 }

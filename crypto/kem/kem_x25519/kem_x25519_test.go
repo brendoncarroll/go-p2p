@@ -7,5 +7,5 @@ import (
 )
 
 func TestX25519(t *testing.T) {
-	kem.TestScheme[PrivateKey, PublicKey](t, New())
+	kem.TestScheme256[PrivateKey, PublicKey](t, New())
 }

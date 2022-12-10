@@ -6,12 +6,12 @@ import (
 	"github.com/brendoncarroll/go-p2p/crypto/aead"
 )
 
-var _ aead.SchemeK32N8 = N8{}
+var _ aead.SchemeK256N64 = N64{}
 
-// N8 is an AEAD with an 8 byte nonce
-type N8 struct{}
+// N64 is an AEAD with an 8 byte nonce
+type N64 struct{}
 
-func (s N8) Seal(out []byte, key *[32]byte, nonce *[8]byte, ptext, ad []byte) []byte {
+func (s N64) Seal(out []byte, key *[32]byte, nonce *[8]byte, ptext, ad []byte) []byte {
 	aead, err := chacha20poly1305.New(key[:])
 	if err != nil {
 		panic(err)
@@ -21,7 +21,7 @@ func (s N8) Seal(out []byte, key *[32]byte, nonce *[8]byte, ptext, ad []byte) []
 	return aead.Seal(out, nonce2[:], ptext, ad)
 }
 
-func (s N8) Open(out []byte, key *[32]byte, nonce *[8]byte, ctext, ad []byte) ([]byte, error) {
+func (s N64) Open(out []byte, key *[32]byte, nonce *[8]byte, ctext, ad []byte) ([]byte, error) {
 	aead, err := chacha20poly1305.New(key[:])
 	if err != nil {
 		panic(err)
@@ -31,16 +31,16 @@ func (s N8) Open(out []byte, key *[32]byte, nonce *[8]byte, ctext, ad []byte) ([
 	return aead.Open(out, nonce2[:], ctext, ad)
 }
 
-func (s N8) Overhead() int {
+func (s N64) Overhead() int {
 	return chacha20poly1305.Overhead
 }
 
-var _ aead.SchemeK32N24 = N24{}
+var _ aead.SchemeK256N192 = N192{}
 
-// N24 is an AEAD with a 24 byte nonce
-type N24 struct{}
+// N192 is an AEAD with a 24 byte nonce
+type N192 struct{}
 
-func (s N24) Seal(out []byte, key *[32]byte, nonce *[24]byte, ptext, ad []byte) []byte {
+func (s N192) Seal(out []byte, key *[32]byte, nonce *[24]byte, ptext, ad []byte) []byte {
 	aead, err := chacha20poly1305.NewX(key[:])
 	if err != nil {
 		panic(err)
@@ -48,7 +48,7 @@ func (s N24) Seal(out []byte, key *[32]byte, nonce *[24]byte, ptext, ad []byte) 
 	return aead.Seal(out, nonce[:], ptext, ad)
 }
 
-func (s N24) Open(out []byte, key *[32]byte, nonce *[24]byte, ctext, ad []byte) ([]byte, error) {
+func (s N192) Open(out []byte, key *[32]byte, nonce *[24]byte, ctext, ad []byte) ([]byte, error) {
 	aead, err := chacha20poly1305.NewX(key[:])
 	if err != nil {
 		panic(err)
@@ -56,11 +56,11 @@ func (s N24) Open(out []byte, key *[32]byte, nonce *[24]byte, ctext, ad []byte) 
 	return aead.Open(out, nonce[:], ctext, ad)
 }
 
-func (s N24) Overhead() int {
+func (s N192) Overhead() int {
 	return chacha20poly1305.Overhead
 }
 
-var _ aead.SchemeSUV32 = SUV{}
+var _ aead.SchemeSUV256 = SUV{}
 
 // SUV is an AEAD which takes a Secret and Unique Value instead of a key and nonce.
 type SUV struct{}

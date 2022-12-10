@@ -4,7 +4,7 @@ import (
 	"io"
 )
 
-// Scheme is a scheme for digital signatures
+// Scheme is a scheme for digital signatures with variable length inputs
 type Scheme[Private, Public any] interface {
 	// Generate creates a public and private key
 	Generate(rng io.Reader) (pub Public, priv Private, err error)
@@ -18,7 +18,8 @@ type Scheme[Private, Public any] interface {
 	Verify(pub *Public, msg []byte, sig []byte) bool
 
 	// MarshalPublic marshals a public key to binary data
-	MarshalPublic(Public) []byte
+	// MarshalPublic panics if dst is not >= PublicKeySize()
+	MarshalPublic(dst []byte, pub *Public)
 	// ParsePublic attempts to parse a public key from bytes
 	ParsePublic([]byte) (Public, error)
 
