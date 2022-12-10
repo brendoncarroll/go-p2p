@@ -7,7 +7,7 @@ import (
 
 func TestN64(t *testing.T) {
 	s := N64{}
-	aead.TestSchemeK32N8(t, s)
+	aead.TestSchemeK256N64(t, s)
 }
 
 func TestN192(t *testing.T) {

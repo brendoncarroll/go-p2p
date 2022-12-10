@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSchemeK32N8(t *testing.T, s SchemeK256N64) {
+func TestSchemeK256N64(t *testing.T, s SchemeK256N64) {
 	var key [32]byte
 	var nonce [8]byte
 	in := "hello world"
