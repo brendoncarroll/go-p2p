@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 
-	"golang.org/x/crypto/sha3"
-
 	"github.com/brendoncarroll/go-p2p/crypto/aead"
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
 	"github.com/brendoncarroll/go-p2p/crypto/sign"
@@ -73,8 +71,8 @@ func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Encrypt(out []byte, priv
 	out = appendVarint(out, uint64(s.slotSize()*len(pubs)))
 	slotsBegin := len(out)
 	var dek, kemSeed [32]byte
-	shakeDeriveKey(dek[:], seed, "dek")
-	shakeDeriveKey(kemSeed[:], seed, "kem")
+	xof.DeriveKey256(s.XOF, dek[:], seed, []byte("dek"))
+	xof.DeriveKey256(s.XOF, kemSeed[:], seed, []byte("kem"))
 	for _, pub := range pubs {
 		var err error
 		out, err = s.encryptSlot(out, private, &pub, &kemSeed, &dek)
@@ -90,7 +88,7 @@ func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Encrypt(out []byte, priv
 
 func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) EncryptDet(out []byte, private *PrivateKey[KEMPriv, SigPriv], pubs []KEMPub, ptext []byte) ([]byte, error) {
 	var seed [32]byte
-	sha3.ShakeSum256(seed[:], ptext)
+	xof.Sum(s.XOF, seed[:], ptext)
 	return s.Encrypt(out, private, pubs, &seed, ptext)
 }
 
@@ -218,11 +216,4 @@ func appendVarint(out []byte, x uint64) []byte {
 	buf := [binary.MaxVarintLen64]byte{}
 	l := binary.PutUvarint(buf[:], x)
 	return append(out, buf[:l]...)
-}
-
-func shakeDeriveKey(dst []byte, seed *[32]byte, purpose string) {
-	var input []byte
-	input = append(input, seed[:]...)
-	input = append(input, purpose...)
-	sha3.ShakeSum256(dst, input)
 }

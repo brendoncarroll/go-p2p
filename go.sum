@@ -2,8 +2,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=
 github.com/brendoncarroll/go-state v0.0.0-20210627233638-99c825eb7040 h1:I46IjykpWXCBYWVWGX8wqX7YCGWoAEY48+aR3p9tpak=
 github.com/brendoncarroll/go-state v0.0.0-20210627233638-99c825eb7040/go.mod h1:EQKdXJyc93dh3yN1wRYdKjAZk+MutF5DFwoW+Vqe5U0=
-github.com/brendoncarroll/go-tai64 v0.0.0-20220527232055-eab29bd93d59 h1:lQUpAM005I5qy3OsNSTPGZ7QfoHHnQzQvNjhf5nBoMA=
-github.com/brendoncarroll/go-tai64 v0.0.0-20220527232055-eab29bd93d59/go.mod h1:E9+Qr3YRBlU8HsajHzdoyHAm8XRqITZrtsh1gZSzu+4=
+github.com/brendoncarroll/go-tai64 v0.0.0-20220726191612-c9e9c0704db4 h1:yw9nUqzIq1Tj0txVls6R0KQnrWXW67nZja/q0TFYWaw=
+github.com/brendoncarroll/go-tai64 v0.0.0-20220726191612-c9e9c0704db4/go.mod h1:E9+Qr3YRBlU8HsajHzdoyHAm8XRqITZrtsh1gZSzu+4=
 github.com/brendoncarroll/stdctx v0.0.0-20221211194708-f99cd22d6db2 h1:XRI/Ix0ATCbCe3D2mq9hWTJpQD2yE1rfjknqIEMZbZs=
 github.com/brendoncarroll/stdctx v0.0.0-20221211194708-f99cd22d6db2/go.mod h1:nwePzguou6MFqv30oKr27UaKkjZSLuAL23/zQ3/uL5c=
 github.com/companyzero/sntrup4591761 v0.0.0-20220309191932-9e0f3af2f07a h1:clYxJ3Os0EQUKDDVU8M0oipllX0EkuFNBfhVQuIfyF0=

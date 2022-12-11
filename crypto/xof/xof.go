@@ -45,12 +45,19 @@ func DeriveKey256[S any](sch Scheme[S], dst []byte, base *[32]byte, info []byte)
 	sch.Expand(&x, dst[:])
 }
 
+// NewRand256 seeds a random number generator using seed and returns it.
+func NewRand256[S any](sch Scheme[S], seed *[32]byte) Reader[S] {
+	x := sch.New()
+	sch.Absorb(&x, seed[:])
+	return Reader[S]{Scheme: sch, State: &x}
+}
+
 type Writer[S any] struct {
 	Scheme Scheme[S]
 	State  *S
 }
 
-func (w Writer[S]) Write(p []byte) (int, error) {
+func (w *Writer[S]) Write(p []byte) (int, error) {
 	w.Scheme.Absorb(w.State, p)
 	return len(p), nil
 }
@@ -60,7 +67,7 @@ type Reader[S any] struct {
 	State  *S
 }
 
-func (r Reader[S]) Read(p []byte) (int, error) {
+func (r *Reader[S]) Read(p []byte) (int, error) {
 	r.Scheme.Expand(r.State, p)
 	return len(p), nil
 }

@@ -6,7 +6,6 @@ import (
 	sha3int "github.com/brendoncarroll/go-p2p/crypto/xof/xof_sha3/internal/sha3"
 )
 
-// TODO
 type SHAKE256State sha3int.State
 
 var _ xof.Scheme[SHAKE256State] = SHAKE256{}
@@ -17,9 +16,9 @@ func (SHAKE256) New() SHAKE256State {
 	return SHAKE256State(sha3int.NewState())
 }
 
-func (SHAKE256) Absorb(x *SHAKE256State, data []byte) {
+func (SHAKE256) Absorb(x *SHAKE256State, in []byte) {
 	x2 := (*sha3int.State)(x)
-	if _, err := x2.Write(data); err != nil {
+	if _, err := x2.Write(in); err != nil {
 		panic(err)
 	}
 }
