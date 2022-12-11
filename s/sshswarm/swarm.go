@@ -2,7 +2,6 @@ package sshswarm
 
 import (
 	"context"
-	"io"
 	"log"
 	"net"
 	"net/netip"
@@ -12,9 +11,7 @@ import (
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
-	"github.com/brendoncarroll/stdctx/logctx"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/exp/slog"
 )
 
 const MTU = 1 << 17
@@ -42,7 +39,6 @@ func New(laddr string, privateKey p2p.PrivateKey, opts ...Option) (*Swarm, error
 		return nil, err
 	}
 	ctx := context.Background()
-	ctx = logctx.NewContext(ctx, slog.New(slog.NewTextHandler(io.Discard)))
 	s := &Swarm{
 		ctx:    ctx,
 		pubKey: privateKey.Public(),

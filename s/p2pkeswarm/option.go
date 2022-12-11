@@ -1,17 +1,16 @@
 package p2pkeswarm
 
 import (
-	"io"
+	"context"
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
-	"golang.org/x/exp/slog"
 )
 
 type Option[T p2p.Addr] func(*swarmConfig[T])
 
 type swarmConfig[T p2p.Addr] struct {
-	log           slog.Logger
+	bgCtx         context.Context
 	fingerprinter p2p.Fingerprinter
 	tellTimeout   time.Duration
 	whitelist     func(Addr[T]) bool
@@ -19,17 +18,17 @@ type swarmConfig[T p2p.Addr] struct {
 
 func newDefaultConfig[T p2p.Addr]() swarmConfig[T] {
 	return swarmConfig[T]{
-		log:           slog.New(slog.NewTextHandler(io.Discard)),
+		bgCtx:         context.Background(),
 		fingerprinter: p2p.DefaultFingerprinter,
 		tellTimeout:   3 * time.Second,
 		whitelist:     func(Addr[T]) bool { return true },
 	}
 }
 
-// WithLogger sets the logger used by the swarm
-func WithLogger[T p2p.Addr](log slog.Logger) Option[T] {
+// WithBackground sets the background context used by the swarm
+func WithBackground[T p2p.Addr](ctx context.Context) Option[T] {
 	return func(c *swarmConfig[T]) {
-		c.log = log
+		c.bgCtx = ctx
 	}
 }
 

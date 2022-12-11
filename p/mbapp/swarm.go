@@ -2,7 +2,6 @@ package mbapp
 
 import (
 	"context"
-	"io"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -38,14 +37,13 @@ type Swarm[A p2p.Addr] struct {
 
 func New[A p2p.Addr](x p2p.SecureSwarm[A], mtu int, opts ...Option) *Swarm[A] {
 	config := swarmConfig{
-		log:        slog.New(slog.NewTextHandler(io.Discard)),
+		bgCtx:      context.Background(),
 		numWorkers: runtime.GOMAXPROCS(0),
 	}
 	for _, opt := range opts {
 		opt(&config)
 	}
-	ctx := context.Background()
-	ctx = logctx.NewContext(ctx, config.log)
+	ctx := config.bgCtx
 	ctx, cf := context.WithCancel(ctx)
 	s := &Swarm[A]{
 		inner:      x,

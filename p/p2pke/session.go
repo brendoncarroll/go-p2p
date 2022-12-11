@@ -17,7 +17,7 @@ import (
 type Session struct {
 	privateKey p2p.PrivateKey
 	isInit     bool
-	log        slog.Logger
+	log        *slog.Logger
 	expiresAt  time.Time
 
 	// handshake
@@ -39,7 +39,7 @@ type SessionConfig struct {
 	PrivateKey  p2p.PrivateKey
 	Now         time.Time
 	RejectAfter time.Duration
-	Logger      slog.Logger
+	Logger      *slog.Logger
 }
 
 func NewSession(params SessionConfig) *Session {

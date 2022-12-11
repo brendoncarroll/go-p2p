@@ -14,18 +14,20 @@ type AllowFunc[A p2p.Addr] func(addr A) bool
 type swarm[A p2p.Addr] struct {
 	p2p.SecureSwarm[A]
 	af  AllowFunc[A]
-	log slog.Logger
+	log *slog.Logger
 }
 
 func WrapSecureAsk[A p2p.Addr](x p2p.SecureAskSwarm[A], af AllowFunc[A]) p2p.SecureAskSwarm[A] {
 	log := slog.New(slog.NewTextHandler(io.Discard))
-	swarm := &swarm[A]{x, af, log}
-	asker := &asker[A]{x, af, log}
+	swarm := &swarm[A]{x, af, &log}
+	asker := &asker[A]{x, af, &log}
 	return p2p.ComposeSecureAskSwarm[A](swarm, asker, swarm)
 }
 
 func WrapSecure[A p2p.Addr](x p2p.SecureSwarm[A], af AllowFunc[A]) p2p.SecureSwarm[A] {
+	log := slog.New(slog.NewTextHandler(io.Discard))
 	return &swarm[A]{
+		log:         &log,
 		SecureSwarm: x,
 		af:          af,
 	}
@@ -55,7 +57,7 @@ func (s *swarm[A]) Receive(ctx context.Context, fn func(p2p.Message[A])) error {
 type asker[A p2p.Addr] struct {
 	p2p.SecureAskSwarm[A]
 	af  AllowFunc[A]
-	log slog.Logger
+	log *slog.Logger
 }
 
 func (s *asker[A]) Ask(ctx context.Context, resp []byte, dst A, data p2p.IOVec) (int, error) {
@@ -83,7 +85,7 @@ func (s *asker[A]) ServeAsk(ctx context.Context, fn func(context.Context, []byte
 }
 
 // checkAddr is called inside TellHandler
-func checkAddr[A p2p.Addr](sec p2p.Secure[A], log slog.Logger, af AllowFunc[A], addr A, isSend bool) bool {
+func checkAddr[A p2p.Addr](sec p2p.Secure[A], log *slog.Logger, af AllowFunc[A], addr A, isSend bool) bool {
 	if !af(addr) {
 		if isSend {
 			logAttemptSend(log, addr)
@@ -95,12 +97,12 @@ func checkAddr[A p2p.Addr](sec p2p.Secure[A], log slog.Logger, af AllowFunc[A], 
 	return true
 }
 
-func logAttemptSend(log slog.Logger, addr p2p.Addr) {
+func logAttemptSend(log *slog.Logger, addr p2p.Addr) {
 	data, _ := addr.MarshalText()
 	log.With(slog.String("addr", string(data))).Warn("tried to send message to peer not in whitelist")
 }
 
-func logReceive(log slog.Logger, addr p2p.Addr) {
+func logReceive(log *slog.Logger, addr p2p.Addr) {
 	addrData, _ := addr.MarshalText()
 	log.With(slog.String("addr", string(addrData))).Warn("recieved message from peer not in whitelist")
 }

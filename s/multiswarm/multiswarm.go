@@ -2,13 +2,11 @@ package multiswarm
 
 import (
 	"context"
-	"io"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/pkg/errors"
-	"golang.org/x/exp/slog"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -79,7 +77,7 @@ func NewSecureAsk(m map[string]DynSecureAskSwarm) p2p.SecureAskSwarm[Addr] {
 }
 
 type multiSwarm struct {
-	log        slog.Logger
+	ctx        context.Context
 	addrSchema AddrSchema
 	swarms     map[string]DynSwarm
 	tells      *swarmutil.TellHub[Addr]
@@ -87,7 +85,7 @@ type multiSwarm struct {
 
 func newMultiSwarm(m map[string]DynSwarm) multiSwarm {
 	s := multiSwarm{
-		log:        slog.New(slog.NewTextHandler(io.Discard)),
+		ctx:        context.Background(),
 		addrSchema: NewSchemaFromSwarms(m),
 		swarms:     m,
 		tells:      swarmutil.NewTellHub[Addr](),
@@ -170,7 +168,7 @@ func (mt multiSwarm) Close() error {
 	for _, t := range mt.swarms {
 		if err2 := t.Close(); err2 != nil {
 			err = err2
-			mt.log.Error("closing swarms", err)
+			logctx.Errorln(mt.ctx, "closing swarms", err)
 		}
 	}
 	mt.tells.CloseWithError(p2p.ErrClosed)

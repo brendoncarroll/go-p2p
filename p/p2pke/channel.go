@@ -28,7 +28,7 @@ type ChannelConfig struct {
 	// *REQUIRED*.
 	AcceptKey func(p2p.PublicKey) bool
 	// Logger is used for logging, nil disables logs.
-	Logger slog.Logger
+	Logger *slog.Logger
 
 	// KeepAliveTimeout is the amount of time to consider a session alive wihtout receiving a message
 	// through it.
@@ -44,7 +44,7 @@ type ChannelConfig struct {
 
 type Channel struct {
 	params ChannelConfig
-	log    slog.Logger
+	log    *slog.Logger
 
 	mu sync.RWMutex
 	// sessions holds the 3 sessions: previous, current, next
@@ -74,9 +74,9 @@ func NewChannel(params ChannelConfig) *Channel {
 	if params.AcceptKey == nil {
 		panic("AcceptKey must be set")
 	}
-	if params.Logger == (slog.Logger{}) {
+	if params.Logger == nil {
 		nullLogger := slog.New(slog.NewTextHandler(io.Discard))
-		params.Logger = nullLogger
+		params.Logger = &nullLogger
 	}
 	if params.KeepAliveTimeout == 0 {
 		params.KeepAliveTimeout = KeepAliveTimeout
@@ -330,7 +330,11 @@ func (c *Channel) onReadySession(now time.Time) error {
 		// if we were the initiator, we are responsible for rekeying
 		c.rekeyTimer.Reset(c.params.RekeyAfterTime)
 	}
-	close(c.ready)
+	select {
+	case <-c.ready:
+	default:
+		close(c.ready)
+	}
 	return nil
 }
 

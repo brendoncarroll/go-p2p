@@ -1,16 +1,15 @@
 package memswarm
 
 import (
+	"context"
 	"io"
-
-	"golang.org/x/exp/slog"
 )
 
 type Option func(r *Realm)
 
-func WithLogger(l slog.Logger) Option {
+func WithBackground(ctx context.Context) Option {
 	return func(r *Realm) {
-		r.log = l
+		r.ctx = ctx
 	}
 }
 

@@ -1,17 +1,19 @@
 package mbapp
 
-import "golang.org/x/exp/slog"
+import (
+	"context"
+)
 
 type swarmConfig struct {
-	log        slog.Logger
+	bgCtx      context.Context
 	numWorkers int
 }
 
 type Option = func(c *swarmConfig)
 
-func WithLogger(log slog.Logger) Option {
+func WithBackground(ctx context.Context) Option {
 	return func(c *swarmConfig) {
-		c.log = log
+		c.bgCtx = ctx
 	}
 }
 

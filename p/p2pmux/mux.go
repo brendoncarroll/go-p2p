@@ -3,15 +3,15 @@ package p2pmux
 import (
 	"context"
 	"encoding/binary"
-	"io"
 	"sync"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/pkg/errors"
-	"golang.org/x/exp/slog"
 )
+
+var ctx = context.Background()
 
 type Mux[A p2p.Addr, C any] interface {
 	Open(c C) p2p.Swarm[A]
@@ -43,10 +43,8 @@ type muxCore[A p2p.Addr, C any] struct {
 	swarms sync.Map
 }
 
-func newMuxCore[A p2p.Addr, C any](swarm p2p.Swarm[A], mf muxFunc[C], dmf demuxFunc[C]) *muxCore[A, C] {
-	ctx := context.Background()
-	ctx = logctx.NewContext(ctx, slog.New(slog.NewTextHandler(io.Discard)))
-	ctx, cf := context.WithCancel(ctx)
+func newMuxCore[A p2p.Addr, C any](bgCtx context.Context, swarm p2p.Swarm[A], mf muxFunc[C], dmf demuxFunc[C]) *muxCore[A, C] {
+	ctx, cf := context.WithCancel(bgCtx)
 	mc := &muxCore[A, C]{
 		swarm:     swarm,
 		muxFunc:   mf,

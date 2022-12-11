@@ -33,8 +33,7 @@ func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Opti
 	for _, opt := range opts {
 		opt(&config)
 	}
-	ctx := context.Background()
-	ctx = logctx.NewContext(ctx, config.log)
+	ctx := config.bgCtx
 	ctx, cf := context.WithCancel(ctx)
 	s := &Swarm[T]{
 		inner:       inner,

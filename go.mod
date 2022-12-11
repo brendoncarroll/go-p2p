@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/brendoncarroll/go-state v0.0.0-20210627233638-99c825eb7040
 	github.com/brendoncarroll/go-tai64 v0.0.0-20220527232055-eab29bd93d59
-	github.com/brendoncarroll/stdctx v0.0.0-20221023182057-986b9c600f6c
+	github.com/brendoncarroll/stdctx v0.0.0-20221211194708-f99cd22d6db2
 	github.com/companyzero/sntrup4591761 v0.0.0-20220309191932-9e0f3af2f07a
 	github.com/flynn/noise v1.0.0
 	github.com/golang/protobuf v1.5.2
@@ -13,7 +13,7 @@ require (
 	github.com/lucas-clemente/quic-go v0.29.2
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v0.0.5
-	github.com/stretchr/testify v1.7.0
+	github.com/stretchr/testify v1.8.1
 	golang.org/x/crypto v0.1.0
 	golang.org/x/exp v0.0.0-20221106115401-f9659909a136
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
@@ -38,5 +38,5 @@ require (
 	golang.org/x/sys v0.1.0 // indirect
 	golang.org/x/tools v0.2.0 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

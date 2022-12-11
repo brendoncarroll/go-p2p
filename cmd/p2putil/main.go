@@ -19,7 +19,8 @@ import (
 
 var ctx = func() context.Context {
 	ctx := context.Background()
-	ctx = logctx.NewContext(ctx, slog.New(slog.NewTextHandler(os.Stderr)))
+	l := slog.New(slog.NewTextHandler(os.Stderr))
+	ctx = logctx.NewContext(ctx, &l)
 	return ctx
 }()
 

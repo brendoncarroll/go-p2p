@@ -11,6 +11,7 @@ import (
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/jonboulle/clockwork"
 	"github.com/pkg/errors"
 	"golang.org/x/exp/slog"
@@ -19,8 +20,8 @@ import (
 type Message = p2p.Message[Addr]
 
 type Realm struct {
+	ctx           context.Context
 	clock         clockwork.Clock
-	log           slog.Logger
 	trafficLog    io.Writer
 	tellTransform func(Message) *Message
 	mtu           int
@@ -33,8 +34,8 @@ type Realm struct {
 
 func NewRealm(opts ...Option) *Realm {
 	r := &Realm{
+		ctx:           context.Background(),
 		clock:         clockwork.NewRealClock(),
-		log:           slog.New(slog.NewTextHandler(io.Discard)),
 		trafficLog:    ioutil.Discard,
 		tellTransform: func(x Message) *Message { return &x },
 		mtu:           1 << 20,
@@ -151,12 +152,12 @@ func (s *Swarm) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
 	s.r.logTraffic(false, msg)
 	s2 := s.r.getSwarm(dst.N)
 	if s2 == nil {
-		s.r.log.Debug("swarm does not exist in same memswarm.Realm", slog.Any("dst", dst.N))
+		logctx.Debug(s.r.ctx, "swarm does not exist in same memswarm.Realm", slog.Any("dst", dst.N))
 		return nil
 	}
 	select {
 	case <-ctx.Done():
-		s.r.log.Debug("memswarm: timeout delivering tell", slog.Any("src", s.n), slog.Any("dst", dst.N))
+		logctx.Debug(s.r.ctx, "memswarm: timeout delivering tell", slog.Any("src", s.n), slog.Any("dst", dst.N))
 		return nil
 	case s2.tells <- *msg:
 		return nil
