@@ -11,6 +11,7 @@ import (
 	"github.com/brendoncarroll/go-p2p/crypto/aead"
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
 	"github.com/brendoncarroll/go-p2p/crypto/sign"
+	"github.com/brendoncarroll/go-p2p/crypto/xof"
 )
 
 type PrivateKey[KEMPriv, SigPriv any] struct {
@@ -23,13 +24,14 @@ type PublicKey[KEMPub, SigPub any] struct {
 	Sign SigPub
 }
 
-type Scheme[KEMPriv, KEMPub, SigPriv, SigPub any] struct {
+type Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub any] struct {
 	KEM  kem.Scheme256[KEMPriv, KEMPub]
 	Sign sign.Scheme[SigPriv, SigPub]
 	AEAD aead.SchemeSUV256
+	XOF  xof.Scheme[XOF]
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) Generate(rng io.Reader) (retPub PublicKey[KEMPub, SigPub], retPriv PrivateKey[KEMPriv, SigPriv], _ error) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Generate(rng io.Reader) (retPub PublicKey[KEMPub, SigPub], retPriv PrivateKey[KEMPriv, SigPriv], _ error) {
 	kemPub, kemPriv, err := s.KEM.Generate(rng)
 	if err != nil {
 		return retPub, retPriv, err
@@ -43,19 +45,19 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) Generate(rng io.Reader) (retP
 	return retPub, retPriv, nil
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) DerivePublic(priv PrivateKey[KEMPriv, SigPriv]) PublicKey[KEMPub, SigPub] {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) DerivePublic(priv PrivateKey[KEMPriv, SigPriv]) PublicKey[KEMPub, SigPub] {
 	return PublicKey[KEMPub, SigPub]{
 		KEM:  s.KEM.DerivePublic(&priv.KEM),
 		Sign: s.Sign.DerivePublic(&priv.Sign),
 	}
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) MarshalPublic(dst []byte, pub *PublicKey[KEMPub, SigPub]) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) MarshalPublic(dst []byte, pub *PublicKey[KEMPub, SigPub]) {
 	s.KEM.MarshalPublic(dst[:s.KEM.PublicKeySize()], &pub.KEM)
 	s.Sign.MarshalPublic(dst[s.KEM.PublicKeySize():], &pub.Sign)
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) ParsePublic(x []byte) (ret PublicKey[KEMPub, SigPub], _ error) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) ParsePublic(x []byte) (ret PublicKey[KEMPub, SigPub], _ error) {
 	kemPub, err := s.KEM.ParsePublic(x[:s.KEM.PublicKeySize()])
 	if err != nil {
 		return ret, err
@@ -67,7 +69,7 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) ParsePublic(x []byte) (ret Pu
 	return PublicKey[KEMPub, SigPub]{KEM: kemPub, Sign: sigPub}, nil
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) Encrypt(out []byte, private *PrivateKey[KEMPriv, SigPriv], pubs []KEMPub, seed *[32]byte, ptext []byte) ([]byte, error) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Encrypt(out []byte, private *PrivateKey[KEMPriv, SigPriv], pubs []KEMPub, seed *[32]byte, ptext []byte) ([]byte, error) {
 	out = appendVarint(out, uint64(s.slotSize()*len(pubs)))
 	slotsBegin := len(out)
 	var dek, kemSeed [32]byte
@@ -86,13 +88,13 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) Encrypt(out []byte, private *
 	return out, nil
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) EncryptDet(out []byte, private *PrivateKey[KEMPriv, SigPriv], pubs []KEMPub, ptext []byte) ([]byte, error) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) EncryptDet(out []byte, private *PrivateKey[KEMPriv, SigPriv], pubs []KEMPub, ptext []byte) ([]byte, error) {
 	var seed [32]byte
 	sha3.ShakeSum256(seed[:], ptext)
 	return s.Encrypt(out, private, pubs, &seed, ptext)
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) Decrypt(out []byte, private *PrivateKey[KEMPriv, SigPriv], writers []SigPub, ctext []byte) (int, []byte, error) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Decrypt(out []byte, private *PrivateKey[KEMPriv, SigPriv], writers []SigPub, ctext []byte) (int, []byte, error) {
 	m, err := ParseMessage(ctext)
 	if err != nil {
 		return -1, nil, err
@@ -114,7 +116,7 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) Decrypt(out []byte, private *
 	return -1, nil, errors.New("could not decrypt message")
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) encryptSlot(out []byte, private *PrivateKey[KEMPriv, SigPriv], pub *KEMPub, seed, dek *[32]byte) ([]byte, error) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) encryptSlot(out []byte, private *PrivateKey[KEMPriv, SigPriv], pub *KEMPub, seed, dek *[32]byte) ([]byte, error) {
 	var ss [32]byte
 	kemct := make([]byte, s.KEM.CiphertextSize())
 	if err := s.KEM.Encapsulate(&ss, kemct, pub, seed); err != nil {
@@ -131,7 +133,7 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) encryptSlot(out []byte, priva
 
 // decryptSlot attempts to use private to recover a shared secret from the KEM ciphertext.
 // if it is successful, the remaining message is interpretted as a sealed AEAD ciphertext, containing a signature and the main DEK.
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) decryptSlot(private *PrivateKey[KEMPriv, SigPriv], pubs []SigPub, ctext []byte) (int, *[32]byte, error) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) decryptSlot(private *PrivateKey[KEMPriv, SigPriv], pubs []SigPub, ctext []byte) (int, *[32]byte, error) {
 	kemCtext := ctext[:s.KEM.CiphertextSize()]
 	aeadCtext := ctext[s.KEM.CiphertextSize():]
 	var ss [32]byte
@@ -155,18 +157,18 @@ func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) decryptSlot(private *PrivateK
 	return -1, nil, errors.New("could not authenticate slot")
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) slotSize() int {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) slotSize() int {
 	const AEADKeySize = 32
 	return s.KEM.CiphertextSize() + s.Sign.SignatureSize() + AEADKeySize + s.AEAD.Overhead()
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) CiphertextSize(numParties, ptextLen int) int {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) CiphertextSize(numParties, ptextLen int) int {
 	slotsLen := numParties * s.slotSize()
 	mainLen := ptextLen + s.AEAD.Overhead()
 	return lpLen(slotsLen) + lpLen(mainLen)
 }
 
-func (s *Scheme[KEMPriv, KEMPub, SigPriv, SigPub]) PlaintextSize(ctext []byte) (int, error) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) PlaintextSize(ctext []byte) (int, error) {
 	m, err := ParseMessage(ctext)
 	if err != nil {
 		return 0, err
