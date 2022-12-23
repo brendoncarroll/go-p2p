@@ -31,12 +31,24 @@ type Scheme256[Private, Public any] interface {
 	// If ct is not == CiphertextSize(), then Encapsulate should return an error.
 	Decapsulate(ss *Secret256, priv *Private, ct []byte) error
 
+	PublicKeyScheme[Public]
+
+	CiphertextSize() int
+}
+
+type PublicKeyScheme[Public any] interface {
 	// MarshalPublic marshals pub and writes the bytes to dst.
 	// If len(dst) < PublicKeySize() then MarshalPublic panics
 	MarshalPublic(dst []byte, pub *Public)
 	// ParsePublic attempts to parse a public key from the input, and returns a public key or error.
 	ParsePublic([]byte) (Public, error)
-
+	// PublicKeySize returns the size of the public key
 	PublicKeySize() int
-	CiphertextSize() int
+}
+
+func AppendPublic[Public any](out []byte, s PublicKeyScheme[Public], pub *Public) []byte {
+	initLen := len(out)
+	out = append(out, make([]byte, s.PublicKeySize())...)
+	s.MarshalPublic(out[initLen:], pub)
+	return out
 }

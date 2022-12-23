@@ -1,34 +1,33 @@
-// package dhkem implements a Key Encapsulation Mechanism (kem.Scheme) in terms of a Diffie-Hellman Key Exchange (dhke.Scheme)
+// package dhkem implements a Key Encapsulation Mechanism (kem.Scheme256) in terms of a Diffie-Hellman Key Exchange (dhke.Scheme)
 package dhkem
 
 import (
 	"errors"
 	"io"
 
-	"golang.org/x/crypto/sha3"
-
 	"github.com/brendoncarroll/go-p2p/crypto/dhke"
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
+	"github.com/brendoncarroll/go-p2p/crypto/xof"
 )
 
-var _ kem.Scheme256[struct{}, struct{}] = Scheme256[struct{}, struct{}]{}
+var _ kem.Scheme256[struct{}, struct{}] = Scheme256[struct{}, struct{}, struct{}]{}
 
-type Scheme256[Private, Public any] struct {
-	DH dhke.Scheme[Private, Public]
+type Scheme256[Private, Public, XOF any] struct {
+	DH  dhke.Scheme[Private, Public]
+	XOF xof.Scheme[XOF]
 }
 
-func (s Scheme256[Private, Public]) Generate(rng io.Reader) (Public, Private, error) {
+func (s Scheme256[Private, Public, XOF]) Generate(rng io.Reader) (Public, Private, error) {
 	return s.DH.Generate(rng)
 }
 
-func (s Scheme256[Private, Public]) DerivePublic(priv *Private) Public {
+func (s Scheme256[Private, Public, XOF]) DerivePublic(priv *Private) Public {
 	return s.DH.DerivePublic(priv)
 }
 
-func (s Scheme256[Private, Public]) Encapsulate(ss *kem.Secret256, ctext []byte, pub *Public, seed *kem.Seed) error {
-	h := sha3.NewShake256()
-	h.Write(seed[:])
-	ePub, ePriv, err := s.DH.Generate(h)
+func (s Scheme256[Private, Public, XOF]) Encapsulate(ss *kem.Secret256, ctext []byte, pub *Public, seed *kem.Seed) error {
+	rng := xof.NewRand256[XOF](s.XOF, seed)
+	ePub, ePriv, err := s.DH.Generate(&rng)
 	if err != nil {
 		return err
 	}
@@ -40,11 +39,11 @@ func (s Scheme256[Private, Public]) Encapsulate(ss *kem.Secret256, ctext []byte,
 		return errors.New("len(dst) < CipherTextSize")
 	}
 	s.DH.MarshalPublic(ctext, &ePub)
-	sha3.ShakeSum256(ss[:], shared)
+	xof.Sum[XOF](s.XOF, ss[:], shared)
 	return nil
 }
 
-func (s Scheme256[Private, Public]) Decapsulate(ss *kem.Secret256, priv *Private, ctext []byte) error {
+func (s Scheme256[Private, Public, XOF]) Decapsulate(ss *kem.Secret256, priv *Private, ctext []byte) error {
 	ePub, err := s.DH.ParsePublic(ctext)
 	if err != nil {
 		return err
@@ -53,22 +52,22 @@ func (s Scheme256[Private, Public]) Decapsulate(ss *kem.Secret256, priv *Private
 	if err := s.DH.ComputeShared(shared, priv, &ePub); err != nil {
 		return err
 	}
-	sha3.ShakeSum256(ss[:], shared)
+	xof.Sum[XOF](s.XOF, ss[:], shared)
 	return nil
 }
 
-func (s Scheme256[Private, Public]) MarshalPublic(dst []byte, x *Public) {
+func (s Scheme256[Private, Public, XOF]) MarshalPublic(dst []byte, x *Public) {
 	s.DH.MarshalPublic(dst, x)
 }
 
-func (s Scheme256[Private, Public]) ParsePublic(x []byte) (Public, error) {
+func (s Scheme256[Private, Public, XOF]) ParsePublic(x []byte) (Public, error) {
 	return s.DH.ParsePublic(x)
 }
 
-func (s Scheme256[Private, Public]) PublicKeySize() int {
+func (s Scheme256[Private, Public, XOF]) PublicKeySize() int {
 	return s.DH.PublicKeySize()
 }
 
-func (s Scheme256[Private, Public]) CiphertextSize() int {
+func (s Scheme256[Private, Public, XOF]) CiphertextSize() int {
 	return s.DH.PublicKeySize()
 }

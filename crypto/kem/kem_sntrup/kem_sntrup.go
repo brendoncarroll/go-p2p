@@ -6,14 +6,21 @@ import (
 	"io"
 
 	ntru "github.com/companyzero/sntrup4591761"
-	"golang.org/x/crypto/sha3"
 
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
+	"github.com/brendoncarroll/go-p2p/crypto/xof"
+	"github.com/brendoncarroll/go-p2p/crypto/xof/xof_sha3"
 )
 
 type (
 	PrivateKey4591761 = ntru.PrivateKey
 	PublicKey4591761  = ntru.PublicKey
+	Ciphertext        = ntru.Ciphertext
+)
+
+const (
+	PublicKeySize  = ntru.PublicKeySize
+	CiphertextSize = ntru.CiphertextSize
 )
 
 var _ kem.Scheme256[PrivateKey4591761, PublicKey4591761] = Scheme4591761{}
@@ -38,9 +45,9 @@ func (s Scheme4591761) DerivePublic(priv *PrivateKey4591761) (pub PublicKey45917
 }
 
 func (s Scheme4591761) Encapsulate(ss *kem.Secret256, ctext []byte, pk *PublicKey4591761, seed *kem.Seed) error {
-	h := sha3.NewShake256()
-	h.Write(seed[:])
-	ct, shared, err := ntru.Encapsulate(h, pk)
+	xofScheme := xof_sha3.SHAKE256{}
+	rng := xof.NewRand256[xof_sha3.SHAKE256State](xofScheme, seed)
+	ct, shared, err := ntru.Encapsulate(&rng, pk)
 	if err != nil {
 		return err
 	}
@@ -53,7 +60,7 @@ func (s Scheme4591761) Encapsulate(ss *kem.Secret256, ctext []byte, pk *PublicKe
 }
 
 func (s Scheme4591761) Decapsulate(ss *kem.Secret256, priv *PrivateKey4591761, ctext []byte) error {
-	shared, ec := ntru.Decapsulate((*ntru.Ciphertext)(ctext), priv)
+	shared, ec := ntru.Decapsulate((*Ciphertext)(ctext), priv)
 	if ec == 0 {
 		return errors.New("ciphertext is invalid")
 	}
@@ -76,9 +83,9 @@ func (s Scheme4591761) ParsePublic(x []byte) (PublicKey4591761, error) {
 }
 
 func (s Scheme4591761) PublicKeySize() int {
-	return ntru.PublicKeySize
+	return PublicKeySize
 }
 
 func (s Scheme4591761) CiphertextSize() int {
-	return ntru.CiphertextSize
+	return CiphertextSize
 }
