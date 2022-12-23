@@ -53,3 +53,11 @@ type PublicKeyScheme[Public any] interface {
 	// PublicKeySize returns the size of a public key
 	PublicKeySize() int
 }
+
+// AppendPublicKey appends the marshaled form of pub to out, using sch to marshal the public key.
+func AppendPublicKey[Public any](out []byte, sch PublicKeyScheme[Public], pub *Public) []byte {
+	initLen := len(out)
+	out = append(out, make([]byte, sch.PublicKeySize())...)
+	sch.MarshalPublic(out[initLen:], pub)
+	return out
+}

@@ -20,17 +20,13 @@ func Sum[S any](sch Scheme[S], dst []byte, in []byte) {
 
 // Sum256 is a convenience function for reading 256 bits of output from an XOF.
 func Sum256[S any](sch Scheme[S], in []byte) (ret [32]byte) {
-	x := sch.New()
-	sch.Absorb(&x, in)
-	sch.Expand(&x, ret[:])
+	Sum(sch, ret[:], in)
 	return ret
 }
 
 // Sum512 is a convenience function for reading 512 bits of output from an XOF.
 func Sum512[S any](sch Scheme[S], in []byte) (ret [64]byte) {
-	x := sch.New()
-	sch.Absorb(&x, in)
-	sch.Expand(&x, ret[:])
+	Sum(sch, ret[:], in)
 	return ret
 }
 

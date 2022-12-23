@@ -51,6 +51,13 @@ A tracker for announcing and looking up peer addresses.
 Works on top of any cell.
 A default client and server implementation are provided.
 
+### F is for Formats
+Formats are just protocols that send/write once and receive/read many times.
+
+- **x509**
+Deals with the formats in the x509 public key infrastructure.
+
+
 ### S is for Swarm
 
 - **In-Memory Swarm**
