@@ -25,6 +25,10 @@ func (s Purpose[Private, Public]) Sign(dst []byte, priv *Private, msg []byte) {
 	s.Scheme.Sign(dst, priv, msg2[:])
 }
 
+func (s Purpose[Private, Public]) Sign512(dst []byte, priv *Private, input *Input512) {
+	s.Sign(dst, priv, input[:])
+}
+
 func (s Purpose[Private, Public]) Verify(pub *Public, sig, msg []byte) bool {
 	var msg2 [64]byte
 	xof := makeXOF(s.Purpose, msg)
@@ -32,6 +36,10 @@ func (s Purpose[Private, Public]) Verify(pub *Public, sig, msg []byte) bool {
 		panic(err)
 	}
 	return s.Scheme.Verify(pub, sig, msg2[:])
+}
+
+func (s Purpose[Private, Public]) Verify512(pub *Public, sig []byte, input *Input512) bool {
+	return s.Scheme.Verify(pub, sig, input[:])
 }
 
 func makeXOF(purpose string, data []byte) sha3.ShakeHash {
