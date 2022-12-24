@@ -35,4 +35,18 @@ func TestScheme[Priv, Pub any](t *testing.T, scheme Scheme[Priv, Pub]) {
 		require.NoError(t, err)
 		require.Equal(t, pub, pub2)
 	})
+	t.Run("SignVerify", func(*testing.T) {
+		pub, priv := generate(0)
+		sig := make([]byte, scheme.SignatureSize())
+		input := []byte("hello world")
+		scheme.Sign(sig, &priv, input)
+		require.True(t, scheme.Verify(&pub, input, sig))
+
+		badSig := append([]byte{}, sig...)
+		badSig[0] ^= 1
+		require.False(t, scheme.Verify(&pub, input, badSig))
+
+		input2 := []byte("wrong input")
+		require.False(t, scheme.Verify(&pub, input2, sig))
+	})
 }

@@ -42,6 +42,8 @@ type Scheme512[Private, Public any] interface {
 	Verify512(pub *Public, input *Input512, sig []byte) bool
 	// SignatureSize returns the size of a public key
 	SignatureSize() int
+
+	PublicKeyScheme[Public]
 }
 
 type PublicKeyScheme[Public any] interface {

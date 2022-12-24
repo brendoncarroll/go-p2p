@@ -23,7 +23,7 @@ func TestSigned(t *testing.T) {
 }
 
 func newTestCell(t testing.TB) *Cell[sig_ed25519.PrivateKey, sig_ed25519.PublicKey] {
-	s := sig_ed25519.Ed25519{}
+	s := sig_ed25519.Scheme{}
 	pub, priv, err := s.Generate(rand.Reader)
 	require.NoError(t, err)
 	return New[sig_ed25519.PrivateKey, sig_ed25519.PublicKey](cells.NewMem(defaultSize), s, &priv, []sig_ed25519.PublicKey{pub})

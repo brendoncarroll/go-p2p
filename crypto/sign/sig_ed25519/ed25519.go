@@ -13,15 +13,15 @@ type (
 	PublicKey  = [ed25519.PublicKeySize]byte
 )
 
-var _ sign.Scheme[PrivateKey, PublicKey] = Ed25519{}
+var _ sign.Scheme[PrivateKey, PublicKey] = Scheme{}
 
-type Ed25519 struct{}
+type Scheme struct{}
 
-func New() Ed25519 {
-	return Ed25519{}
+func New() Scheme {
+	return Scheme{}
 }
 
-func (s Ed25519) Generate(rng io.Reader) (retPub PublicKey, retPriv PrivateKey, _ error) {
+func (s Scheme) Generate(rng io.Reader) (retPub PublicKey, retPriv PrivateKey, _ error) {
 	pub, priv, err := ed25519.GenerateKey(rng)
 	if err != nil {
 		return retPub, retPriv, err
@@ -31,13 +31,13 @@ func (s Ed25519) Generate(rng io.Reader) (retPub PublicKey, retPriv PrivateKey, 
 	return retPub, retPriv, nil
 }
 
-func (s Ed25519) DerivePublic(priv *PrivateKey) (ret PublicKey) {
+func (s Scheme) DerivePublic(priv *PrivateKey) (ret PublicKey) {
 	priv2 := ed25519.PrivateKey(priv[:])
 	copy(ret[:], priv2.Public().(ed25519.PublicKey))
 	return ret
 }
 
-func (s Ed25519) Sign(dst []byte, priv *PrivateKey, msg []byte) {
+func (s Scheme) Sign(dst []byte, priv *PrivateKey, msg []byte) {
 	sig := ed25519.Sign(priv[:], msg)
 	if len(dst) != len(sig) {
 		panic(len(dst))
@@ -45,28 +45,36 @@ func (s Ed25519) Sign(dst []byte, priv *PrivateKey, msg []byte) {
 	copy(dst, sig)
 }
 
-func (s Ed25519) Verify(pub *PublicKey, msg, sig []byte) bool {
+func (s Scheme) Sign512(dst []byte, priv *PrivateKey, input *sign.Input512) {
+	s.Sign(dst, priv, input[:])
+}
+
+func (s Scheme) Verify(pub *PublicKey, msg, sig []byte) bool {
 	return ed25519.Verify(pub[:], msg, sig)
 }
 
-func (s Ed25519) MarshalPublic(dst []byte, pub *PublicKey) {
+func (s Scheme) Verify512(pub *PublicKey, input *sign.Input512, sig []byte) bool {
+	return s.Verify(pub, input[:], sig)
+}
+
+func (s Scheme) MarshalPublic(dst []byte, pub *PublicKey) {
 	if len(dst) < s.PublicKeySize() {
 		panic(fmt.Sprintf("len(dst) < %d", s.PublicKeySize()))
 	}
 	copy(dst[:], pub[:])
 }
 
-func (s Ed25519) ParsePublic(x []byte) (PublicKey, error) {
+func (s Scheme) ParsePublic(x []byte) (PublicKey, error) {
 	if len(x) != ed25519.PublicKeySize {
 		return PublicKey{}, fmt.Errorf("incorrect size for public key")
 	}
 	return *(*PublicKey)(x), nil
 }
 
-func (s Ed25519) PublicKeySize() int {
+func (s Scheme) PublicKeySize() int {
 	return ed25519.PublicKeySize
 }
 
-func (s Ed25519) SignatureSize() int {
+func (s Scheme) SignatureSize() int {
 	return ed25519.SignatureSize
 }
