@@ -8,19 +8,19 @@ import (
 )
 
 func NewUint32Mux[A p2p.Addr](x p2p.Swarm[A]) Mux[A, uint32] {
-	return mux[A, uint32]{newMuxCore(ctx, x, uint32MuxFunc, uint32DemuxFunc)}
+	return mux[A, uint32]{newMuxCore[A, uint32, struct{}](ctx, x, uint32MuxFunc, uint32DemuxFunc)}
 }
 
 func NewUint32AskMux[A p2p.Addr](x p2p.Swarm[A]) AskMux[A, uint32] {
-	return askMux[A, uint32]{newMuxCore(ctx, x, uint32MuxFunc, uint32DemuxFunc)}
+	return askMux[A, uint32]{newMuxCore[A, uint32, struct{}](ctx, x, uint32MuxFunc, uint32DemuxFunc)}
 }
 
-func NewUint32SecureMux[A p2p.Addr](x p2p.Swarm[A]) SecureMux[A, uint32] {
-	return secureMux[A, uint32]{newMuxCore(ctx, x, uint32MuxFunc, uint32DemuxFunc)}
+func NewUint32SecureMux[A p2p.Addr, Pub any](x p2p.Swarm[A]) SecureMux[A, uint32, Pub] {
+	return secureMux[A, uint32, Pub]{newMuxCore[A, uint32, Pub](ctx, x, uint32MuxFunc, uint32DemuxFunc)}
 }
 
-func NewUint32SecureAskMux[A p2p.Addr](x p2p.Swarm[A]) SecureAskMux[A, uint32] {
-	return secureAskMux[A, uint32]{newMuxCore(ctx, x, uint32MuxFunc, uint32DemuxFunc)}
+func NewUint32SecureAskMux[A p2p.Addr, Pub any](x p2p.Swarm[A]) SecureAskMux[A, uint32, Pub] {
+	return secureAskMux[A, uint32, Pub]{newMuxCore[A, uint32, Pub](ctx, x, uint32MuxFunc, uint32DemuxFunc)}
 }
 
 func uint32MuxFunc(c uint32, x p2p.IOVec) p2p.IOVec {

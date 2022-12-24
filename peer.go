@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 
 	"github.com/pkg/errors"
-	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -20,15 +19,7 @@ const (
 type PeerID [32]byte
 
 // Fingerprinter is the type of functions which create PeerIDs from PublicKeys
-type Fingerprinter func(PublicKey) PeerID
-
-// DefaultFingerprinter is a Fingerprinter
-func DefaultFingerprinter(pubKey PublicKey) PeerID {
-	data := MarshalPublicKey(pubKey)
-	id := PeerID{}
-	sha3.ShakeSum256(id[:], data)
-	return id
-}
+type Fingerprinter[PublicKey any] func(PublicKey) PeerID
 
 func (pid PeerID) String() string {
 	return pid.Base64String()

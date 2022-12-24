@@ -17,7 +17,7 @@ func WithWhilelist[T p2p.Addr](f func(p2p.Addr) bool) Option[T] {
 	}
 }
 
-func WithFingerprinter[T p2p.Addr](fp p2p.Fingerprinter) Option[T] {
+func WithFingerprinter[T p2p.Addr](fp Fingerprinter) Option[T] {
 	return func(s *Swarm[T]) {
 		s.fingerprinter = fp
 	}

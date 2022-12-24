@@ -21,9 +21,9 @@ func New[A p2p.Addr](x p2p.Swarm[A], mtu int) p2p.Swarm[A] {
 	return newSwarm[A](x, mtu)
 }
 
-func NewSecure[A p2p.Addr](x p2p.SecureSwarm[A], mtu int) p2p.SecureSwarm[A] {
+func NewSecure[A p2p.Addr, Pub any](x p2p.SecureSwarm[A, Pub], mtu int) p2p.SecureSwarm[A, Pub] {
 	y := newSwarm[A](x, mtu)
-	return p2p.ComposeSecureSwarm[A](y, x)
+	return p2p.ComposeSecureSwarm[A, Pub](y, x)
 }
 
 type swarm[A p2p.Addr] struct {

@@ -58,7 +58,7 @@ func NewSchemaFromSwarms(sws map[string]DynSwarm) AddrSchema {
 	}
 }
 
-func NewSchemaFromSecureSwarms(sws map[string]DynSecureSwarm) AddrSchema {
+func NewSchemaFromSecureSwarms[Pub any](sws map[string]DynSecureSwarm[Pub]) AddrSchema {
 	sws2 := make(map[string]DynSwarm, len(sws))
 	for k, v := range sws {
 		sws2[k] = v

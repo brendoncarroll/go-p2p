@@ -10,10 +10,10 @@ func New[Above, Below p2p.Addr](x p2p.Swarm[Below], downward func(Above) Below, 
 	return newSwarm(x, downward, upward, parser)
 }
 
-func NewSecure[Above, Below p2p.Addr](x p2p.SecureSwarm[Below], downward func(Above) Below, upward func(Below) Above, parser p2p.AddrParser[Above]) p2p.SecureSwarm[Above] {
-	return p2p.ComposeSecureSwarm[Above](
+func NewSecure[Above, Below p2p.Addr, Public any](x p2p.SecureSwarm[Below, Public], downward func(Above) Below, upward func(Below) Above, parser p2p.AddrParser[Above]) p2p.SecureSwarm[Above, Public] {
+	return p2p.ComposeSecureSwarm[Above, Public](
 		newSwarm[Above, Below](x, downward, upward, parser),
-		newSecure[Above, Below](x, downward),
+		newSecure[Above, Below, Public](x, downward),
 	)
 }
 
@@ -64,18 +64,18 @@ func (s *swarm[Above, Below]) ParseAddr(data []byte) (Above, error) {
 	return s.parseAddr(data)
 }
 
-type secure[Above, Below p2p.Addr] struct {
-	p2p.Secure[Below]
+type secure[Above, Below p2p.Addr, Public any] struct {
+	p2p.Secure[Below, Public]
 	downward func(Above) Below
 }
 
-func newSecure[Above, Below p2p.Addr](x p2p.Secure[Below], downward func(Above) Below) secure[Above, Below] {
-	return secure[Above, Below]{
+func newSecure[Above, Below p2p.Addr, Public any](x p2p.Secure[Below, Public], downward func(Above) Below) secure[Above, Below, Public] {
+	return secure[Above, Below, Public]{
 		Secure:   x,
 		downward: downward,
 	}
 }
 
-func (s secure[Above, Below]) LookupPublicKey(ctx context.Context, addr Above) (p2p.PublicKey, error) {
+func (s secure[Above, Below, Public]) LookupPublicKey(ctx context.Context, addr Above) (Public, error) {
 	return s.Secure.LookupPublicKey(ctx, s.downward(addr))
 }

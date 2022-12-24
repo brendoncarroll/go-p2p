@@ -6,12 +6,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/pkg/errors"
-	"golang.org/x/exp/slog"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 )
 
 var disableFastPath bool
@@ -21,10 +21,9 @@ const (
 	maxAskWait = 30 * time.Second
 )
 
-type Swarm[A p2p.Addr] struct {
-	inner      p2p.SecureSwarm[A]
+type Swarm[A p2p.Addr, Pub any] struct {
+	inner      p2p.SecureSwarm[A, Pub]
 	mtu        int
-	log        slog.Logger
 	numWorkers int
 
 	cf        context.CancelFunc
@@ -35,7 +34,7 @@ type Swarm[A p2p.Addr] struct {
 	asks      *swarmutil.AskHub[A]
 }
 
-func New[A p2p.Addr](x p2p.SecureSwarm[A], mtu int, opts ...Option) *Swarm[A] {
+func New[A p2p.Addr, Pub any](x p2p.SecureSwarm[A, Pub], mtu int, opts ...Option) *Swarm[A, Pub] {
 	config := swarmConfig{
 		bgCtx:      context.Background(),
 		numWorkers: runtime.GOMAXPROCS(0),
@@ -45,7 +44,7 @@ func New[A p2p.Addr](x p2p.SecureSwarm[A], mtu int, opts ...Option) *Swarm[A] {
 	}
 	ctx := config.bgCtx
 	ctx, cf := context.WithCancel(ctx)
-	s := &Swarm[A]{
+	s := &Swarm[A, Pub]{
 		inner:      x,
 		mtu:        mtu,
 		numWorkers: config.numWorkers,
@@ -60,7 +59,7 @@ func New[A p2p.Addr](x p2p.SecureSwarm[A], mtu int, opts ...Option) *Swarm[A] {
 	return s
 }
 
-func (s *Swarm[A]) Ask(ctx context.Context, resp []byte, dst A, req p2p.IOVec) (int, error) {
+func (s *Swarm[A, Pub]) Ask(ctx context.Context, resp []byte, dst A, req p2p.IOVec) (int, error) {
 	ctx, cf := context.WithTimeout(ctx, maxAskWait)
 	defer cf()
 	if p2p.VecSize(req) > s.mtu {
@@ -100,7 +99,7 @@ func (s *Swarm[A]) Ask(ctx context.Context, resp []byte, dst A, req p2p.IOVec) (
 	return ask.n, nil
 }
 
-func (s *Swarm[A]) Tell(ctx context.Context, dst A, msg p2p.IOVec) error {
+func (s *Swarm[A, Pub]) Tell(ctx context.Context, dst A, msg p2p.IOVec) error {
 	if p2p.VecSize(msg) > s.mtu {
 		return p2p.ErrMTUExceeded
 	}
@@ -114,46 +113,46 @@ func (s *Swarm[A]) Tell(ctx context.Context, dst A, msg p2p.IOVec) error {
 	})
 }
 
-func (s *Swarm[A]) Receive(ctx context.Context, th func(p2p.Message[A])) error {
+func (s *Swarm[A, Pub]) Receive(ctx context.Context, th func(p2p.Message[A])) error {
 	return s.tells.Receive(ctx, th)
 }
 
-func (s *Swarm[A]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[A]) int) error {
+func (s *Swarm[A, Pub]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[A]) int) error {
 	return s.asks.ServeAsk(ctx, fn)
 }
 
-func (s *Swarm[A]) Close() error {
+func (s *Swarm[A, Pub]) Close() error {
 	s.fragLayer.Close()
 	s.asks.CloseWithError(p2p.ErrClosed)
 	s.tells.CloseWithError(p2p.ErrClosed)
 	return s.inner.Close()
 }
 
-func (s *Swarm[A]) LocalAddrs() []A {
+func (s *Swarm[A, Pub]) LocalAddrs() []A {
 	return s.inner.LocalAddrs()
 }
 
-func (s *Swarm[A]) PublicKey() p2p.PublicKey {
-	return s.inner.PublicKey
+func (s *Swarm[A, Pub]) PublicKey() Pub {
+	return s.inner.PublicKey()
 }
 
-func (s *Swarm[A]) LookupPublicKey(ctx context.Context, x A) (p2p.PublicKey, error) {
+func (s *Swarm[A, Pub]) LookupPublicKey(ctx context.Context, x A) (Pub, error) {
 	return s.inner.LookupPublicKey(ctx, x)
 }
 
-func (s *Swarm[A]) MTU(ctx context.Context, target A) int {
+func (s *Swarm[A, Pub]) MTU(ctx context.Context, target A) int {
 	return s.mtu
 }
 
-func (s *Swarm[A]) MaxIncomingSize() int {
+func (s *Swarm[A, Pub]) MaxIncomingSize() int {
 	return s.mtu
 }
 
-func (s *Swarm[A]) ParseAddr(x []byte) (A, error) {
+func (s *Swarm[A, Pub]) ParseAddr(x []byte) (A, error) {
 	return s.inner.ParseAddr(x)
 }
 
-func (s *Swarm[A]) recvLoops(ctx context.Context, n int) error {
+func (s *Swarm[A, Pub]) recvLoops(ctx context.Context, n int) error {
 	eg := errgroup.Group{}
 	for i := 0; i < n; i++ {
 		eg.Go(func() error {
@@ -163,7 +162,7 @@ func (s *Swarm[A]) recvLoops(ctx context.Context, n int) error {
 	return eg.Wait()
 }
 
-func (s *Swarm[A]) recvLoop(ctx context.Context) error {
+func (s *Swarm[A, Pub]) recvLoop(ctx context.Context) error {
 	var m p2p.Message[A]
 	for {
 		if err := p2p.Receive[A](ctx, s.inner, &m); err != nil {
@@ -175,7 +174,7 @@ func (s *Swarm[A]) recvLoop(ctx context.Context) error {
 	}
 }
 
-func (s *Swarm[A]) handleMessage(ctx context.Context, src, dst A, data []byte) error {
+func (s *Swarm[A, Pub]) handleMessage(ctx context.Context, src, dst A, data []byte) error {
 	hdr, body, err := ParseMessage(data)
 	if err != nil {
 		return err
@@ -204,7 +203,7 @@ func (s *Swarm[A]) handleMessage(ctx context.Context, src, dst A, data []byte) e
 	})
 }
 
-func (s *Swarm[A]) handleTell(ctx context.Context, src, dst A, body []byte) error {
+func (s *Swarm[A, Pub]) handleTell(ctx context.Context, src, dst A, body []byte) error {
 	return s.tells.Deliver(ctx, p2p.Message[A]{
 		Src:     src,
 		Dst:     dst,
@@ -212,7 +211,7 @@ func (s *Swarm[A]) handleTell(ctx context.Context, src, dst A, body []byte) erro
 	})
 }
 
-func (s *Swarm[A]) handleAskRequest(ctx context.Context, src, dst A, id GroupID, body []byte) error {
+func (s *Swarm[A, Pub]) handleAskRequest(ctx context.Context, src, dst A, id GroupID, body []byte) error {
 	respBuf := make([]byte, s.mtu)
 	n, err := s.asks.Deliver(ctx, respBuf, p2p.Message[A]{
 		Src:     src,
@@ -233,7 +232,7 @@ func (s *Swarm[A]) handleAskRequest(ctx context.Context, src, dst A, id GroupID,
 	})
 }
 
-func (s *Swarm[A]) handleAskReply(ctx context.Context, src, dst A, id GroupID, errCode uint8, body []byte) error {
+func (s *Swarm[A, Pub]) handleAskReply(ctx context.Context, src, dst A, id GroupID, errCode uint8, body []byte) error {
 	ask := s.asker.getAndRemoveAsk(askID{
 		GroupID: id,
 		Addr:    src.String(),
@@ -256,7 +255,7 @@ type sendParams struct {
 	m p2p.IOVec
 }
 
-func (s *Swarm[A]) send(ctx context.Context, dst A, params sendParams) error {
+func (s *Swarm[A, Pub]) send(ctx context.Context, dst A, params sendParams) error {
 	hdrBuf := [HeaderSize]byte{}
 	hdr := Header(hdrBuf[:])
 	hdr.SetIsAsk(params.isAsk)
@@ -304,11 +303,11 @@ func (s *Swarm[A]) send(ctx context.Context, dst A, params sendParams) error {
 	return eg.Wait()
 }
 
-func (s *Swarm[A]) getCounter() uint32 {
+func (s *Swarm[A, Pub]) getCounter() uint32 {
 	return atomic.AddUint32(&s.counter, 1)
 }
 
-func (s *Swarm[A]) getTime() PhaseTime32 {
+func (s *Swarm[A, Pub]) getTime() PhaseTime32 {
 	return NewPhaseTime32(time.Now().UTC(), time.Millisecond)
 }
 

@@ -15,27 +15,27 @@ var (
 )
 
 type (
-	DynSwarm          p2p.Swarm[p2p.Addr]
-	DynSecureSwarm    p2p.SecureSwarm[p2p.Addr]
-	DynSecureAskSwarm p2p.SecureAskSwarm[p2p.Addr]
+	DynSwarm                   p2p.Swarm[p2p.Addr]
+	DynSecureSwarm[Pub any]    p2p.SecureSwarm[p2p.Addr, Pub]
+	DynSecureAskSwarm[Pub any] p2p.SecureAskSwarm[p2p.Addr, Pub]
 )
 
 func WrapSwarm[T p2p.Addr](x p2p.Swarm[T]) DynSwarm {
 	return dynSwarm[T]{swarm: x}
 }
 
-func WrapSecureSwarm[T p2p.Addr](x p2p.SecureSwarm[T]) DynSecureSwarm {
-	return p2p.ComposeSecureSwarm[p2p.Addr](
+func WrapSecureSwarm[T p2p.Addr, Pub any](x p2p.SecureSwarm[T, Pub]) DynSecureSwarm[Pub] {
+	return p2p.ComposeSecureSwarm[p2p.Addr, Pub](
 		dynSwarm[T]{swarm: x},
-		dynSecure[T]{secure: x},
+		dynSecure[T, Pub]{secure: x},
 	)
 }
 
-func WrapSecureAskSwarm[T p2p.Addr](x p2p.SecureAskSwarm[T]) DynSecureAskSwarm {
-	return p2p.ComposeSecureAskSwarm[p2p.Addr](
+func WrapSecureAskSwarm[T p2p.Addr, Pub any](x p2p.SecureAskSwarm[T, Pub]) DynSecureAskSwarm[Pub] {
+	return p2p.ComposeSecureAskSwarm[p2p.Addr, Pub](
 		dynSwarm[T]{swarm: x},
 		dynAsker[T]{asker: x},
-		dynSecure[T]{secure: x},
+		dynSecure[T, Pub]{secure: x},
 	)
 }
 
@@ -47,20 +47,20 @@ func New(m map[string]DynSwarm) p2p.Swarm[Addr] {
 	return ms
 }
 
-func NewSecure(m map[string]DynSecureSwarm) p2p.SecureSwarm[Addr] {
+func NewSecure[Pub any](m map[string]DynSecureSwarm[Pub]) p2p.SecureSwarm[Addr, Pub] {
 	ms := newMultiSwarm(convertSecure(m))
-	msec := multiSecure{}
+	msec := multiSecure[Pub]{}
 	for name, s := range m {
 		msec[name] = s
 	}
 	go ms.recvLoops(context.Background())
-	return p2p.ComposeSecureSwarm[Addr](ms, msec)
+	return p2p.ComposeSecureSwarm[Addr, Pub](ms, msec)
 }
 
-func NewSecureAsk(m map[string]DynSecureAskSwarm) p2p.SecureAskSwarm[Addr] {
+func NewSecureAsk[Pub any](m map[string]DynSecureAskSwarm[Pub]) p2p.SecureAskSwarm[Addr, Pub] {
 	ms := newMultiSwarm(convertSecureAsk(m))
 	ma := newMultiAsker(map[string]p2p.Asker[p2p.Addr]{})
-	msec := multiSecure{}
+	msec := multiSecure[Pub]{}
 
 	for name, s := range m {
 		ma.swarms[name] = s
@@ -73,7 +73,7 @@ func NewSecureAsk(m map[string]DynSecureAskSwarm) p2p.SecureAskSwarm[Addr] {
 			logctx.Errorln(ctx, err)
 		}
 	}()
-	return p2p.ComposeSecureAskSwarm[Addr](ms, ma, msec)
+	return p2p.ComposeSecureAskSwarm[Addr, Pub](ms, ma, msec)
 }
 
 type multiSwarm struct {
@@ -235,24 +235,25 @@ func (ma multiAsker) serveLoops(ctx context.Context) error {
 	return eg.Wait()
 }
 
-type multiSecure map[string]p2p.Secure[p2p.Addr]
+type multiSecure[Pub any] map[string]p2p.Secure[p2p.Addr, Pub]
 
-func (ms multiSecure) PublicKey() p2p.PublicKey {
+func (ms multiSecure[Pub]) PublicKey() (ret Pub) {
 	for _, s := range ms {
 		return s.PublicKey()
 	}
-	return nil
+	return ret
 }
 
-func (ms multiSecure) LookupPublicKey(ctx context.Context, a Addr) (p2p.PublicKey, error) {
+func (ms multiSecure[Pub]) LookupPublicKey(ctx context.Context, a Addr) (Pub, error) {
 	t, ok := ms[a.Scheme]
 	if !ok {
-		return nil, errors.Errorf("invalid transport: %s", a.Scheme)
+		var zero Pub
+		return zero, errors.Errorf("invalid transport: %s", a.Scheme)
 	}
 	return t.LookupPublicKey(ctx, a.Addr)
 }
 
-func convertSecure(x map[string]DynSecureSwarm) map[string]DynSwarm {
+func convertSecure[Pub any](x map[string]DynSecureSwarm[Pub]) map[string]DynSwarm {
 	y := make(map[string]DynSwarm)
 	for k, v := range x {
 		y[k] = v
@@ -260,7 +261,7 @@ func convertSecure(x map[string]DynSecureSwarm) map[string]DynSwarm {
 	return y
 }
 
-func convertSecureAsk(x map[string]DynSecureAskSwarm) map[string]DynSwarm {
+func convertSecureAsk[Pub any](x map[string]DynSecureAskSwarm[Pub]) map[string]DynSwarm {
 	y := make(map[string]DynSwarm)
 	for k, v := range x {
 		y[k] = v

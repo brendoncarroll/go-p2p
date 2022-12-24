@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/f/x509"
 	"github.com/brendoncarroll/go-tai64"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/blake2b"
@@ -18,15 +19,16 @@ import (
 type SendFunc func([]byte)
 
 type ChannelConfig struct {
+	Registry x509.Registry
 	// PrivateKey is the signing key used to prove identity to the other party in the channel.
 	// *REQUIRED*
-	PrivateKey p2p.PrivateKey
+	PrivateKey x509.PrivateKey
 	// Send is used to send p2pke protocol messages including ciphertexts and handshake messages.
 	// *REQUIRED*
 	Send SendFunc
 	// AcceptKey is used to check if a key is allowed before connecting
 	// *REQUIRED*.
-	AcceptKey func(p2p.PublicKey) bool
+	AcceptKey func(x509.PublicKey) bool
 	// Logger is used for logging, nil disables logs.
 	Logger *slog.Logger
 
@@ -51,7 +53,7 @@ type Channel struct {
 	// previous and current are always ready s.IsReady() == true, next is always not ready s.IsReady() == false.
 	// Once next becomes ready it immediately becomes current, the old current becomes previous, and the old previous is discarded.
 	sessions        [3]sessionEntry
-	remoteKey       p2p.PublicKey
+	remoteKey       x509.PublicKey
 	remoteTimestamp tai64.TAI64N
 	// ready is closed, and reset whenever the current session changes.
 	ready chan struct{}
@@ -65,8 +67,8 @@ type Channel struct {
 }
 
 func NewChannel(params ChannelConfig) *Channel {
-	if params.PrivateKey == nil {
-		panic("PrivateKey must be set")
+	if params.Registry == nil {
+		params.Registry = x509.DefaultRegistry()
 	}
 	if params.Send == nil {
 		panic("Send must be set")
@@ -201,13 +203,13 @@ func (c *Channel) Close() error {
 
 // LocalKey returns the public key used by the local party to authenticate.
 // It will correspond to the private key passed to NewChannel.
-func (c *Channel) LocalKey() p2p.PublicKey {
+func (c *Channel) LocalKey() x509.PublicKey {
 	return c.params.PrivateKey.Public()
 }
 
 // RemoteKey returns the public key used by the remote party to authenticate.
 // It can be nil, if there has been no successful handshake.
-func (c *Channel) RemoteKey() p2p.PublicKey {
+func (c *Channel) RemoteKey() x509.PublicKey {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.remoteKey

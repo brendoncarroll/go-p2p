@@ -20,12 +20,8 @@ type Addr struct {
 	Port        uint16
 }
 
-func NewAddr(publicKey p2p.PublicKey, host string, port int) *Addr {
-	pubKey, err := ssh.NewPublicKey(publicKey)
-	if err != nil {
-		panic(err)
-	}
-	id := ssh.FingerprintSHA256(pubKey)
+func NewAddr(publicKey PublicKey, host string, port int) *Addr {
+	id := ssh.FingerprintSHA256(publicKey)
 	ipAddr, err := net.ResolveIPAddr("tcp", host)
 	if err != nil {
 		panic(err)

@@ -202,7 +202,7 @@ func CloseAskSwarms[A p2p.Addr](t testing.TB, xs []p2p.AskSwarm[A]) {
 	}
 }
 
-func CloseSecureSwarms[A p2p.Addr](t testing.TB, xs []p2p.SecureSwarm[A]) {
+func CloseSecureSwarms[A p2p.Addr, Pub any](t testing.TB, xs []p2p.SecureSwarm[A, Pub]) {
 	for i := range xs {
 		require.NoError(t, xs[i].Close())
 	}

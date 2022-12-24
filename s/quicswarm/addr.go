@@ -5,9 +5,18 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/sha3"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/f/x509"
 )
+
+type Fingerprinter = func(PublicKey) p2p.PeerID
+
+func DefaultFingerprinter(x PublicKey) p2p.PeerID {
+	data := x509.MarshalPublicKey(nil, &x)
+	return sha3.Sum256(data)
+}
 
 type Addr[T p2p.Addr] struct {
 	ID   p2p.PeerID

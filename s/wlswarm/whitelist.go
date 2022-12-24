@@ -11,39 +11,39 @@ import (
 
 type AllowFunc[A p2p.Addr] func(addr A) bool
 
-type swarm[A p2p.Addr] struct {
-	p2p.SecureSwarm[A]
+type swarm[A p2p.Addr, Pub any] struct {
+	p2p.SecureSwarm[A, Pub]
 	af  AllowFunc[A]
 	log *slog.Logger
 }
 
-func WrapSecureAsk[A p2p.Addr](x p2p.SecureAskSwarm[A], af AllowFunc[A]) p2p.SecureAskSwarm[A] {
+func WrapSecureAsk[A p2p.Addr, Pub any](x p2p.SecureAskSwarm[A, Pub], af AllowFunc[A]) p2p.SecureAskSwarm[A, Pub] {
 	log := slog.New(slog.NewTextHandler(io.Discard))
-	swarm := &swarm[A]{x, af, log}
-	asker := &asker[A]{x, af, log}
-	return p2p.ComposeSecureAskSwarm[A](swarm, asker, swarm)
+	swarm := &swarm[A, Pub]{x, af, log}
+	asker := &asker[A, Pub]{x, af, log}
+	return p2p.ComposeSecureAskSwarm[A, Pub](swarm, asker, swarm)
 }
 
-func WrapSecure[A p2p.Addr](x p2p.SecureSwarm[A], af AllowFunc[A]) p2p.SecureSwarm[A] {
+func WrapSecure[A p2p.Addr, Pub any](x p2p.SecureSwarm[A, Pub], af AllowFunc[A]) p2p.SecureSwarm[A, Pub] {
 	log := slog.New(slog.NewTextHandler(io.Discard))
-	return &swarm[A]{
+	return &swarm[A, Pub]{
 		log:         log,
 		SecureSwarm: x,
 		af:          af,
 	}
 }
 
-func (s *swarm[A]) Tell(ctx context.Context, addr A, data p2p.IOVec) error {
-	if checkAddr[A](s, s.log, s.af, addr, true) {
+func (s *swarm[A, Pub]) Tell(ctx context.Context, addr A, data p2p.IOVec) error {
+	if checkAddr[A, Pub](s, s.log, s.af, addr, true) {
 		return s.SecureSwarm.Tell(ctx, addr, data)
 	}
 	return errors.New("address unreachable")
 }
 
-func (s *swarm[A]) Receive(ctx context.Context, fn func(p2p.Message[A])) error {
+func (s *swarm[A, Pub]) Receive(ctx context.Context, fn func(p2p.Message[A])) error {
 	for called := false; !called; {
 		if err := s.SecureSwarm.Receive(ctx, func(m p2p.Message[A]) {
-			if checkAddr[A](s, s.log, s.af, m.Src, false) {
+			if checkAddr[A, Pub](s, s.log, s.af, m.Src, false) {
 				called = true
 				fn(m)
 			}
@@ -54,24 +54,24 @@ func (s *swarm[A]) Receive(ctx context.Context, fn func(p2p.Message[A])) error {
 	return nil
 }
 
-type asker[A p2p.Addr] struct {
-	p2p.SecureAskSwarm[A]
+type asker[A p2p.Addr, Pub any] struct {
+	p2p.SecureAskSwarm[A, Pub]
 	af  AllowFunc[A]
 	log *slog.Logger
 }
 
-func (s *asker[A]) Ask(ctx context.Context, resp []byte, dst A, data p2p.IOVec) (int, error) {
-	if checkAddr[A](s, s.log, s.af, dst, true) {
+func (s *asker[A, Pub]) Ask(ctx context.Context, resp []byte, dst A, data p2p.IOVec) (int, error) {
+	if checkAddr[A, Pub](s, s.log, s.af, dst, true) {
 		return s.SecureAskSwarm.Ask(ctx, resp, dst, data)
 	}
 	return 0, errors.New("address unreachable")
 }
 
-func (s *asker[A]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[A]) int) error {
+func (s *asker[A, Pub]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[A]) int) error {
 	var done bool
 	for !done {
 		err := s.SecureAskSwarm.ServeAsk(ctx, func(ctx context.Context, resp []byte, m p2p.Message[A]) int {
-			if !checkAddr[A](s, s.log, s.af, m.Src, false) {
+			if !checkAddr[A, Pub](s, s.log, s.af, m.Src, false) {
 				return -1
 			}
 			done = true
@@ -85,7 +85,7 @@ func (s *asker[A]) ServeAsk(ctx context.Context, fn func(context.Context, []byte
 }
 
 // checkAddr is called inside TellHandler
-func checkAddr[A p2p.Addr](sec p2p.Secure[A], log *slog.Logger, af AllowFunc[A], addr A, isSend bool) bool {
+func checkAddr[A p2p.Addr, Pub any](sec p2p.Secure[A, Pub], log *slog.Logger, af AllowFunc[A], addr A, isSend bool) bool {
 	if !af(addr) {
 		if isSend {
 			logAttemptSend(log, addr)

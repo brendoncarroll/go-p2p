@@ -13,7 +13,7 @@ import (
 func TestSwarm(t *testing.T) {
 	t.Parallel()
 	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm[memswarm.Addr]) {
-		r := memswarm.NewRealm()
+		r := memswarm.NewRealm[struct{}]()
 		for i := range xs {
 			xs[i] = New[memswarm.Addr](r.NewSwarm(), 1<<16)
 		}
@@ -25,7 +25,7 @@ func TestSwarm(t *testing.T) {
 
 func TestFragment(t *testing.T) {
 	ctx := context.Background()
-	r := memswarm.NewRealm(memswarm.WithMTU(100))
+	r := memswarm.NewRealm[struct{}](memswarm.WithMTU[struct{}](100))
 	const mtu = 1024
 	a := New[memswarm.Addr](r.NewSwarm(), mtu)
 	b := New[memswarm.Addr](r.NewSwarm(), mtu)
