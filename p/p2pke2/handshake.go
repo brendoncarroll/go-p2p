@@ -19,7 +19,7 @@ type HandshakeState[XOF, KEMPriv, KEMPub any] struct {
 
 	// index is the position in the handshake state machine.
 	index        uint8
-	shared       XOF
+	state        XOF
 	kemPriv      KEMPriv
 	kemPub       KEMPub
 	remoteKEMPub KEMPub
@@ -41,8 +41,11 @@ func NewHandshakeState[XOF, KEMPriv, KEMPub any](
 		}
 	}
 	hs := HandshakeState[XOF, KEMPriv, KEMPub]{
-		scheme:  scheme,
-		seed:    *seed,
+		scheme: scheme,
+		isInit: isInit,
+		seed:   *seed,
+
+		state:   scheme.XOF.New(),
 		kemPriv: kemPriv,
 		kemPub:  kemPub,
 	}
@@ -101,8 +104,13 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 		})
 
 	default:
-		return nil, ErrOOOHandshake{Index: hs.index, IsInit: hs.isInit}
+		return nil, ErrOOOHandshake{
+			IsSend: true,
+			Index:  hs.index,
+			IsInit: hs.isInit,
+		}
 	}
+	hs.index++
 	hs.mixPublic(out[initLen:])
 	return out, nil
 }
@@ -161,7 +169,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		// InitDone
 		var aeadKey [32]byte
 		hs.deriveSharedKey(aeadKey[:], "2-aead-key")
-		_, err := hs.aeadOpen(&aeadKey, 3, x)
+		_, err := hs.aeadOpen(&aeadKey, 2, x)
 		if err != nil {
 			return err
 		}
@@ -178,7 +186,11 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		hs.index = 4
 
 	default:
-		return ErrOOOHandshake{Index: hs.index, IsInit: hs.isInit}
+		return ErrOOOHandshake{
+			IsSend: false,
+			Index:  hs.index,
+			IsInit: hs.isInit,
+		}
 	}
 	hs.mixPublic(x)
 	return nil
@@ -213,20 +225,20 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Index() uint8 {
 
 // mixSecret is called to mix secret state
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) mixSecret(secret *[32]byte) {
-	hs.scheme.XOF.Absorb(&hs.shared, secret[:])
+	hs.scheme.XOF.Absorb(&hs.state, secret[:])
 }
 
 // mixPublic is called ot mix public state
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) mixPublic(data []byte) {
 	sum := xof.Sum512(hs.scheme.XOF, data)
-	hs.scheme.XOF.Absorb(&hs.shared, sum[:])
+	hs.scheme.XOF.Absorb(&hs.state, sum[:])
 }
 
 // deriveSharedKey writes pseudorandom bytes to dst from the shared state.
 // deriveSharedKey does not affect HandshakeState.
 // multiple calls with the same purpose produce the same data, unless a mix is called.
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) deriveSharedKey(dst []byte, purpose string) {
-	out := hs.shared
+	out := hs.state
 	hs.scheme.XOF.Absorb(&out, []byte{uint8(len(purpose))})
 	hs.scheme.XOF.Absorb(&out, []byte(purpose))
 	hs.scheme.XOF.Expand(&out, dst)
@@ -267,12 +279,13 @@ func makeNonce(x uint64) (ret [8]byte) {
 }
 
 type ErrOOOHandshake struct {
+	IsSend bool
 	IsInit bool
 	Index  uint8
 }
 
 func (e ErrOOOHandshake) Error() string {
-	return fmt.Sprintf("handshake state machine not expecting message init=%v index=%v", e.IsInit, e.Index)
+	return fmt.Sprintf("handshake state machine not expecting message sending=%v init=%v index=%v", e.IsSend, e.IsInit, e.Index)
 }
 
 type ErrShortHSMsg struct {

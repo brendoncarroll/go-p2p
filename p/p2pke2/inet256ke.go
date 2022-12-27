@@ -41,7 +41,7 @@ type (
 
 type SchemeV1 = Scheme[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1]
 
-func NewV1() SchemeV1 {
+func NewV1(prove Prover, verify Verifier) SchemeV1 {
 	xofScheme := xof_sha3.SHAKE256{}
 	return SchemeV1{
 		Name: MakeName("shake256", "chacha20poly1305", dualKEMName("x25519", "sntrup4591761")),
@@ -52,6 +52,8 @@ func NewV1() SchemeV1 {
 			R:   kem_sntrup.New4591761(),
 			XOF: xofScheme,
 		},
+		Prove:  prove,
+		Verify: verify,
 	}
 }
 
