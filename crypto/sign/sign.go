@@ -20,6 +20,7 @@ type Scheme[Private, Public any] interface {
 	SignatureSize() int
 
 	PublicKeyScheme[Public]
+	PrivateKeyScheme[Private]
 }
 
 // Input512 is the input to a signature in Scheme512.
@@ -44,6 +45,7 @@ type Scheme512[Private, Public any] interface {
 	SignatureSize() int
 
 	PublicKeyScheme[Public]
+	PrivateKeyScheme[Private]
 }
 
 type PublicKeyScheme[Public any] interface {
@@ -54,6 +56,12 @@ type PublicKeyScheme[Public any] interface {
 	ParsePublic([]byte) (Public, error)
 	// PublicKeySize returns the size of a public key
 	PublicKeySize() int
+}
+
+type PrivateKeyScheme[Private any] interface {
+	MarshalPrivate(dst []byte, priv *Private)
+	ParsePrivate(x []byte) (Private, error)
+	PrivateKeySize() int
 }
 
 // AppendPublicKey appends the marshaled form of pub to out, using sch to marshal the public key.

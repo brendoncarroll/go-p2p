@@ -73,3 +73,23 @@ func (s Scheme) SharedSize() int {
 func (s Scheme) PublicKeySize() int {
 	return 32
 }
+
+func (s Scheme) PrivateKeySize() int {
+	return PrivateKeySize
+}
+
+func (s Scheme) MarshalPrivate(dst []byte, priv *PrivateKey) {
+	if len(dst) < s.PrivateKeySize() {
+		panic(dst)
+	}
+	copy(dst[:], priv[:])
+}
+
+func (s Scheme) ParsePrivate(x []byte) (PrivateKey, error) {
+	if len(x) < s.PrivateKeySize() {
+		return PrivateKey{}, errors.New("dhke_x25519: wrong size for private key")
+	}
+	var priv PrivateKey
+	copy(priv[:], x)
+	return priv, nil
+}

@@ -13,8 +13,8 @@ func TestDual(t *testing.T) {
 		Public  = sig_ed25519.PublicKey
 	)
 	s := sign.Dual[Private, Public, Private, Public]{
-		A: sig_ed25519.New(),
-		B: sig_ed25519.New(),
+		L: sig_ed25519.New(),
+		R: sig_ed25519.New(),
 	}
 	sign.TestScheme[sign.DualKey[Private, Private], sign.DualKey[Public, Public]](t, s)
 }

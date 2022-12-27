@@ -2,6 +2,7 @@ package sig_ed25519
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"io"
 
@@ -26,9 +27,7 @@ func (s Scheme) Generate(rng io.Reader) (retPub PublicKey, retPriv PrivateKey, _
 	if err != nil {
 		return retPub, retPriv, err
 	}
-	copy(retPub[:], pub)
-	copy(retPriv[:], priv)
-	return retPub, retPriv, nil
+	return PublicKeyFromStandard(pub), PrivateKeyFromStandard(priv), nil
 }
 
 func (s Scheme) DerivePublic(priv *PrivateKey) (ret PublicKey) {
@@ -77,4 +76,33 @@ func (s Scheme) PublicKeySize() int {
 
 func (s Scheme) SignatureSize() int {
 	return ed25519.SignatureSize
+}
+
+func (s Scheme) PrivateKeySize() int {
+	return ed25519.SeedSize
+}
+
+func (s Scheme) MarshalPrivate(dst []byte, priv *PrivateKey) {
+	if len(dst) < s.PrivateKeySize() {
+		panic(dst)
+	}
+	priv2 := ed25519.PrivateKey(priv[:])
+	copy(dst[:], priv2.Seed())
+}
+
+func (s Scheme) ParsePrivate(x []byte) (PrivateKey, error) {
+	if len(x) != s.PrivateKeySize() {
+		return PrivateKey{}, errors.New("sig_ed25519: wrong size for private key")
+	}
+	return *(*PrivateKey)(ed25519.NewKeyFromSeed(x)), nil
+}
+
+func PrivateKeyFromStandard(x ed25519.PrivateKey) (ret PrivateKey) {
+	copy(ret[:], x[:])
+	return ret
+}
+
+func PublicKeyFromStandard(x ed25519.PublicKey) (ret PublicKey) {
+	copy(ret[:], x[:])
+	return ret
 }

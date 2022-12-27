@@ -30,6 +30,14 @@ func TestScheme256[Priv, Pub any](t *testing.T, scheme Scheme256[Priv, Pub]) {
 		require.NoError(t, err)
 		require.Equal(t, pub, pub2)
 	})
+	t.Run("MarshalParsePrivate", func(t *testing.T) {
+		_, priv := generate(0)
+		data := make([]byte, scheme.PrivateKeySize())
+		scheme.MarshalPrivate(data, &priv)
+		priv2, err := scheme.ParsePrivate(data)
+		require.NoError(t, err)
+		require.Equal(t, priv, priv2)
+	})
 	t.Run("EncapDecap", func(t *testing.T) {
 		pub, priv := generate(0)
 		var seed [SeedSize]byte

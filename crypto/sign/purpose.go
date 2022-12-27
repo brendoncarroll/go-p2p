@@ -61,6 +61,18 @@ func (s Purpose[Private, Public, XOF]) ParsePublic(data []byte) (Public, error) 
 	return s.Scheme.ParsePublic(data)
 }
 
+func (s Purpose[Private, Public, XOF]) PrivateKeySize() int {
+	return s.Scheme.PrivateKeySize()
+}
+
+func (s Purpose[Private, Public, XOF]) MarshalPrivate(dst []byte, priv *Private) {
+	s.Scheme.MarshalPrivate(dst, priv)
+}
+
+func (s Purpose[Private, Public, XOF]) ParsePrivate(data []byte) (Private, error) {
+	return s.Scheme.ParsePrivate(data)
+}
+
 func (s Purpose[Private, Public, XOF]) makeInput(purpose string, data []byte) (ret Input512) {
 	if len(purpose) > 255 {
 		panic(len(purpose))

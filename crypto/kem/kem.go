@@ -32,7 +32,7 @@ type Scheme256[Private, Public any] interface {
 	Decapsulate(ss *Secret256, priv *Private, ct []byte) error
 
 	PublicKeyScheme[Public]
-
+	PrivateKeyScheme[Private]
 	CiphertextSize() int
 }
 
@@ -44,6 +44,16 @@ type PublicKeyScheme[Public any] interface {
 	ParsePublic([]byte) (Public, error)
 	// PublicKeySize returns the size of the public key
 	PublicKeySize() int
+}
+
+type PrivateKeyScheme[Private any] interface {
+	// MarshalPrivate marshals pub and writes the bytes to dst.
+	// If len(dst) < PrivateKeySize() then MarshalPrivate panics
+	MarshalPrivate(dst []byte, pub *Private)
+	// ParsePrivate attempts to parse a private key from the input, and returns a private key or error.
+	ParsePrivate([]byte) (Private, error)
+	// PrivateKeySize returns the size of a marshalled private key
+	PrivateKeySize() int
 }
 
 func AppendPublic[Public any](out []byte, s PublicKeyScheme[Public], pub *Public) []byte {

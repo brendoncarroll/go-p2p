@@ -71,3 +71,15 @@ func (s Scheme256[Private, Public, XOF]) PublicKeySize() int {
 func (s Scheme256[Private, Public, XOF]) CiphertextSize() int {
 	return s.DH.PublicKeySize()
 }
+
+func (s Scheme256[Private, Public, XOF]) PrivateKeySize() int {
+	return s.DH.PrivateKeySize()
+}
+
+func (s Scheme256[Private, Public, XOF]) MarshalPrivate(dst []byte, priv *Private) {
+	s.DH.MarshalPrivate(dst, priv)
+}
+
+func (s Scheme256[Private, Public, XOF]) ParsePrivate(x []byte) (Private, error) {
+	return s.DH.ParsePrivate(x)
+}

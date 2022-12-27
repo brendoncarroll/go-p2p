@@ -30,10 +30,17 @@ func TestScheme[Priv, Pub any](t *testing.T, scheme Scheme[Priv, Pub]) {
 		pub, _ := generate(0)
 		data := make([]byte, scheme.PublicKeySize())
 		scheme.MarshalPublic(data, &pub)
-		require.Len(t, data, scheme.PublicKeySize())
 		pub2, err := scheme.ParsePublic(data)
 		require.NoError(t, err)
 		require.Equal(t, pub, pub2)
+	})
+	t.Run("MarshalParsePrivate", func(t *testing.T) {
+		_, priv := generate(0)
+		data := make([]byte, scheme.PrivateKeySize())
+		scheme.MarshalPrivate(data, &priv)
+		priv2, err := scheme.ParsePrivate(data)
+		require.NoError(t, err)
+		require.Equal(t, priv, priv2)
 	})
 	t.Run("SignVerify", func(*testing.T) {
 		pub, priv := generate(0)

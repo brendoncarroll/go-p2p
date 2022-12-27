@@ -15,12 +15,13 @@ import (
 type (
 	PrivateKey4591761 = ntru.PrivateKey
 	PublicKey4591761  = ntru.PublicKey
-	Ciphertext        = ntru.Ciphertext
+	Ciphertext4591761 = ntru.Ciphertext
 )
 
 const (
-	PublicKeySize  = ntru.PublicKeySize
-	CiphertextSize = ntru.CiphertextSize
+	PrivateKey4591761Size = ntru.PrivateKeySize
+	PublicKey4591761Size  = ntru.PublicKeySize
+	Ciphertext4591761Size = ntru.CiphertextSize
 )
 
 var _ kem.Scheme256[PrivateKey4591761, PublicKey4591761] = Scheme4591761{}
@@ -60,7 +61,7 @@ func (s Scheme4591761) Encapsulate(ss *kem.Secret256, ctext []byte, pk *PublicKe
 }
 
 func (s Scheme4591761) Decapsulate(ss *kem.Secret256, priv *PrivateKey4591761, ctext []byte) error {
-	shared, ec := ntru.Decapsulate((*Ciphertext)(ctext), priv)
+	shared, ec := ntru.Decapsulate((*Ciphertext4591761)(ctext), priv)
 	if ec == 0 {
 		return errors.New("ciphertext is invalid")
 	}
@@ -83,9 +84,29 @@ func (s Scheme4591761) ParsePublic(x []byte) (PublicKey4591761, error) {
 }
 
 func (s Scheme4591761) PublicKeySize() int {
-	return PublicKeySize
+	return PublicKey4591761Size
 }
 
 func (s Scheme4591761) CiphertextSize() int {
-	return CiphertextSize
+	return Ciphertext4591761Size
+}
+
+func (s Scheme4591761) PrivateKeySize() int {
+	return PrivateKey4591761Size
+}
+
+func (s Scheme4591761) MarshalPrivate(dst []byte, priv *PrivateKey4591761) {
+	if len(dst) < s.PrivateKeySize() {
+		panic(dst)
+	}
+	copy(dst, priv[:])
+}
+
+func (s Scheme4591761) ParsePrivate(x []byte) (PrivateKey4591761, error) {
+	if len(x) != s.PrivateKeySize() {
+		return PrivateKey4591761{}, errors.New("kem_sntrup: wrong size for private key")
+	}
+	var ret PrivateKey4591761
+	copy(ret[:], x)
+	return ret, nil
 }
