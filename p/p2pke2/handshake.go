@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/brendoncarroll/go-tai64"
-
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
 	"github.com/brendoncarroll/go-p2p/crypto/xof"
 )
@@ -43,7 +41,6 @@ func NewHandshakeState[XOF, KEMPriv, KEMPub any](
 		kemPub:  kemPub,
 	}
 	hs.mixPublic([]byte(scheme.Name))
-	hs.mixPublic([]byte{uint8(len(scheme.Name))})
 	return hs
 }
 
@@ -52,60 +49,50 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 	switch {
 	case hs.index == 0 && hs.isInit:
 		// InitHello
-		out = kem.AppendPublic(out, hs.scheme.KEM, &hs.kemPub)
-		out = append(out, hs.now.Marshal()...)
+		out = kem.AppendPublic[KEMPub](out, hs.scheme.KEM, &hs.kemPub)
+		hs.mixPublic(out[initLen:])
 		var sigTarget [64]byte
-		xof.Sum(hs.scheme.XOF, sigTarget[:], out[initLen:])
+		hs.deriveSharedKey(sigTarget[:], "1-sig-target")
 		out = hs.scheme.Prove(out, &sigTarget)
 
 	case hs.index == 1 && !hs.isInit:
 		// RespHello
 		// derive KEM seed
 		var kemSeed kem.Seed
-		xof.DeriveKey256(hs.scheme.XOF, kemSeed[:], &hs.seed, []byte("1-KEM"))
+		hs.generateKey(kemSeed[:], "1-KEM")
 		// KEM Encapsulate
 		var shared kem.Secret256
-		kemCtext := make([]byte, hs.scheme.KEM.CiphertextSize())
-		hs.scheme.KEM.Encapsulate(&shared, kemCtext, &hs.remoteKEMPub, &kemSeed)
-		hs.mixSecret(shared[:])
-		out = append(out, kemCtext...)
+		out = hs.appendKEMEncap(out, &shared, &hs.remoteKEMPub, &kemSeed)
+		hs.mixSecret(&shared)
 		// AEAD
-		var ptext []byte
-		var sigTarget [64]byte
-		hs.deriveKey(sigTarget[:], "1-sig-target")
-		ptext = hs.scheme.Prove(ptext, &sigTarget)
 		var aeadKey [32]byte
-		hs.deriveKey(aeadKey[:], "1-aead-key")
-		nonce := makeNonce(1)
-		out = hs.scheme.AEAD.Seal(out, &aeadKey, &nonce, ptext)
+		hs.deriveSharedKey(aeadKey[:], "1-aead-key")
+		out = hs.appendAEADSeal(out, &aeadKey, 1, func(ptext []byte) []byte {
+			var sigTarget [64]byte
+			hs.deriveSharedKey(sigTarget[:], "1-sig-target")
+			ptext = hs.scheme.Prove(ptext, &sigTarget)
+			return ptext
+		})
 
 	case hs.index == 2 && hs.isInit:
 		// InitDone
-		// derive KEM seed
-		var kemSeed kem.Seed
-		xof.DeriveKey256(hs.scheme.XOF, kemSeed[:], &hs.seed, []byte("2-KEM"))
-		// KEM Encapsulate
-		var kemShared kem.Secret256
-		kemCtext := make([]byte, hs.scheme.KEM.CiphertextSize())
-		hs.scheme.KEM.Encapsulate(&kemShared, kemCtext, &hs.remoteKEMPub, &kemSeed)
-		hs.mixSecret(kemShared[:])
-		out = append(out, kemCtext...)
 		// AEAD
-		var ptext []byte
 		var aeadKey [32]byte
-		hs.deriveKey(aeadKey[:], "2-aead-key")
-		var sigTarget [64]byte
-		hs.deriveKey(sigTarget[:], "2-sig-target")
-		ptext = hs.scheme.Prove(ptext, &sigTarget)
-		nonce := makeNonce(2)
-		out = hs.scheme.AEAD.Seal(out, &aeadKey, &nonce, ptext)
+		hs.deriveSharedKey(aeadKey[:], "2-aead-key")
+		out = hs.appendAEADSeal(out, &aeadKey, 2, func(ptext []byte) []byte {
+			var sigTarget [64]byte
+			hs.deriveSharedKey(sigTarget[:], "2-sig-target")
+			ptext = hs.scheme.Prove(ptext, &sigTarget)
+			return ptext
+		})
 
 	case hs.index == 3 && !hs.isInit:
 		// RespDone
 		var aeadKey [32]byte
-		hs.deriveKey(aeadKey[:], "3-aead-key")
-		nonce := makeNonce(3)
-		out = hs.scheme.AEAD.Seal(out, &aeadKey, &nonce, nil)
+		hs.deriveSharedKey(aeadKey[:], "3-aead-key")
+		out = hs.appendAEADSeal(out, &aeadKey, 3, func(ptext []byte) []byte {
+			return ptext
+		})
 
 	default:
 		panic(hs.index)
@@ -119,21 +106,18 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 	case hs.index == 0 && !hs.isInit:
 		// InitHello
 		pubKeySize := hs.scheme.KEM.PublicKeySize()
-		if len(x) < pubKeySize+12 {
+		if len(x) < pubKeySize {
 			return ErrShortHSMsg{Index: 0, Len: len(x)}
 		}
 		remotePub, err := hs.scheme.KEM.ParsePublic(x[:pubKeySize])
 		if err != nil {
 			return err
 		}
-		helloTime, err := tai64.ParseN(x[pubKeySize : pubKeySize+12])
-		if err != nil {
-			return err
-		}
-		proof := x[pubKeySize+12:]
+		hs.mixPublic(x[:pubKeySize])
+		proof := x[pubKeySize:]
 		var sigTarget [64]byte
-		xof.Sum(hs.scheme.XOF, sigTarget[:], x)
-		if !hs.scheme.Verifier(hs.remoteInfo, proof, &sigTarget) {
+		xof.Sum(hs.scheme.XOF, sigTarget[:], x[:pubKeySize])
+		if !hs.scheme.Verify(&sigTarget, proof) {
 			return errors.New("verification failed")
 		}
 		hs.remoteKEMPub = remotePub
@@ -148,44 +132,33 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		kemCtext := x[:kemCtextSize]
 		aeadCtext := x[kemCtextSize:]
 		// KEM Decapsulate
-		var kemShared kem.Secret256
-		if err := hs.scheme.KEM.Decapsulate(&kemShared, &hs.kemPriv, kemCtext); err != nil {
-			return err
-		}
-		var aeadKey [32]byte
-		hs.deriveKey(aeadKey[:], "1-aead-key")
-		ptext := make([]byte, 0, len(x)-hs.scheme.AEAD.Overhead())
-		ptext, err := hs.scheme.AEAD.Open(ptext, &aeadKey, new([8]byte), aeadCtext)
+		kemShared, err := hs.kemDecap(&hs.kemPriv, kemCtext)
 		if err != nil {
 			return err
 		}
-		remoteKEMPub, err := hs.scheme.KEM.ParsePublicKey(ptext[:hs.scheme.KEM.PublicKeySize()])
+		hs.mixSecret(&kemShared)
+		// AEAD open
+		var aeadKey [32]byte
+		hs.deriveSharedKey(aeadKey[:], "1-aead-key")
+		ptext := make([]byte, 0, len(x)-hs.scheme.AEAD.Overhead())
+		nonce := makeNonce(1)
+		ptext, err = hs.scheme.AEAD.Open(ptext, &aeadKey, &nonce, aeadCtext, nil)
 		if err != nil {
 			return err
 		}
 		var sigTarget [64]byte
-		hs.deriveKey(sigTarget[:], "1-sig-target")
-		hs.scheme.Verify(&hs.remoteInfo, &sigTarget, ptext[:])
-		hs.remoteKEMPub = remoteKEMPub
+		hs.deriveSharedKey(sigTarget[:], "1-sig-target")
+		if !hs.scheme.Verify(&sigTarget, ptext[:]) {
+			return errors.New("verification failed")
+		}
 		hs.index = 2
 
 	case hs.index == 2 && !hs.isInit:
 		// InitDone
-		kemCtextSize := hs.scheme.KEM.CiphertextSize()
-		if len(x) < kemCtextSize {
-			return ErrShortHSMsg{Index: hs.index, Len: len(x)}
-		}
-		kemCtext := x[:kemCtextSize]
-		aeadCtext := x[kemCtextSize:]
-		var kemShared kem.Secret256
-		if err := hs.scheme.KEM.Decapsulate(&kemShared, &hs.kemPriv, kemCtext); err != nil {
-			return err
-		}
-		hs.mixSecret(kemShared[:])
 		var aeadKey [32]byte
-		hs.deriveKey(aeadKey[:], "2-aead-key")
+		hs.deriveSharedKey(aeadKey[:], "2-aead-key")
 		nonce := makeNonce(uint64(hs.index))
-		ptext, err := hs.scheme.AEAD.Open(nil, &aeadKey, &nonce, aeadCtext)
+		_, err := hs.scheme.AEAD.Open(nil, &aeadKey, &nonce, x, nil)
 		if err != nil {
 			return err
 		}
@@ -195,9 +168,9 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 	case hs.index == 3 && hs.isInit:
 		// RespDone
 		var aeadSecret [32]byte
-		hs.deriveKey(aeadSecret[:], "3-aead-key")
+		hs.deriveSharedKey(aeadSecret[:], "3-aead-key")
 		nonce := makeNonce(3)
-		_, err := hs.scheme.AEAD.Open(nil, &aeadSecret, &nonce, x)
+		_, err := hs.scheme.AEAD.Open(nil, &aeadSecret, &nonce, x, nil)
 		if err != nil {
 			return err
 		}
@@ -236,20 +209,47 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) absorb(x []byte) {
 }
 
 // mixSecret is called to mix secret state
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) mixSecret(x []byte) {
-	hs.scheme.XOF.Absorb(&hs.shared, x)
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) mixSecret(secret *[32]byte) {
+	hs.scheme.XOF.Absorb(&hs.shared, secret[:])
 }
 
 // mixPublic is called ot mix public state
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) mixPublic(x []byte) {
-	hs.scheme.XOF.Absorb(&hs.shared, x)
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) mixPublic(data []byte) {
+	sum := xof.Sum512(hs.scheme.XOF, data)
+	hs.scheme.XOF.Absorb(&hs.shared, sum[:])
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) deriveKey(dst []byte, purpose string) {
+// deriveSharedKey writes pseudorandom bytes to dst from the shared state.
+// deriveSharedKey does not affect HandshakeState.
+// multiple calls with the same purpose produce the same data, unless a mix is called.
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) deriveSharedKey(dst []byte, purpose string) {
 	out := hs.shared
-	hs.scheme.XOF.Absorb(&out, []byte(purpose))
 	hs.scheme.XOF.Absorb(&out, []byte{uint8(len(purpose))})
+	hs.scheme.XOF.Absorb(&out, []byte(purpose))
 	hs.scheme.XOF.Expand(&out, dst)
+}
+
+// generateKey uses the seed to generate a random key.
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) generateKey(dst []byte, purpose string) {
+	xof.DeriveKey256(hs.scheme.XOF, dst, &hs.seed, []byte(purpose))
+}
+
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) appendAEADSeal(out []byte, key *[32]byte, nonce uint64, fn func(ptext []byte) []byte) []byte {
+	ptext := fn(nil)
+	nonceBytes := makeNonce(nonce)
+	return hs.scheme.AEAD.Seal(out, key, &nonceBytes, ptext, nil)
+}
+
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) appendKEMEncap(out []byte, shared *[32]byte, pub *KEMPub, seed *[32]byte) []byte {
+	kemCtext := make([]byte, hs.scheme.KEM.CiphertextSize())
+	hs.scheme.KEM.Encapsulate(shared, kemCtext, pub, seed)
+	return append(out, kemCtext...)
+}
+
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) kemDecap(priv *KEMPriv, ctext []byte) ([32]byte, error) {
+	var kemShared kem.Secret256
+	err := hs.scheme.KEM.Decapsulate(&kemShared, &hs.kemPriv, ctext)
+	return kemShared, err
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) forward() {
