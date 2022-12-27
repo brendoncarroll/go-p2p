@@ -54,7 +54,7 @@ func (s *Session[XOF, KEMPriv, KEMPub]) Send(out []byte, payload []byte) ([]byte
 // - returns (out + ptext, nil) for valid messages.
 func (s *Session[XOF, KEMPriv, KEMPub]) Deliver(out []byte, msg []byte) ([]byte, error) {
 	if len(msg) < 4 {
-		return nil, ErrShortMessge{}
+		return nil, ErrShortMessage{}
 	}
 	counter := binary.BigEndian.Uint32(msg[:4])
 	if !s.IsHandshakeDone() {
@@ -74,9 +74,9 @@ func (s *Session[XOF, KEMPriv, KEMPub]) Deliver(out []byte, msg []byte) ([]byte,
 		return nil, fmt.Errorf("late handshake message")
 	}
 	var nonce [8]byte
-	copy(nonce[4:8], msg[0:4])
+	binary.BigEndian.PutUint64(nonce[:], uint64(binary.BigEndian.Uint32(msg[0:4])))
 	ctext := msg[4:]
-	out, err := s.aead.Open(out, &s.inboundKey, &nonce, ctext)
+	out, err := s.aead.Open(out, &s.inboundKey, &nonce, ctext, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -104,5 +104,5 @@ func appendUint32(out []byte, x uint32) []byte {
 type ErrShortMessage struct{}
 
 func (e ErrShortMessage) Error() string {
-	return fmt.Sprintf("short message")
+	return "short message"
 }

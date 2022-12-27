@@ -30,12 +30,18 @@ func NewHandshakeState[XOF, KEMPriv, KEMPub any](
 	seed *[32]byte,
 	isInit bool,
 ) HandshakeState[XOF, KEMPriv, KEMPub] {
-	rng := xof.NewRand256(scheme.XOF, seed)
-	kemPub, kemPriv, err := scheme.KEM.Generate(&rng)
-	if err != nil {
-		panic(err)
+	var kemPriv KEMPriv
+	var kemPub KEMPub
+	if isInit {
+		var err error
+		rng := xof.NewRand256(scheme.XOF, seed)
+		kemPub, kemPriv, err = scheme.KEM.Generate(&rng)
+		if err != nil {
+			panic(err)
+		}
 	}
 	hs := HandshakeState[XOF, KEMPriv, KEMPub]{
+		scheme:  scheme,
 		seed:    *seed,
 		kemPriv: kemPriv,
 		kemPub:  kemPub,
@@ -95,7 +101,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 		})
 
 	default:
-		panic(hs.index)
+		return nil, ErrOOOHandshake{Index: hs.index, IsInit: hs.isInit}
 	}
 	hs.mixPublic(out[initLen:])
 	return out, nil
@@ -140,9 +146,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		// AEAD open
 		var aeadKey [32]byte
 		hs.deriveSharedKey(aeadKey[:], "1-aead-key")
-		ptext := make([]byte, 0, len(x)-hs.scheme.AEAD.Overhead())
-		nonce := makeNonce(1)
-		ptext, err = hs.scheme.AEAD.Open(ptext, &aeadKey, &nonce, aeadCtext, nil)
+		ptext, err := hs.aeadOpen(&aeadKey, 1, aeadCtext)
 		if err != nil {
 			return err
 		}
@@ -157,27 +161,24 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		// InitDone
 		var aeadKey [32]byte
 		hs.deriveSharedKey(aeadKey[:], "2-aead-key")
-		nonce := makeNonce(uint64(hs.index))
-		_, err := hs.scheme.AEAD.Open(nil, &aeadKey, &nonce, x, nil)
+		_, err := hs.aeadOpen(&aeadKey, 3, x)
 		if err != nil {
 			return err
 		}
-		hs.remoteKEMPub = hs.remoteKEMPub
 		hs.index = 3
 
 	case hs.index == 3 && hs.isInit:
 		// RespDone
-		var aeadSecret [32]byte
-		hs.deriveSharedKey(aeadSecret[:], "3-aead-key")
-		nonce := makeNonce(3)
-		_, err := hs.scheme.AEAD.Open(nil, &aeadSecret, &nonce, x, nil)
+		var aeadKey [32]byte
+		hs.deriveSharedKey(aeadKey[:], "3-aead-key")
+		_, err := hs.aeadOpen(&aeadKey, 3, x)
 		if err != nil {
 			return err
 		}
 		hs.index = 4
 
 	default:
-		return errors.New("out of order handshake message")
+		return ErrOOOHandshake{Index: hs.index, IsInit: hs.isInit}
 	}
 	hs.mixPublic(x)
 	return nil
@@ -188,24 +189,26 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) IsDone() bool {
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) ChannelBinding() (ret [64]byte) {
-	out := hs.shared
-	hs.scheme.XOF.Expand(&out, ret[:])
+	hs.deriveSharedKey(ret[:], "channel-binding")
 	return ret
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Split() (inbound, outbound [32]byte) {
 	if hs.index < 4 {
-		return inbound, outbound
+		panic("split called before end of handshake")
+	}
+	if hs.isInit {
+		hs.deriveSharedKey(inbound[:], "resp->init")
+		hs.deriveSharedKey(outbound[:], "init->resp")
+	} else {
+		hs.deriveSharedKey(inbound[:], "init->resp")
+		hs.deriveSharedKey(outbound[:], "resp->init")
 	}
 	return inbound, outbound
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Index() uint8 {
 	return hs.index
-}
-
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) absorb(x []byte) {
-	hs.scheme.XOF.Absorb(&hs.shared, x)
 }
 
 // mixSecret is called to mix secret state
@@ -252,11 +255,10 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) kemDecap(priv *KEMPriv, ctext []
 	return kemShared, err
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) forward() {
-	var x [64]byte
-	hs.scheme.XOF.Expand(&hs.shared, x[:])
-	hs.scheme.XOF.Reset(&hs.shared)
-	hs.scheme.XOF.Absorb(&hs.shared, x[:])
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) aeadOpen(key *[32]byte, nonce uint64, ctext []byte) ([]byte, error) {
+	ptext := make([]byte, len(ctext)-hs.scheme.AEAD.Overhead())
+	nonceBytes := makeNonce(nonce)
+	return hs.scheme.AEAD.Open(ptext, key, &nonceBytes, ctext, nil)
 }
 
 func makeNonce(x uint64) (ret [8]byte) {

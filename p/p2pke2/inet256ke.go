@@ -39,7 +39,7 @@ type (
 	XOFV1           = xof_sha3.SHAKE256
 )
 
-type SchemeV1 Scheme[XOFStateV1, KEMPrivateKeyV1, KEMPrivateKeyV1]
+type SchemeV1 = Scheme[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1]
 
 func NewV1() SchemeV1 {
 	xofScheme := xof_sha3.SHAKE256{}
@@ -48,8 +48,8 @@ func NewV1() SchemeV1 {
 		XOF:  xofScheme,
 		AEAD: aead_chacha20poly1305.N64{},
 		KEM: kem.Dual256[kem_x25519.PrivateKey, kem_x25519.PublicKey, kem_sntrup.PrivateKey4591761, kem_sntrup.PublicKey4591761, XOFStateV1]{
-			A:   kem_x25519.New(),
-			B:   kem_sntrup.New4591761(),
+			L:   kem_x25519.New(),
+			R:   kem_sntrup.New4591761(),
 			XOF: xofScheme,
 		},
 	}

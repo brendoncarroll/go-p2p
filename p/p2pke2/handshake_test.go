@@ -12,31 +12,32 @@ func TestSchemeV1(t *testing.T) {
 }
 
 func TestHandshake(t *testing.T) {
-	init := NewHandshakeState[XOFV1, KEMPrivateKeyV1, KEMPublicKeyV1](NewV1(), newSeed(0), true)
-	resp := NewHandshakeState[XOFV1, KEMPrivateKeyV1, KEMPublicKeyV1](NewV1(), newSeed(1), false)
+	init := NewHandshakeState[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1](NewV1(), newSeed(t, 0), true)
+	resp := NewHandshakeState[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1](NewV1(), newSeed(t, 1), false)
 	require.Equal(t, init.ChannelBinding(), resp.ChannelBinding())
 
-	for !init.IsDone() || !resp.IsDone() {
+	transmit := func(send, recv *HandshakeState[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1]) {
+		i := send.Index()
 		var err error
+		var buf []byte
+		buf, err = send.Send(buf)
+		require.NoError(t, err)
+		err = recv.Deliver(buf)
+		require.NoError(t, err)
+		require.Equal(t, send.ChannelBinding(), recv.ChannelBinding(), "diverged handshakes after message", i)
+	}
+	for !init.IsDone() || !resp.IsDone() {
 		if !init.IsDone() {
-			var buf []byte
-			buf, err = init.Send(buf)
-			require.NoError(t, err)
-			err = resp.Deliver()
-			require.NoError(t, err)
+			transmit(&init, &resp)
 		}
 		if !resp.IsDone() {
-			var buf []byte
-			buf, err = resp.Send(buf)
-			require.NoError(t, err)
-			err = init.Deliver(buf)
-			require.NoError(t, err)
+			transmit(&resp, &init)
 		}
-		require.Equal(t, init.ChannelBinding(), resp.ChannelBinding())
 	}
 }
 
-func newSeed(t testing.TB, i int) (ret [32]byte) {
+func newSeed(t testing.TB, i int) *[32]byte {
+	var ret [32]byte
 	ret[i] = uint8(i)
-	return ret
+	return &ret
 }
