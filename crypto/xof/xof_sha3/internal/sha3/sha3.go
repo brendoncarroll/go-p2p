@@ -22,9 +22,10 @@ const (
 
 type state struct {
 	// Generic sponge components.
-	a    [25]uint64 // main state of the hash
-	buf  []byte     // points into storage
-	rate int        // the number of bytes of state to use
+	a          [25]uint64 // main state of the hash
+	begin, end int
+	//buf  []byte     // points into storage
+	rate int // the number of bytes of state to use
 
 	// dsbyte contains the "domain separation" bits and the first bit of
 	// the padding. Sections 6.1 and 6.2 of [1] separate the outputs of the
@@ -61,17 +62,36 @@ func (d *state) Reset() {
 		d.a[i] = 0
 	}
 	d.state = spongeAbsorbing
-	d.buf = d.storage.asBytes()[:0]
+	d.setbuf(0, 0)
+}
+
+func (d *state) setbuf(begin, end int) {
+	d.begin = begin
+	d.end = end
+}
+
+func (d *state) getbuf() []byte {
+	return d.storage.asBytes()[d.begin:d.end]
+}
+
+func (d *state) bufappend(x byte) {
+	d.storage.asBytes()[d.end] = x
+	d.end++
+}
+
+func (d *state) bufappendAll(xs []byte) {
+	for _, x := range xs {
+		d.bufappend(x)
+	}
 }
 
 func (d *state) clone() *state {
 	ret := *d
-	if ret.state == spongeAbsorbing {
-		ret.buf = ret.storage.asBytes()[:len(ret.buf)]
-	} else {
-		ret.buf = ret.storage.asBytes()[d.rate-cap(d.buf) : d.rate]
-	}
-
+	// if ret.state == spongeAbsorbing {
+	// 	ret.buf = ret.storage.asBytes()[:len(ret.buf)]
+	// } else {
+	// 	ret.buf = ret.storage.asBytes()[d.rate-cap(d.buf) : d.rate]
+	// }
 	return &ret
 }
 
@@ -82,43 +102,40 @@ func (d *state) permute() {
 	case spongeAbsorbing:
 		// If we're absorbing, we need to xor the input into the state
 		// before applying the permutation.
-		xorIn(d, d.buf)
-		d.buf = d.storage.asBytes()[:0]
+		xorIn(d, d.getbuf())
+		d.setbuf(0, 0)
 		keccakF1600(&d.a)
 	case spongeSqueezing:
 		// If we're squeezing, we need to apply the permutation before
 		// copying more output.
 		keccakF1600(&d.a)
-		d.buf = d.storage.asBytes()[:d.rate]
-		copyOut(d, d.buf)
+		d.setbuf(0, d.rate)
+		copyOut(d, d.getbuf())
 	}
 }
 
 // pads appends the domain separation bits in dsbyte, applies
 // the multi-bitrate 10..1 padding rule, and permutes the state.
 func (d *state) padAndPermute(dsbyte byte) {
-	if d.buf == nil {
-		d.buf = d.storage.asBytes()[:0]
-	}
 	// Pad with this instance's domain-separator bits. We know that there's
 	// at least one byte of space in d.buf because, if it were full,
 	// permute would have been called to empty it. dsbyte also contains the
 	// first one bit for the padding. See the comment in the state struct.
-	d.buf = append(d.buf, dsbyte)
-	zerosStart := len(d.buf)
-	d.buf = d.storage.asBytes()[:d.rate]
+	d.bufappend(dsbyte)
+	zerosStart := len(d.getbuf())
+	d.setbuf(0, d.rate)
 	for i := zerosStart; i < d.rate; i++ {
-		d.buf[i] = 0
+		d.getbuf()[i] = 0
 	}
 	// This adds the final one bit for the padding. Because of the way that
 	// bits are numbered from the LSB upwards, the final bit is the MSB of
 	// the last byte.
-	d.buf[d.rate-1] ^= 0x80
+	d.getbuf()[d.rate-1] ^= 0x80
 	// Apply the permutation
 	d.permute()
 	d.state = spongeSqueezing
-	d.buf = d.storage.asBytes()[:d.rate]
-	copyOut(d, d.buf)
+	d.setbuf(0, d.rate)
+	copyOut(d, d.getbuf())
 }
 
 // Write absorbs more data into the hash's state. It produces an error
@@ -127,28 +144,25 @@ func (d *state) Write(p []byte) (written int, err error) {
 	if d.state != spongeAbsorbing {
 		panic("sha3: write to sponge after read")
 	}
-	if d.buf == nil {
-		d.buf = d.storage.asBytes()[:0]
-	}
 	written = len(p)
 
 	for len(p) > 0 {
-		if len(d.buf) == 0 && len(p) >= d.rate {
+		if len(d.getbuf()) == 0 && len(p) >= d.rate {
 			// The fast path; absorb a full "rate" bytes of input and apply the permutation.
 			xorIn(d, p[:d.rate])
 			p = p[d.rate:]
 			keccakF1600(&d.a)
 		} else {
 			// The slow path; buffer the input until we can fill the sponge, and then xor it in.
-			todo := d.rate - len(d.buf)
+			todo := d.rate - len(d.getbuf())
 			if todo > len(p) {
 				todo = len(p)
 			}
-			d.buf = append(d.buf, p[:todo]...)
+			d.bufappendAll(p[:todo])
 			p = p[todo:]
 
 			// If the sponge is full, apply the permutation.
-			if len(d.buf) == d.rate {
+			if len(d.getbuf()) == d.rate {
 				d.permute()
 			}
 		}
@@ -168,12 +182,12 @@ func (d *state) Read(out []byte) (n int, err error) {
 
 	// Now, do the squeezing.
 	for len(out) > 0 {
-		n := copy(out, d.buf)
-		d.buf = d.buf[n:]
+		n := copy(out, d.getbuf())
+		d.setbuf(d.begin+n, d.end)
 		out = out[n:]
 
 		// Apply the permutation if we've squeezed the sponge dry.
-		if len(d.buf) == 0 {
+		if len(d.getbuf()) == 0 {
 			d.permute()
 		}
 	}
