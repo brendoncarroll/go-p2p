@@ -21,10 +21,10 @@ func TestEd25519Parse(t *testing.T) {
 
 func TestEd25519Marshal(t *testing.T) {
 	x := PublicKey{
-		AlgorithmID: Ed25519PublicKey,
-		Data:        make([]byte, 32),
+		Algorithm: Algo_Ed25519,
+		Data:      make([]byte, 32),
 	}
-	data := MarshalPublicKey(nil, x)
+	data := MarshalPublicKey(nil, &x)
 	pub, err := x509.ParsePKIXPublicKey(data)
 	require.NoError(t, err)
 	require.Equal(t, []byte(x.Data), []byte(pub.(ed25519.PublicKey)))

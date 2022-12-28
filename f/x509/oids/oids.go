@@ -31,12 +31,13 @@ func (oid OID) At(i int) uint64 {
 
 func (oid OID) String() string {
 	sb := strings.Builder{}
-	sb.WriteString("OID{")
 	for i := 0; i < oid.Len(); i++ {
+		if i > 0 {
+			sb.WriteString(".")
+		}
 		n := oid.At(i)
 		fmt.Fprintf(&sb, "%d", n)
 	}
-	sb.WriteString("}")
 	return sb.String()
 }
 
