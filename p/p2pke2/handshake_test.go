@@ -1,24 +1,41 @@
 package p2pke2
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestSchemeV1(t *testing.T) {
-	sch := NewV1(nil, nil)
+func TestSuiteV1(t *testing.T) {
+	sch := NewSuiteV1()
 	t.Log(sch.Name)
 }
 
 func TestHandshake(t *testing.T) {
-	scheme := NewV1(func(out []byte, target *[64]byte) []byte {
-		return out
-	}, func(target *[64]byte, proof []byte) bool {
-		return true
+	suite := NewSuiteV1()
+	init := NewHandshakeState(HandshakeParams[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1]{
+		Suite:  suite,
+		Seed:   newSeed(t, 0),
+		IsInit: true,
+		Prove: func(out []byte, target *[64]byte) []byte {
+			return append(out, []byte("init-proof")...)
+		},
+		Verify: func(target *[64]byte, proof []byte) bool {
+			return bytes.Equal(proof, []byte("resp-proof"))
+		},
 	})
-	init := NewHandshakeState[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1](scheme, newSeed(t, 0), true)
-	resp := NewHandshakeState[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1](scheme, newSeed(t, 1), false)
+	resp := NewHandshakeState(HandshakeParams[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1]{
+		Suite:  suite,
+		Seed:   newSeed(t, 1),
+		IsInit: false,
+		Prove: func(out []byte, target *[64]byte) []byte {
+			return append(out, []byte("resp-proof")...)
+		},
+		Verify: func(target *[64]byte, proof []byte) bool {
+			return bytes.Equal(proof, []byte("init-proof"))
+		},
+	})
 	require.Equal(t, init.ChannelBinding(), resp.ChannelBinding())
 
 	transmit := func(send, recv *HandshakeState[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1]) {

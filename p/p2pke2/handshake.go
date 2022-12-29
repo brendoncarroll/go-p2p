@@ -5,73 +5,78 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/brendoncarroll/go-p2p/crypto/aead"
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
 	"github.com/brendoncarroll/go-p2p/crypto/xof"
 )
 
-type HandshakeState[XOF, KEMPriv, KEMPub any] struct {
-	// scheme is the set of cryptographic primitives used for the handshake.
-	scheme Scheme[XOF, KEMPriv, KEMPub]
-	// isInit is true if this state is for the initiator
-	isInit bool
-	// seed is used to generate all random values
-	seed [32]byte
+type HandshakeParams[XOF, KEMPriv, KEMPub any] struct {
+	Suite        Suite[XOF, KEMPriv, KEMPub]
+	Seed         *[32]byte
+	IsInit       bool
+	PreSharedKey *[32]byte // can be nil
 
-	// index is the position in the handshake state machine.
-	index        uint8
-	state        XOF
-	kemPriv      KEMPriv
-	kemPub       KEMPub
-	remoteKEMPub KEMPub
+	Prove  func(out []byte, target *[64]byte) []byte
+	Accept func(target *[64]byte, proof []byte) bool
+	Verify func(target *[64]byte, proof []byte) bool
 }
 
-func NewHandshakeState[XOF, KEMPriv, KEMPub any](
-	scheme Scheme[XOF, KEMPriv, KEMPub],
-	seed *[32]byte,
-	isInit bool,
-) HandshakeState[XOF, KEMPriv, KEMPub] {
-	var kemPriv KEMPriv
-	var kemPub KEMPub
-	if isInit {
+type HandshakeState[XOF, KEMPriv, KEMPub any] struct {
+	params      HandshakeParams[XOF, KEMPriv, KEMPub]
+	seed        [32]byte
+	initialized bool
+
+	// index is the position in the handshake state machine.
+	index   uint8
+	state   XOF
+	kemPriv KEMPriv
+	kemPub  KEMPub
+}
+
+func NewHandshakeState[XOF, KEMPriv, KEMPub any](params HandshakeParams[XOF, KEMPriv, KEMPub]) HandshakeState[XOF, KEMPriv, KEMPub] {
+	hs := HandshakeState[XOF, KEMPriv, KEMPub]{
+		params:      params,
+		seed:        *params.Seed,
+		initialized: true,
+
+		state: params.Suite.XOF.New(),
+	}
+	if params.IsInit {
+		var kemKeyGenSeed [32]byte
+		xof.DeriveKey256(params.Suite.XOF, kemKeyGenSeed[:], params.Seed, []byte("KEM-keygen"))
+		rng := xof.NewRand256(params.Suite.XOF, &kemKeyGenSeed)
 		var err error
-		rng := xof.NewRand256(scheme.XOF, seed)
-		kemPub, kemPriv, err = scheme.KEM.Generate(&rng)
+		hs.kemPub, hs.kemPriv, err = params.Suite.KEM.Generate(&rng)
 		if err != nil {
 			panic(err)
 		}
 	}
-	hs := HandshakeState[XOF, KEMPriv, KEMPub]{
-		scheme: scheme,
-		isInit: isInit,
-		seed:   *seed,
-
-		state:   scheme.XOF.New(),
-		kemPriv: kemPriv,
-		kemPub:  kemPub,
+	hs.mixPublic([]byte(params.Suite.Name))
+	if params.PreSharedKey != nil {
+		hs.mixSecret(params.PreSharedKey)
 	}
-	hs.mixPublic([]byte(scheme.Name))
 	return hs
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error) {
 	initLen := len(out)
 	switch {
-	case hs.index == 0 && hs.isInit:
+	case hs.index == 0 && hs.params.IsInit:
 		// InitHello
-		out = kem.AppendPublic[KEMPub](out, hs.scheme.KEM, &hs.kemPub)
+		out = kem.AppendPublic[KEMPub](out, hs.KEM(), &hs.kemPub)
 		hs.mixPublic(out[initLen:])
 		var sigTarget [64]byte
-		hs.deriveSharedKey(sigTarget[:], "1-sig-target")
-		out = hs.scheme.Prove(out, &sigTarget)
+		hs.deriveSharedKey(sigTarget[:], "0-sig-target")
+		out = hs.params.Prove(out, &sigTarget)
 
-	case hs.index == 1 && !hs.isInit:
+	case hs.index == 1 && !hs.params.IsInit:
 		// RespHello
 		// derive KEM seed
 		var kemSeed kem.Seed
 		hs.generateKey(kemSeed[:], "1-KEM")
 		// KEM Encapsulate
 		var shared kem.Secret256
-		out = hs.appendKEMEncap(out, &shared, &hs.remoteKEMPub, &kemSeed)
+		out = hs.appendKEMEncap(out, &shared, &hs.kemPub, &kemSeed)
 		hs.mixSecret(&shared)
 		// AEAD
 		var aeadKey [32]byte
@@ -79,11 +84,11 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 		out = hs.appendAEADSeal(out, &aeadKey, 1, func(ptext []byte) []byte {
 			var sigTarget [64]byte
 			hs.deriveSharedKey(sigTarget[:], "1-sig-target")
-			ptext = hs.scheme.Prove(ptext, &sigTarget)
+			ptext = hs.params.Prove(ptext, &sigTarget)
 			return ptext
 		})
 
-	case hs.index == 2 && hs.isInit:
+	case hs.index == 2 && hs.params.IsInit:
 		// InitDone
 		// AEAD
 		var aeadKey [32]byte
@@ -91,11 +96,11 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 		out = hs.appendAEADSeal(out, &aeadKey, 2, func(ptext []byte) []byte {
 			var sigTarget [64]byte
 			hs.deriveSharedKey(sigTarget[:], "2-sig-target")
-			ptext = hs.scheme.Prove(ptext, &sigTarget)
+			ptext = hs.params.Prove(ptext, &sigTarget)
 			return ptext
 		})
 
-	case hs.index == 3 && !hs.isInit:
+	case hs.index == 3 && !hs.params.IsInit:
 		// RespDone
 		var aeadKey [32]byte
 		hs.deriveSharedKey(aeadKey[:], "3-aead-key")
@@ -107,7 +112,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 		return nil, ErrOOOHandshake{
 			IsSend: true,
 			Index:  hs.index,
-			IsInit: hs.isInit,
+			IsInit: hs.params.IsInit,
 		}
 	}
 	hs.index++
@@ -117,29 +122,29 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 	switch {
-	case hs.index == 0 && !hs.isInit:
+	case hs.index == 0 && !hs.params.IsInit:
 		// InitHello
-		pubKeySize := hs.scheme.KEM.PublicKeySize()
+		pubKeySize := hs.KEM().PublicKeySize()
 		if len(x) < pubKeySize {
 			return ErrShortHSMsg{Index: 0, Len: len(x)}
 		}
-		remotePub, err := hs.scheme.KEM.ParsePublic(x[:pubKeySize])
+		remotePub, err := hs.KEM().ParsePublic(x[:pubKeySize])
 		if err != nil {
 			return err
 		}
 		hs.mixPublic(x[:pubKeySize])
 		proof := x[pubKeySize:]
 		var sigTarget [64]byte
-		xof.Sum(hs.scheme.XOF, sigTarget[:], x[:pubKeySize])
-		if !hs.scheme.Verify(&sigTarget, proof) {
+		xof.Sum(hs.params.Suite.XOF, sigTarget[:], x[:pubKeySize])
+		if !hs.params.Verify(&sigTarget, proof) {
 			return errors.New("verification failed")
 		}
-		hs.remoteKEMPub = remotePub
+		hs.kemPub = remotePub
 		hs.index = 1
 
-	case hs.index == 1 && hs.isInit:
+	case hs.index == 1 && hs.params.IsInit:
 		// RespHello
-		kemCtextSize := hs.scheme.KEM.CiphertextSize()
+		kemCtextSize := hs.KEM().CiphertextSize()
 		if len(x) < kemCtextSize {
 			return ErrShortHSMsg{Index: hs.index, Len: len(x)}
 		}
@@ -160,12 +165,12 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		}
 		var sigTarget [64]byte
 		hs.deriveSharedKey(sigTarget[:], "1-sig-target")
-		if !hs.scheme.Verify(&sigTarget, ptext[:]) {
+		if !hs.params.Verify(&sigTarget, ptext[:]) {
 			return errors.New("verification failed")
 		}
 		hs.index = 2
 
-	case hs.index == 2 && !hs.isInit:
+	case hs.index == 2 && !hs.params.IsInit:
 		// InitDone
 		var aeadKey [32]byte
 		hs.deriveSharedKey(aeadKey[:], "2-aead-key")
@@ -175,7 +180,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		}
 		hs.index = 3
 
-	case hs.index == 3 && hs.isInit:
+	case hs.index == 3 && hs.params.IsInit:
 		// RespDone
 		var aeadKey [32]byte
 		hs.deriveSharedKey(aeadKey[:], "3-aead-key")
@@ -189,7 +194,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		return ErrOOOHandshake{
 			IsSend: false,
 			Index:  hs.index,
-			IsInit: hs.isInit,
+			IsInit: hs.params.IsInit,
 		}
 	}
 	hs.mixPublic(x)
@@ -197,7 +202,13 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) IsDone() bool {
-	return hs.index >= 4
+	// if initialized is false then the handshake has been zeroed.
+	return hs.index >= 4 || !hs.initialized
+}
+
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) ShouldSend() bool {
+	shouldSend := (hs.params.IsInit && hs.index%2 == 0) || (!hs.params.IsInit && hs.index%2 == 1)
+	return hs.IsDone() && shouldSend
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) ChannelBinding() (ret [64]byte) {
@@ -209,7 +220,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Split() (inbound, outbound [32]b
 	if hs.index < 4 {
 		panic("split called before end of handshake")
 	}
-	if hs.isInit {
+	if hs.params.IsInit {
 		hs.deriveSharedKey(inbound[:], "resp->init")
 		hs.deriveSharedKey(outbound[:], "init->resp")
 	} else {
@@ -223,15 +234,35 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Index() uint8 {
 	return hs.index
 }
 
+// XOF returns the XOF used by this handshake
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) XOF() xof.Scheme[XOF] {
+	return hs.params.Suite.XOF
+}
+
+// KEM returns the KEM used by this handshake
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) KEM() kem.Scheme256[KEMPriv, KEMPub] {
+	return hs.params.Suite.KEM
+}
+
+// AEAD returns the AEAD used by this handshake
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) AEAD() aead.SchemeK256N64 {
+	return hs.params.Suite.AEAD
+}
+
+// Zeros the memory in the HandshakeState
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Zero() {
+	*hs = HandshakeState[XOF, KEMPriv, KEMPub]{}
+}
+
 // mixSecret is called to mix secret state
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) mixSecret(secret *[32]byte) {
-	hs.scheme.XOF.Absorb(&hs.state, secret[:])
+	hs.XOF().Absorb(&hs.state, secret[:])
 }
 
 // mixPublic is called ot mix public state
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) mixPublic(data []byte) {
-	sum := xof.Sum512(hs.scheme.XOF, data)
-	hs.scheme.XOF.Absorb(&hs.state, sum[:])
+	sum := xof.Sum512(hs.XOF(), data)
+	hs.XOF().Absorb(&hs.state, sum[:])
 }
 
 // deriveSharedKey writes pseudorandom bytes to dst from the shared state.
@@ -239,38 +270,38 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) mixPublic(data []byte) {
 // multiple calls with the same purpose produce the same data, unless a mix is called.
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) deriveSharedKey(dst []byte, purpose string) {
 	out := hs.state
-	hs.scheme.XOF.Absorb(&out, []byte{uint8(len(purpose))})
-	hs.scheme.XOF.Absorb(&out, []byte(purpose))
-	hs.scheme.XOF.Expand(&out, dst)
+	hs.XOF().Absorb(&out, []byte{uint8(len(purpose))})
+	hs.XOF().Absorb(&out, []byte(purpose))
+	hs.XOF().Expand(&out, dst)
 }
 
 // generateKey uses the seed to generate a random key.
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) generateKey(dst []byte, purpose string) {
-	xof.DeriveKey256(hs.scheme.XOF, dst, &hs.seed, []byte(purpose))
+	xof.DeriveKey256(hs.XOF(), dst, &hs.seed, []byte(purpose))
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) appendAEADSeal(out []byte, key *[32]byte, nonce uint64, fn func(ptext []byte) []byte) []byte {
 	ptext := fn(nil)
 	nonceBytes := makeNonce(nonce)
-	return hs.scheme.AEAD.Seal(out, key, &nonceBytes, ptext, nil)
+	return hs.AEAD().Seal(out, key, &nonceBytes, ptext, nil)
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) appendKEMEncap(out []byte, shared *[32]byte, pub *KEMPub, seed *[32]byte) []byte {
-	kemCtext := make([]byte, hs.scheme.KEM.CiphertextSize())
-	hs.scheme.KEM.Encapsulate(shared, kemCtext, pub, seed)
+	kemCtext := make([]byte, hs.KEM().CiphertextSize())
+	hs.KEM().Encapsulate(shared, kemCtext, pub, seed)
 	return append(out, kemCtext...)
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) kemDecap(priv *KEMPriv, ctext []byte) ([32]byte, error) {
 	var kemShared kem.Secret256
-	err := hs.scheme.KEM.Decapsulate(&kemShared, &hs.kemPriv, ctext)
+	err := hs.KEM().Decapsulate(&kemShared, &hs.kemPriv, ctext)
 	return kemShared, err
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) aeadOpen(key *[32]byte, nonce uint64, ctext []byte) ([]byte, error) {
-	ptext := make([]byte, len(ctext)-hs.scheme.AEAD.Overhead())
+	ptext := make([]byte, 0, len(ctext)-hs.AEAD().Overhead())
 	nonceBytes := makeNonce(nonce)
-	return hs.scheme.AEAD.Open(ptext, key, &nonceBytes, ctext, nil)
+	return hs.AEAD().Open(ptext, key, &nonceBytes, ctext, nil)
 }
 
 func makeNonce(x uint64) (ret [8]byte) {

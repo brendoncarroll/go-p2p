@@ -11,30 +11,47 @@ import (
 
 const MaxCounter = 1<<32 - 1
 
+type SessionParams[XOF, KEMPriv, KEMPub any] struct {
+	Suite  Suite[XOF, KEMPriv, KEMPub]
+	Seed   *[32]byte
+	IsInit bool
+	Authn  Authenticator
+}
+
+func (s *SessionParams[XOF, KEMPriv, KEMPub]) HandshakeParams() HandshakeParams[XOF, KEMPriv, KEMPub] {
+	return HandshakeParams[XOF, KEMPriv, KEMPub]{
+		Suite:  s.Suite,
+		Seed:   s.Seed,
+		IsInit: s.IsInit,
+
+		Prove:  s.Authn.Prove,
+		Verify: s.Authn.Verify,
+	}
+}
+
+// Session contains the state for a cryptographic session.
+// Session has a non-looping state machine, and eventually moves to a dead state where no more messages can be sent.
 type Session[XOF, KEMPriv, KEMPub any] struct {
-	aead aead.SchemeK256N64
-	hs   HandshakeState[XOF, KEMPriv, KEMPub]
+	aead        aead.SchemeK256N64
+	hs          HandshakeState[XOF, KEMPriv, KEMPub]
+	initialized bool
 
 	inboundKey, outboundKey [32]byte
 	replay                  replayFilter
 	counter                 uint32
 }
 
-func New[XOF, KEMPriv, KEMPub any](scheme Scheme[XOF, KEMPriv, KEMPub], seed *[32]byte, isInit bool) Session[XOF, KEMPriv, KEMPub] {
+func NewSession[XOF, KEMPriv, KEMPub any](params SessionParams[XOF, KEMPriv, KEMPub]) Session[XOF, KEMPriv, KEMPub] {
 	return Session[XOF, KEMPriv, KEMPub]{
-		aead: scheme.AEAD,
-		hs:   NewHandshakeState[XOF, KEMPriv, KEMPub](scheme, seed, isInit),
+		aead: params.Suite.AEAD,
+		hs:   NewHandshakeState[XOF, KEMPriv, KEMPub](params.HandshakeParams()),
 	}
 }
 
 func (s *Session[XOF, KEMPriv, KEMPub]) Send(out []byte, payload []byte) ([]byte, error) {
 	// Handshake
 	if !s.IsHandshakeDone() {
-		if payload != nil {
-			return nil, fmt.Errorf("cannot send session handshake is not done")
-		}
-		out = appendUint32(out, uint32(s.hs.Index()))
-		return s.hs.Send(out)
+		return nil, fmt.Errorf("cannot send, session handshake is not done")
 	}
 	// Transport
 	if s.counter == MaxCounter {
@@ -45,6 +62,14 @@ func (s *Session[XOF, KEMPriv, KEMPub]) Send(out []byte, payload []byte) ([]byte
 	var nonce [8]byte
 	binary.BigEndian.PutUint64(nonce[:], uint64(counter))
 	return s.aead.Seal(out, &s.outboundKey, &nonce, payload, nonce[4:]), nil
+}
+
+func (s *Session[XOF, KEMPriv, KEMPub]) SendHandshake(out []byte) ([]byte, error) {
+	if s.hs.IsDone() {
+		return nil, errors.New("handshake is already complete")
+	}
+	out = appendUint32(out, uint32(s.hs.Index()))
+	return s.hs.Send(out)
 }
 
 // Deliver
@@ -91,8 +116,13 @@ func (s *Session[XOF, KEMPriv, KEMPub]) IsHandshakeDone() bool {
 	return s.hs.IsDone()
 }
 
-func (s *Session[XOF, KEMPriv, KEMPub]) ShouldSend() bool {
-	return false
+func (s *Session[XOF, KEMPriv, KEMPub]) IsReady() bool {
+	return s.IsHandshakeDone() && s.initialized
+}
+
+// Zero clears all the state in session.
+func (s *Session[XOF, KEMPriv, KEMPub]) Zero() {
+	*s = Session[XOF, KEMPriv, KEMPub]{}
 }
 
 func appendUint32(out []byte, x uint32) []byte {
