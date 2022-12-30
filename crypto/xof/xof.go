@@ -67,3 +67,18 @@ func (r *Reader[S]) Read(p []byte) (int, error) {
 	r.Scheme.Expand(r.State, p)
 	return len(p), nil
 }
+
+type XORExpander[T any] interface {
+	XOROut(x *T, dst, src []byte)
+}
+
+func XOROut[T any](sch Scheme[T], x *T, dst, src []byte) {
+	if w, ok := sch.(XORExpander[T]); ok {
+		w.XOROut(x, dst, src)
+		return
+	}
+	sch.Expand(x, dst)
+	for i := range src {
+		dst[i] ^= src[i]
+	}
+}

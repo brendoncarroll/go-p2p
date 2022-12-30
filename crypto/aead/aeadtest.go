@@ -6,31 +6,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSchemeK256N64(t *testing.T, s SchemeK256N64) {
+func TestK256N64(t *testing.T, s K256N64) {
 	var key [32]byte
 	var nonce [8]byte
 	in := "hello world"
-	ct := s.Seal(nil, &key, &nonce, []byte(in), []byte{1, 2, 3})
-	pt, err := s.Open(nil, &key, &nonce, ct, []byte{1, 2, 3})
+	ct := make([]byte, len(in)+s.Overhead())
+	s.SealK256N64(ct, &key, nonce, []byte(in), []byte{1, 2, 3})
+	pt := make([]byte, len(ct)-s.Overhead())
+	err := s.OpenK256N64(pt, &key, nonce, ct, []byte{1, 2, 3})
 	require.NoError(t, err)
 	require.Equal(t, in, string(pt))
 }
 
-func TestSchemeK256N192(t *testing.T, s SchemeK256N192) {
+func TestK256N192(t *testing.T, s K256N192) {
 	var key [32]byte
 	var nonce [24]byte
 	in := "hello world"
-	ct := s.Seal(nil, &key, &nonce, []byte(in), []byte{1, 2, 3})
-	pt, err := s.Open(nil, &key, &nonce, ct, []byte{1, 2, 3})
+	ct := make([]byte, len(in)+s.Overhead())
+	s.SealK256N192(ct, &key, &nonce, []byte(in), []byte{1, 2, 3})
+	pt := make([]byte, len(ct)-s.Overhead())
+	err := s.OpenK256N192(pt, &key, &nonce, ct, []byte{1, 2, 3})
 	require.NoError(t, err)
 	require.Equal(t, in, string(pt))
 }
 
-func TestSchemeSUV256(t *testing.T, s SchemeSUV256) {
+func TestSUV256(t *testing.T, s SUV256) {
 	var suv [32]byte
 	in := "hello world"
-	ct := s.Seal(nil, &suv, []byte(in), []byte{1, 2, 3})
-	pt, err := s.Open(nil, &suv, ct, []byte{1, 2, 3})
+	ct := make([]byte, len(in)+s.Overhead())
+	s.SealSUV256(ct, &suv, []byte(in), []byte{1, 2, 3})
+	pt := make([]byte, len(ct)-s.Overhead())
+	err := s.OpenSUV256(pt, &suv, ct, []byte{1, 2, 3})
 	require.NoError(t, err)
 	require.Equal(t, in, string(pt))
 }

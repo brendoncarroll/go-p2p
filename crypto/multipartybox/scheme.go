@@ -25,7 +25,7 @@ type PublicKey[KEMPub, SigPub any] struct {
 type Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub any] struct {
 	KEM  kem.Scheme256[KEMPriv, KEMPub]
 	Sign sign.Scheme[SigPriv, SigPub]
-	AEAD aead.SchemeSUV256
+	AEAD aead.SUV256
 	XOF  xof.Scheme[XOF]
 }
 
@@ -82,7 +82,7 @@ func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Encrypt(out []byte, priv
 	}
 	slotsEnd := len(out)
 	out = appendVarint(out, uint64(len(ptext)+s.AEAD.Overhead()))
-	out = s.AEAD.Seal(out, &dek, ptext, out[slotsBegin:slotsEnd])
+	out = aead.AppendSealSUV256(s.AEAD, out, &dek, ptext, out[slotsBegin:slotsEnd])
 	return out, nil
 }
 
@@ -108,7 +108,7 @@ func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Decrypt(out []byte, priv
 		if err != nil {
 			continue
 		}
-		ptex, err := s.AEAD.Open(out, dek, m.Main, m.Slots)
+		ptex, err := aead.AppendOpenSUV256(s.AEAD, out, dek, m.Main, m.Slots)
 		return sender, ptex, err
 	}
 	return -1, nil, errors.New("could not decrypt message")
@@ -125,7 +125,7 @@ func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) encryptSlot(out []byte, 
 	ptext := make([]byte, s.Sign.SignatureSize()+32)
 	s.Sign.Sign(ptext[:s.Sign.SignatureSize()], &private.Sign, kemct[:])
 	copy(ptext[s.Sign.SignatureSize():], dek[:])
-	out = s.AEAD.Seal(out, &ss, ptext[:], kemct)
+	out = aead.AppendSealSUV256(s.AEAD, out, &ss, ptext[:], kemct)
 	return out, nil
 }
 
@@ -138,7 +138,7 @@ func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) decryptSlot(private *Pri
 	if err := s.KEM.Decapsulate(&ss, &private.KEM, kemCtext); err != nil {
 		return -1, nil, err
 	}
-	ptext, err := s.AEAD.Open(nil, &ss, aeadCtext, kemCtext)
+	ptext, err := aead.AppendOpenSUV256(s.AEAD, nil, &ss, aeadCtext, kemCtext)
 	if err != nil {
 		return -1, nil, err
 	}
