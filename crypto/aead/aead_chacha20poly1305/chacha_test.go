@@ -6,16 +6,16 @@ import (
 )
 
 func TestN64(t *testing.T) {
-	s := N64{}
+	s := Scheme{}
 	aead.TestK256N64(t, s)
 }
 
 func TestN192(t *testing.T) {
-	s := N192{}
+	s := Scheme{}
 	aead.TestK256N192(t, s)
 }
 
 func TestSUV(t *testing.T) {
-	s := SUV{}
+	s := Scheme{}
 	aead.TestSUV256(t, s)
 }

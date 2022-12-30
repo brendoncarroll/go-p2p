@@ -31,7 +31,7 @@ func NewV1() SchemeV1 {
 			XOF: xof_sha3.SHAKE256{},
 		},
 		Sign: sig_ed25519.New(),
-		AEAD: aead_chacha20poly1305.SUV{},
+		AEAD: aead_chacha20poly1305.Scheme{},
 		XOF:  xof_sha3.SHAKE256{},
 	}
 }
