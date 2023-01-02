@@ -41,12 +41,12 @@ func AppendSealK256N64(out []byte, sch K256N64, key *[32]byte, nonce [8]byte, pt
 	return out
 }
 
-func AppendOpenK256N64(out []byte, sch K256N64, key *[32]byte, nonce [8]byte, ctext, ad []byte) []byte {
+func AppendOpenK256N64(out []byte, sch K256N64, key *[32]byte, nonce [8]byte, ctext, ad []byte) ([]byte, error) {
 	initLen := len(out)
 	out = append(out, make([]byte, len(ctext)-sch.Overhead())...)
 	dst := out[initLen:]
-	sch.OpenK256N64(dst, key, nonce, ctext, ad)
-	return out
+	err := sch.OpenK256N64(dst, key, nonce, ctext, ad)
+	return out, err
 }
 
 func AppendSealSUV256(sch SUV256, out []byte, suv *[32]byte, ptext, ad []byte) []byte {
