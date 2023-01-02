@@ -1,9 +1,11 @@
 package p2pke2
 
 import (
+	"bytes"
 	"errors"
-	"io"
 	"time"
+
+	"golang.org/x/crypto/sha3"
 
 	"github.com/brendoncarroll/go-tai64"
 )
@@ -14,18 +16,29 @@ const (
 	DefaultSessionLifetime  = 120 * time.Second
 )
 
-type ChannelStateParams[XOF, KEMPriv, KEMPub, Auth any] struct {
-	Suite Suite[XOF, KEMPriv, KEMPub]
+// SessionAPI is used by ChannelState to manipulate sessions.
+type SessionAPI interface {
+	SendHandshake([]byte) ([]byte, error)
+	Send(out, msg []byte) ([]byte, error)
+	Deliver(out, msg []byte) ([]byte, error)
+	IsHandshakeDone() bool
+	IsInitiator() bool
+}
+
+type ChannelStateParams[S any] struct {
+	// Accept is called for InitHello messages.  If it returns false the message is dropped, and no handshake is attempted.
+	Accept func([]byte) bool
+	// Reset is called to initialize a Session. isInit == true if the session is the initiator in the handshake.
+	Reset func(x *S, isInit bool)
+	// API is called with a pointer to the session state.
+	API func(*S) SessionAPI
+
 	// If a session has not received a message within this duration then it is discarded.
 	ActivityTimeout time.Duration
-	// If a handshake has been ongoing for longer than this duration then it is discarded.
+	// If a handshake has been ongoing for longer than this duration then the session is discarded.
 	HandshakeTimeout time.Duration
 	// SessionLifetime is the maximum amount of time a session can be used.
 	SessionLifetime time.Duration
-	// Entropy is read from Random
-	Random io.Reader
-	// Called to create a new Authenticator for each session
-	NewAuth func() Auth
 }
 
 // ChannelState contains all the state for a Channel
@@ -35,12 +48,13 @@ type ChannelStateParams[XOF, KEMPriv, KEMPub, Auth any] struct {
 //
 // A ChannelState manages 3 sessions, and is aware of time.
 // ChannelState will expire sessions which are too old, or have sent the maximum number of messages.
-type ChannelState[XOF, KEMPriv, KEMPub, Auth any] struct {
-	params   ChannelStateParams[XOF, KEMPriv, KEMPub, Auth]
-	sessions [3]sessionEntry[XOF, KEMPriv, KEMPub]
+type ChannelState[S any] struct {
+	params   ChannelStateParams[S]
+	sessions [3]sessionEntry[S]
+	offset   uint8
 }
 
-func NewChannelState[XOF, KEMPriv, KEMPub, Auth any](params ChannelStateParams[XOF, KEMPriv, KEMPub, Auth]) ChannelState[XOF, KEMPriv, KEMPub, Auth] {
+func NewChannelState[S any](params ChannelStateParams[S]) ChannelState[S] {
 	if params.ActivityTimeout == 0 {
 		params.ActivityTimeout = DefaultActivityTimeout
 	}
@@ -50,36 +64,43 @@ func NewChannelState[XOF, KEMPriv, KEMPub, Auth any](params ChannelStateParams[X
 	if params.SessionLifetime == 0 {
 		params.SessionLifetime = DefaultSessionLifetime
 	}
-	return ChannelState[XOF, KEMPriv, KEMPub, Auth]{
+	return ChannelState[S]{
 		params: params,
 	}
 }
 
-func (c *ChannelState[XOF, KEMPriv, KEMPub, AuthInfo]) Send(out []byte, msg []byte, now Time) ([]byte, error) {
+// Send checks if the current session is ready and uses it to append an encrypted version of msg to out
+// If there is no ready session Send returns ErrNoReadySession; the caller should use SendHandshake to establish
+// a secure Session.
+func (c *ChannelState[S]) Send(out []byte, msg []byte, now Time) ([]byte, error) {
+	c.expireSessions(now)
 	// Send always sends on the current ready session.
 	current := c.getCurrent()
-	if !c.isAlive(current, now) {
+	sess := c.getSession(current)
+	if !sess.IsHandshakeDone() {
 		return nil, ErrNoReadySession{}
 	}
-	return nil, ErrNoReadySession{}
+	return sess.Send(out, msg)
 }
 
-func (c *ChannelState[XOF, KEMPriv, KEMPub, AuthInfo]) SendHandshake(out []byte, now Time) ([]byte, error) {
+func (c *ChannelState[S]) SendHandshake(out []byte, now Time) ([]byte, error) {
+	c.expireSessions(now)
 	next := c.getNext()
-	if next.IsZero() || tai64DeltaGt(now, next.CreatedAt, c.params.HandshakeTimeout) {
-		var err error
+	sess := c.getSession(next)
+	if next.IsZero() {
 		next.Clear()
 		next.CreatedAt = now
 		next.LastReceived = now
-		next.Session, err = c.newSession(true)
+		c.params.Reset(&next.Session, true)
+		initLen := len(out)
+		out, err := sess.SendHandshake(out)
 		if err != nil {
 			return nil, err
 		}
+		next.ID = sha3.Sum256(out[initLen:])
+		return out, nil
 	}
-	if next.Session.IsHandshakeDone() {
-		return nil, errors.New("no handshake message to send")
-	}
-	return next.Session.SendHandshake(out)
+	return sess.SendHandshake(out)
 }
 
 // Deliver takes an inbound message and processes it and appends any application data to out.
@@ -87,41 +108,60 @@ func (c *ChannelState[XOF, KEMPriv, KEMPub, AuthInfo]) SendHandshake(out []byte,
 // - Deliver returns (nil, non-nil) if there is an error.  The error can be logged, but the channel will recover.
 // - Deliver returns (nil, nil) if there is nothing for the application.
 // - Deliver returns (out ++ ptext, nil) if there is no error and plaintext for the application.
-func (c *ChannelState[XOF, KEMPriv, KEMPub, AuthInfo]) Deliver(out []byte, inbound []byte, now Time) ([]byte, error) {
+func (c *ChannelState[S]) Deliver(out []byte, inbound []byte, now Time) ([]byte, error) {
+	c.expireSessions(now)
 	// apply to all sessions.
 	var lastErr error
-	for i, se := range c.sessions {
+	for i := range c.sessions {
+		se := &c.sessions[(i+int(c.offset))%len(c.sessions)]
 		if se.IsZero() {
 			continue
 		}
-		out, err := se.Session.Deliver(out, inbound)
+		sess := c.getSession(se)
+		out, err := sess.Deliver(out, inbound)
+		lastErr = err
 		if err == nil {
-			if i == 0 && se.Session.IsReady() {
-				c.sessions[2], c.sessions[1] = c.sessions[1], c.sessions[0]
-				c.sessions[0].Clear()
+			if se == c.getNext() && sess.IsHandshakeDone() {
+				c.promoteNext()
 			}
 			return out, nil
 		}
-		lastErr = err
 	}
 	if !IsInitHello(inbound) {
+		// If it's not InitHello return
 		return nil, lastErr
 	}
-	// if no match and InitHello then create a new one.
 	next := c.getNext()
+	sess := c.getSession(next)
+	newID := sha3.Sum256(inbound)
+	if next.ID == newID {
+		// If it matches the current session, then ignore.
+		return nil, nil
+	}
+	if sess.IsInitiator() && bytes.Compare(next.ID[:], newID[:]) < 0 {
+		// If we are initiating a handshake and our ID is less than the incoming ID, then ignore.
+		// The other side will adopt our session
+		return nil, nil
+	}
+	// if no match and InitHello then create a new one.
 	next.Clear()
+	next.ID = sha3.Sum256(inbound)
 	next.CreatedAt = now
 	next.LastReceived = now
-	var err error
-	next.Session, err = c.newSession(false)
-	return nil, err
+	c.params.Reset(&next.Session, false)
+	sess = c.getSession(next)
+	return sess.Deliver(out, inbound)
 }
 
-func (c *ChannelState[XOF, KEMPriv, KEMPub, Auth]) Timer() time.Duration {
-	return 0
+func (c *ChannelState[S]) IsReady(now Time) bool {
+	current := c.getCurrent()
+	if current.IsZero() {
+		return false
+	}
+	return c.isReady(current, now)
 }
 
-func (c *ChannelState[XOF, KEMPriv, KEMPub, Auth]) LastRecv() (ret Time) {
+func (c *ChannelState[S]) LastRecv() (ret Time) {
 	for _, s := range c.sessions {
 		if s.IsZero() {
 			continue
@@ -134,45 +174,73 @@ func (c *ChannelState[XOF, KEMPriv, KEMPub, Auth]) LastRecv() (ret Time) {
 	return ret
 }
 
-func (c *ChannelState[XOF, KEMPriv, KEMPub, Auth]) newSession(isInit bool) (ret Session[XOF, KEMPriv, KEMPub], _ error) {
-	var seed [32]byte
-	if _, err := io.ReadFull(c.params.Random, seed[:]); err != nil {
-		return ret, err
+// expireSessions ensures that any sessions which should be zerod are.
+func (c *ChannelState[S]) expireSessions(now Time) {
+	for _, se := range c.sessions {
+		if se.IsZero() {
+			continue
+		}
+		sess := c.getSession(&se)
+		shouldExpire := false
+		for _, b := range []bool{
+			// Haven't received a message recently.
+			tai64DeltaGt(now, se.LastReceived, c.params.ActivityTimeout),
+			// Session has been alive too long.
+			tai64DeltaGt(now, se.CreatedAt, c.params.SessionLifetime),
+			// If the handshake has timed out.
+			(!sess.IsHandshakeDone() && tai64DeltaGt(now, se.CreatedAt, c.params.HandshakeTimeout)),
+		} {
+			shouldExpire = b || shouldExpire
+		}
+		if shouldExpire {
+			se.Clear()
+		}
 	}
-	return NewSession(SessionParams[XOF, KEMPriv, KEMPub]{
-		Suite:  c.params.Suite,
-		IsInit: isInit,
-		Seed:   &seed,
-	}), nil
 }
 
-func (c *ChannelState[XOF, KEMPriv, KEMPub, Auth]) isAlive(se *sessionEntry[XOF, KEMPriv, KEMPub], now Time) bool {
+func (c *ChannelState[S]) isReady(se *sessionEntry[S], now Time) bool {
 	return !se.IsZero() &&
 		tai64DeltaLt(now, se.LastReceived, c.params.ActivityTimeout) &&
 		tai64DeltaLt(now, se.CreatedAt, c.params.SessionLifetime)
 }
 
-func (c *ChannelState[XOF, KEMPriv, KEMPub, Auth]) getNext() *sessionEntry[XOF, KEMPriv, KEMPub] {
-	return &c.sessions[0]
+func (c *ChannelState[S]) getSession(se *sessionEntry[S]) SessionAPI {
+	return c.params.API(&se.Session)
 }
 
-func (c *ChannelState[XOF, KEMPriv, KEMPub, Auth]) getCurrent() *sessionEntry[XOF, KEMPriv, KEMPub] {
-	return &c.sessions[1]
+func (c *ChannelState[S]) getNext() *sessionEntry[S] {
+	i := int(c.offset+0) % len(c.sessions)
+	return &c.sessions[i]
 }
 
-type sessionEntry[XOF, KEMPriv, KEMPub any] struct {
+func (c *ChannelState[S]) getCurrent() *sessionEntry[S] {
+	i := int(c.offset+1) % len(c.sessions)
+	return &c.sessions[i]
+}
+
+func (c *ChannelState[S]) getPrev() *sessionEntry[S] {
+	i := int(c.offset+2) % len(c.sessions)
+	return &c.sessions[i]
+}
+
+func (c *ChannelState[S]) promoteNext() {
+	c.offset = uint8(int(c.offset-1) % len(c.sessions))
+	c.getNext().Clear()
+}
+
+type sessionEntry[S any] struct {
 	ID           [32]byte
 	CreatedAt    Time
 	LastReceived Time
-	Session      Session[XOF, KEMPriv, KEMPub]
+	Session      S
 }
 
-func (se *sessionEntry[XOF, KEMPriv, KEMPub]) IsZero() bool {
+func (se *sessionEntry[S]) IsZero() bool {
 	return se.ID == ([32]byte{})
 }
 
-func (se *sessionEntry[XOF, KEMPriv, KEMPub]) Clear() {
-	*se = sessionEntry[XOF, KEMPriv, KEMPub]{}
+func (se *sessionEntry[S]) Clear() {
+	*se = sessionEntry[S]{}
 }
 
 type ErrNoReadySession struct {

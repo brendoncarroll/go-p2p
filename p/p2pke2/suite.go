@@ -16,7 +16,7 @@ import (
 type Suite[XOF, KEMPriv, KEMPub any] struct {
 	Name string
 	XOF  xof.Scheme[XOF]
-	AEAD aead.SchemeK256N64
+	AEAD aead.K256N64
 	KEM  kem.Scheme256[KEMPriv, KEMPub]
 }
 
@@ -39,7 +39,7 @@ func NewSuiteV1() SuiteV1 {
 	return SuiteV1{
 		Name: MakeName("shake256", "chacha20poly1305", dualKEMName("x25519", "sntrup4591761")),
 		XOF:  xofScheme,
-		AEAD: aead_chacha20poly1305.N64{},
+		AEAD: aead_chacha20poly1305.Scheme{},
 		KEM: kem.Dual256[kem_x25519.PrivateKey, kem_x25519.PublicKey, kem_sntrup.PrivateKey4591761, kem_sntrup.PublicKey4591761, XOFStateV1]{
 			L:   kem_x25519.New(),
 			R:   kem_sntrup.New4591761(),

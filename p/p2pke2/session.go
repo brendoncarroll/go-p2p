@@ -15,7 +15,8 @@ type SessionParams[XOF, KEMPriv, KEMPub any] struct {
 	Suite  Suite[XOF, KEMPriv, KEMPub]
 	Seed   *[32]byte
 	IsInit bool
-	Authn  Authenticator
+	Prove  Prover
+	Verify Verifier
 }
 
 func (s *SessionParams[XOF, KEMPriv, KEMPub]) HandshakeParams() HandshakeParams[XOF, KEMPriv, KEMPub] {
@@ -24,15 +25,15 @@ func (s *SessionParams[XOF, KEMPriv, KEMPub]) HandshakeParams() HandshakeParams[
 		Seed:   s.Seed,
 		IsInit: s.IsInit,
 
-		Prove:  s.Authn.Prove,
-		Verify: s.Authn.Verify,
+		Prove:  s.Prove,
+		Verify: s.Verify,
 	}
 }
 
 // Session contains the state for a cryptographic session.
 // Session has a non-looping state machine, and eventually moves to a dead state where no more messages can be sent.
 type Session[XOF, KEMPriv, KEMPub any] struct {
-	aead        aead.SchemeK256N64
+	aead        aead.K256N64
 	hs          HandshakeState[XOF, KEMPriv, KEMPub]
 	initialized bool
 
@@ -61,7 +62,7 @@ func (s *Session[XOF, KEMPriv, KEMPub]) Send(out []byte, payload []byte) ([]byte
 	out = appendUint32(out, counter)
 	var nonce [8]byte
 	binary.BigEndian.PutUint64(nonce[:], uint64(counter))
-	return s.aead.Seal(out, &s.outboundKey, &nonce, payload, nonce[4:]), nil
+	return aead.AppendSealK256N64(out, s.aead, &s.outboundKey, nonce, payload, nil), nil
 }
 
 func (s *Session[XOF, KEMPriv, KEMPub]) SendHandshake(out []byte) ([]byte, error) {
@@ -101,7 +102,7 @@ func (s *Session[XOF, KEMPriv, KEMPub]) Deliver(out []byte, msg []byte) ([]byte,
 	var nonce [8]byte
 	binary.BigEndian.PutUint64(nonce[:], uint64(binary.BigEndian.Uint32(msg[0:4])))
 	ctext := msg[4:]
-	out, err := s.aead.Open(out, &s.inboundKey, &nonce, ctext, nil)
+	out, err := aead.AppendOpenK256N64(out, s.aead, &s.inboundKey, nonce, ctext, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +111,10 @@ func (s *Session[XOF, KEMPriv, KEMPub]) Deliver(out []byte, msg []byte) ([]byte,
 	}
 	// TODO: update replay filter
 	return out, nil
+}
+
+func (s *Session[XOF, KEMPriv, KEMPub]) IsInitiator() bool {
+	return s.hs.IsInitiator()
 }
 
 func (s *Session[XOF, KEMPriv, KEMPub]) IsHandshakeDone() bool {

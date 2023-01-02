@@ -11,13 +11,11 @@ import (
 )
 
 type HandshakeParams[XOF, KEMPriv, KEMPub any] struct {
-	Suite        Suite[XOF, KEMPriv, KEMPub]
-	Seed         *[32]byte
-	IsInit       bool
-	PreSharedKey *[32]byte // can be nil
+	Suite  Suite[XOF, KEMPriv, KEMPub]
+	Seed   *[32]byte
+	IsInit bool
 
 	Prove  func(out []byte, target *[64]byte) []byte
-	Accept func(target *[64]byte, proof []byte) bool
 	Verify func(target *[64]byte, proof []byte) bool
 }
 
@@ -52,9 +50,6 @@ func NewHandshakeState[XOF, KEMPriv, KEMPub any](params HandshakeParams[XOF, KEM
 		}
 	}
 	hs.mixPublic([]byte(params.Suite.Name))
-	if params.PreSharedKey != nil {
-		hs.mixSecret(params.PreSharedKey)
-	}
 	return hs
 }
 
@@ -64,10 +59,6 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 	case hs.index == 0 && hs.params.IsInit:
 		// InitHello
 		out = kem.AppendPublic[KEMPub](out, hs.KEM(), &hs.kemPub)
-		hs.mixPublic(out[initLen:])
-		var sigTarget [64]byte
-		hs.deriveSharedKey(sigTarget[:], "0-sig-target")
-		out = hs.params.Prove(out, &sigTarget)
 
 	case hs.index == 1 && !hs.params.IsInit:
 		// RespHello
@@ -131,13 +122,6 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		remotePub, err := hs.KEM().ParsePublic(x[:pubKeySize])
 		if err != nil {
 			return err
-		}
-		hs.mixPublic(x[:pubKeySize])
-		proof := x[pubKeySize:]
-		var sigTarget [64]byte
-		xof.Sum(hs.params.Suite.XOF, sigTarget[:], x[:pubKeySize])
-		if !hs.params.Verify(&sigTarget, proof) {
-			return errors.New("verification failed")
 		}
 		hs.kemPub = remotePub
 		hs.index = 1
@@ -245,13 +229,17 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) KEM() kem.Scheme256[KEMPriv, KEM
 }
 
 // AEAD returns the AEAD used by this handshake
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) AEAD() aead.SchemeK256N64 {
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) AEAD() aead.K256N64 {
 	return hs.params.Suite.AEAD
 }
 
 // Zeros the memory in the HandshakeState
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Zero() {
 	*hs = HandshakeState[XOF, KEMPriv, KEMPub]{}
+}
+
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) IsInitiator() bool {
+	return hs.params.IsInit
 }
 
 // mixSecret is called to mix secret state
@@ -283,7 +271,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) generateKey(dst []byte, purpose 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) appendAEADSeal(out []byte, key *[32]byte, nonce uint64, fn func(ptext []byte) []byte) []byte {
 	ptext := fn(nil)
 	nonceBytes := makeNonce(nonce)
-	return hs.AEAD().Seal(out, key, &nonceBytes, ptext, nil)
+	return aead.AppendSealK256N64(out, hs.AEAD(), key, nonceBytes, ptext, nil)
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) appendKEMEncap(out []byte, shared *[32]byte, pub *KEMPub, seed *[32]byte) []byte {
@@ -301,7 +289,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) kemDecap(priv *KEMPriv, ctext []
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) aeadOpen(key *[32]byte, nonce uint64, ctext []byte) ([]byte, error) {
 	ptext := make([]byte, 0, len(ctext)-hs.AEAD().Overhead())
 	nonceBytes := makeNonce(nonce)
-	return hs.AEAD().Open(ptext, key, &nonceBytes, ctext, nil)
+	return aead.AppendOpenK256N64(ptext, hs.AEAD(), key, nonceBytes, ctext, nil)
 }
 
 func makeNonce(x uint64) (ret [8]byte) {

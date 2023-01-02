@@ -11,60 +11,51 @@ import (
 
 type SendFunc = func([]byte)
 
-type ChannelParams[XOF, KEMPriv, KEMPub, Auth any] struct {
+type ChannelParams[S any] struct {
 	Background context.Context
 	Send       SendFunc
-	ChannelStateParams[XOF, KEMPriv, KEMPub, Auth]
+	ChannelStateParams[S]
 }
 
-type Channel[Auth any] struct {
+type Channel[S any] struct {
 	bgCtx      context.Context
 	send       SendFunc
 	hsInterval time.Duration
 
-	mu    sync.Mutex
-	state interface {
-		Send(out []byte, msg []byte, now Time) ([]byte, error)
-		SendHandshake(out []byte, now Time) ([]byte, error)
-		Deliver(out []byte, inbound []byte, now Time) ([]byte, error)
-	}
+	mu          sync.Mutex
+	state       ChannelState[S]
 	senderCount int
 	cf          context.CancelFunc
 	ready       chan struct{}
 }
 
-func NewChannel[XOF, KEMPriv, KEMPub, Auth any](params ChannelParams[XOF, KEMPriv, KEMPub, Auth]) *Channel[Auth] {
-	cs := NewChannelState[XOF, KEMPriv, KEMPub](params.ChannelStateParams)
-	return &Channel[Auth]{
+func NewChannel[S any](params ChannelParams[S]) *Channel[S] {
+	return &Channel[S]{
 		bgCtx:      params.Background,
 		send:       params.Send,
 		hsInterval: 1 * time.Second,
 
-		state: &cs,
+		state: NewChannelState(params.ChannelStateParams),
 	}
 }
 
-func (c *Channel[Auth]) Send(ctx context.Context, msg p2p.IOVec) error {
+func (c *Channel[S]) Send(ctx context.Context, msg p2p.IOVec) error {
 	c.startHandshakeLoop()
 	defer c.stopHandshakeLoop()
 	select {}
 	return nil
 }
 
-func (c *Channel[Auth]) Deliver(out []byte, inbound []byte) ([]byte, error) {
+func (c *Channel[S]) Deliver(out []byte, inbound []byte) ([]byte, error) {
 	now := tai64.Now()
 	return c.state.Deliver(out, inbound, now)
 }
 
-func (c *Channel[Auth]) Remote() Auth {
-	panic("")
-}
-
-func (c *Channel[Auth]) Close() error {
+func (c *Channel[S]) Close() error {
 	return nil
 }
 
-func (c *Channel[Auth]) startHandshakeLoop() {
+func (c *Channel[S]) startHandshakeLoop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.senderCount++
@@ -75,7 +66,7 @@ func (c *Channel[Auth]) startHandshakeLoop() {
 	}
 }
 
-func (c *Channel[Auth]) stopHandshakeLoop() {
+func (c *Channel[S]) stopHandshakeLoop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.senderCount--
@@ -84,7 +75,7 @@ func (c *Channel[Auth]) stopHandshakeLoop() {
 	}
 }
 
-func (c *Channel[Auth]) handshakeLoop(ctx context.Context) {
+func (c *Channel[S]) handshakeLoop(ctx context.Context) {
 	tick := time.NewTicker(c.hsInterval)
 	for {
 		select {
