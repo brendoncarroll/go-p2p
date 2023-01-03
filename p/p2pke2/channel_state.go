@@ -12,13 +12,13 @@ import (
 
 const (
 	DefaultActivityTimeout  = 5 * time.Second
-	DefaultHandshakeTimeout = 5 * time.Second
+	DefaultHandshakeTimeout = 10 * time.Second
 	DefaultSessionLifetime  = 120 * time.Second
 )
 
 // SessionAPI is used by ChannelState to manipulate sessions.
 type SessionAPI interface {
-	SendHandshake([]byte) ([]byte, error)
+	SendHandshake(out []byte) ([]byte, error)
 	Send(out, msg []byte) ([]byte, error)
 	Deliver(out, msg []byte) ([]byte, error)
 	IsHandshakeDone() bool
@@ -55,6 +55,15 @@ type ChannelState[S any] struct {
 }
 
 func NewChannelState[S any](params ChannelStateParams[S]) ChannelState[S] {
+	if params.Accept == nil {
+		params.Accept = func([]byte) bool { return true }
+	}
+	if params.API == nil {
+		panic("API must be set")
+	}
+	if params.Reset == nil {
+		panic("Reset must be set")
+	}
 	if params.ActivityTimeout == 0 {
 		params.ActivityTimeout = DefaultActivityTimeout
 	}
@@ -121,6 +130,7 @@ func (c *ChannelState[S]) Deliver(out []byte, inbound []byte, now Time) ([]byte,
 		out, err := sess.Deliver(out, inbound)
 		lastErr = err
 		if err == nil {
+			se.LastReceived = now
 			if se == c.getNext() && sess.IsHandshakeDone() {
 				c.promoteNext()
 			}
@@ -174,6 +184,17 @@ func (c *ChannelState[S]) LastRecv() (ret Time) {
 	return ret
 }
 
+// ShouldHandshake returns true if a call to SendHandshake is needed
+// If IsReady == false, or if the current session is more than half SessionTimeout, and we are the initiator
+func (c *ChannelState[S]) ShouldHandshake(now Time) bool {
+	if !c.IsReady(now) {
+		return true
+	}
+	current := c.getCurrent()
+	sess := c.getSession(current)
+	return sess.IsInitiator() && tai64DeltaGt(now, current.CreatedAt, c.params.SessionLifetime/2)
+}
+
 // expireSessions ensures that any sessions which should be zerod are.
 func (c *ChannelState[S]) expireSessions(now Time) {
 	for _, se := range c.sessions {
@@ -199,9 +220,8 @@ func (c *ChannelState[S]) expireSessions(now Time) {
 }
 
 func (c *ChannelState[S]) isReady(se *sessionEntry[S], now Time) bool {
-	return !se.IsZero() &&
-		tai64DeltaLt(now, se.LastReceived, c.params.ActivityTimeout) &&
-		tai64DeltaLt(now, se.CreatedAt, c.params.SessionLifetime)
+	sess := c.getSession(se)
+	return se.IsZero() && sess.IsHandshakeDone()
 }
 
 func (c *ChannelState[S]) getSession(se *sessionEntry[S]) SessionAPI {
@@ -209,22 +229,23 @@ func (c *ChannelState[S]) getSession(se *sessionEntry[S]) SessionAPI {
 }
 
 func (c *ChannelState[S]) getNext() *sessionEntry[S] {
-	i := int(c.offset+0) % len(c.sessions)
+	i := mod(int(c.offset)+0, len(c.sessions))
 	return &c.sessions[i]
 }
 
 func (c *ChannelState[S]) getCurrent() *sessionEntry[S] {
-	i := int(c.offset+1) % len(c.sessions)
+	i := mod(int(c.offset)+1, len(c.sessions))
 	return &c.sessions[i]
 }
 
 func (c *ChannelState[S]) getPrev() *sessionEntry[S] {
-	i := int(c.offset+2) % len(c.sessions)
+	i := mod(int(c.offset)+2, len(c.sessions))
 	return &c.sessions[i]
 }
 
+// promoteNext sets current=next and prev=current.  It clears next.
 func (c *ChannelState[S]) promoteNext() {
-	c.offset = uint8(int(c.offset-1) % len(c.sessions))
+	c.offset = uint8(mod(int(c.offset)-1, 3))
 	c.getNext().Clear()
 }
 
@@ -264,4 +285,13 @@ func tai64DeltaGt(a, b tai64.TAI64N, x time.Duration) bool {
 func tai64DeltaLt(a, b tai64.TAI64N, x time.Duration) bool {
 	d := a.GoTime().UnixNano() - b.GoTime().UnixNano()
 	return time.Duration(d) < x
+}
+
+// mod returns x modulo m
+func mod(x, m int) int {
+	z := x % m
+	if z < 0 {
+		z += m
+	}
+	return z
 }

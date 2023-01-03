@@ -44,8 +44,9 @@ type Session[XOF, KEMPriv, KEMPub any] struct {
 
 func NewSession[XOF, KEMPriv, KEMPub any](params SessionParams[XOF, KEMPriv, KEMPub]) Session[XOF, KEMPriv, KEMPub] {
 	return Session[XOF, KEMPriv, KEMPub]{
-		aead: params.Suite.AEAD,
-		hs:   NewHandshakeState[XOF, KEMPriv, KEMPub](params.HandshakeParams()),
+		initialized: true,
+		aead:        params.Suite.AEAD,
+		hs:          NewHandshakeState[XOF, KEMPriv, KEMPub](params.HandshakeParams()),
 	}
 }
 
@@ -70,7 +71,15 @@ func (s *Session[XOF, KEMPriv, KEMPub]) SendHandshake(out []byte) ([]byte, error
 		return nil, errors.New("handshake is already complete")
 	}
 	out = appendUint32(out, uint32(s.hs.Index()))
-	return s.hs.Send(out)
+	out, err := s.hs.Send(out)
+	if err != nil {
+		return nil, err
+	}
+	if s.IsHandshakeDone() {
+		s.inboundKey, s.outboundKey = s.hs.Split()
+		s.counter = 4
+	}
+	return out, nil
 }
 
 // Deliver
@@ -90,7 +99,7 @@ func (s *Session[XOF, KEMPriv, KEMPub]) Deliver(out []byte, msg []byte) ([]byte,
 		if err := s.hs.Deliver(msg[4:]); err != nil {
 			return nil, err
 		}
-		if s.hs.IsDone() {
+		if s.IsHandshakeDone() {
 			s.inboundKey, s.outboundKey = s.hs.Split()
 			s.counter = 4
 		}
@@ -114,15 +123,11 @@ func (s *Session[XOF, KEMPriv, KEMPub]) Deliver(out []byte, msg []byte) ([]byte,
 }
 
 func (s *Session[XOF, KEMPriv, KEMPub]) IsInitiator() bool {
-	return s.hs.IsInitiator()
+	return s.hs.IsInitiator() && s.initialized
 }
 
 func (s *Session[XOF, KEMPriv, KEMPub]) IsHandshakeDone() bool {
-	return s.hs.IsDone()
-}
-
-func (s *Session[XOF, KEMPriv, KEMPub]) IsReady() bool {
-	return s.IsHandshakeDone() && s.initialized
+	return s.hs.IsDone() && s.initialized
 }
 
 // Zero clears all the state in session.

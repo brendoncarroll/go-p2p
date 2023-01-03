@@ -204,12 +204,16 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Split() (inbound, outbound [32]b
 	if hs.index < 4 {
 		panic("split called before end of handshake")
 	}
+	const (
+		respToInit = "resp->init"
+		initToResp = "init->resp"
+	)
 	if hs.params.IsInit {
-		hs.deriveSharedKey(inbound[:], "resp->init")
-		hs.deriveSharedKey(outbound[:], "init->resp")
+		hs.deriveSharedKey(inbound[:], respToInit)
+		hs.deriveSharedKey(outbound[:], initToResp)
 	} else {
-		hs.deriveSharedKey(inbound[:], "init->resp")
-		hs.deriveSharedKey(outbound[:], "resp->init")
+		hs.deriveSharedKey(inbound[:], initToResp)
+		hs.deriveSharedKey(outbound[:], respToInit)
 	}
 	return inbound, outbound
 }

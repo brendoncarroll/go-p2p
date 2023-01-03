@@ -3,8 +3,7 @@ P2PKE is an Authenticated Key Exchange using KEMs for confidentiality and Proof/
 
 ## Messages
 
-P2PKE Handshake messages contain application data, and handshake data.
-The P2PKE handshake information is always last in the message.
+P2PKE messages contain application data or handshake data.
 
 ### 0. Init -> Resp
 ```

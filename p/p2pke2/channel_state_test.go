@@ -49,7 +49,8 @@ func TestChannelState(t *testing.T) {
 	csTransmit(t, &rc, &lc, now, nil)
 	csTransmit(t, &lc, &rc, now, nil)
 	csTransmit(t, &rc, &lc, now, nil)
-	requireTransmit(t, &rc, &lc, now, []byte("hello world"))
+	requireTransmit(t, &lc, &rc, now, []byte("hello world"))
+	requireTransmit(t, &rc, &lc, now, []byte("hello world2"))
 }
 
 func requireTransmit[S any](t testing.TB, send, recv *ChannelState[S], now Time, msg []byte) {
