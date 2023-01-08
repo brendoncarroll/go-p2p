@@ -51,6 +51,9 @@ func NewSession[XOF, KEMPriv, KEMPub any](params SessionParams[XOF, KEMPriv, KEM
 }
 
 func (s *Session[XOF, KEMPriv, KEMPub]) Send(out []byte, payload []byte) ([]byte, error) {
+	if s.IsExhausted() {
+		return nil, ErrSessionExhausted{}
+	}
 	// Handshake
 	if !s.IsHandshakeDone() {
 		return nil, fmt.Errorf("cannot send, session handshake is not done")
@@ -91,6 +94,9 @@ func (s *Session[XOF, KEMPriv, KEMPub]) Deliver(out []byte, msg []byte) ([]byte,
 	if len(msg) < 4 {
 		return nil, ErrShortMessage{}
 	}
+	if s.IsExhausted() {
+		return nil, ErrSessionExhausted{}
+	}
 	counter := binary.BigEndian.Uint32(msg[:4])
 	if !s.IsHandshakeDone() {
 		if counter >= 4 {
@@ -130,6 +136,10 @@ func (s *Session[XOF, KEMPriv, KEMPub]) IsHandshakeDone() bool {
 	return s.hs.IsDone() && s.initialized
 }
 
+func (s *Session[XOF, KEMPriv, KEMPub]) IsExhausted() bool {
+	return s.counter == MaxCounter || s.replay.Max() >= MaxCounter
+}
+
 // Zero clears all the state in session.
 func (s *Session[XOF, KEMPriv, KEMPub]) Zero() {
 	*s = Session[XOF, KEMPriv, KEMPub]{}
@@ -145,4 +155,10 @@ type ErrShortMessage struct{}
 
 func (e ErrShortMessage) Error() string {
 	return "short message"
+}
+
+type ErrSessionExhausted struct{}
+
+func (e ErrSessionExhausted) Error() string {
+	return "session has been exhausted"
 }

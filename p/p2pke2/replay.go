@@ -19,3 +19,8 @@ func (rp *replayFilter) Apply(x uint64) bool {
 	rp.bitMask |= 1
 	return true
 }
+
+// Max is the maximum encountered
+func (rp *replayFilter) Max() uint64 {
+	return rp.last
+}

@@ -5,10 +5,29 @@ P2PKE is an Authenticated Key Exchange using KEMs for confidentiality and Proof/
 
 P2PKE messages contain application data or handshake data.
 
+```
+0 Init -> Resp
+KEMPub
+
+1 Resp -> Init
+Cookie
+KEMCtext
+
+2 Init -> Resp
+Cookie
+AEAD
+    Proof
+
+3 Resp -> Init
+    Proof
+
+4 Init -> Resp
+
+```
+
 ### 0. Init -> Resp
 ```
 - InitKEMPub
-- Proof(Init_Static_ID, proof_target)
 ```
 
 ### 1. Resp -> Init

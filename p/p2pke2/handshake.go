@@ -56,11 +56,17 @@ func NewHandshakeState[XOF, KEMPriv, KEMPub any](params HandshakeParams[XOF, KEM
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error) {
 	initLen := len(out)
 	switch {
-	case hs.index == 0 && hs.params.IsInit:
+	case hs.stateIs(true, 0+1):
+		hs.index--
+		fallthrough
+	case hs.stateIs(true, 0):
 		// InitHello
 		out = kem.AppendPublic[KEMPub](out, hs.KEM(), &hs.kemPub)
 
-	case hs.index == 1 && !hs.params.IsInit:
+	case hs.stateIs(false, 1+1):
+		hs.index--
+		fallthrough
+	case hs.stateIs(false, 1):
 		// RespHello
 		// derive KEM seed
 		var kemSeed kem.Seed
@@ -79,7 +85,10 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 			return ptext
 		})
 
-	case hs.index == 2 && hs.params.IsInit:
+	case hs.stateIs(true, 2+1):
+		hs.index--
+		fallthrough
+	case hs.stateIs(true, 2):
 		// InitDone
 		// AEAD
 		var aeadKey [32]byte
@@ -91,7 +100,10 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 			return ptext
 		})
 
-	case hs.index == 3 && !hs.params.IsInit:
+	case hs.stateIs(false, 3+1):
+		hs.index--
+		fallthrough
+	case hs.stateIs(false, 3):
 		// RespDone
 		var aeadKey [32]byte
 		hs.deriveSharedKey(aeadKey[:], "3-aead-key")
@@ -113,7 +125,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 	switch {
-	case hs.index == 0 && !hs.params.IsInit:
+	case hs.stateIs(false, 0):
 		// InitHello
 		pubKeySize := hs.KEM().PublicKeySize()
 		if len(x) < pubKeySize {
@@ -126,7 +138,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		hs.kemPub = remotePub
 		hs.index = 1
 
-	case hs.index == 1 && hs.params.IsInit:
+	case hs.stateIs(true, 1):
 		// RespHello
 		kemCtextSize := hs.KEM().CiphertextSize()
 		if len(x) < kemCtextSize {
@@ -154,7 +166,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		}
 		hs.index = 2
 
-	case hs.index == 2 && !hs.params.IsInit:
+	case hs.stateIs(false, 2):
 		// InitDone
 		var aeadKey [32]byte
 		hs.deriveSharedKey(aeadKey[:], "2-aead-key")
@@ -164,7 +176,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		}
 		hs.index = 3
 
-	case hs.index == 3 && hs.params.IsInit:
+	case hs.stateIs(true, 3):
 		// RespDone
 		var aeadKey [32]byte
 		hs.deriveSharedKey(aeadKey[:], "3-aead-key")
@@ -244,6 +256,10 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Zero() {
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) IsInitiator() bool {
 	return hs.params.IsInit
+}
+
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) stateIs(isInit bool, index uint8) bool {
+	return hs.IsInitiator() == isInit && hs.index == index
 }
 
 // mixSecret is called to mix secret state

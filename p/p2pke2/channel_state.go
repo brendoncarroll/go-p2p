@@ -23,6 +23,7 @@ type SessionAPI interface {
 	Deliver(out, msg []byte) ([]byte, error)
 	IsHandshakeDone() bool
 	IsInitiator() bool
+	IsExhausted() bool
 }
 
 type ChannelStateParams[S any] struct {
@@ -81,7 +82,7 @@ func NewChannelState[S any](params ChannelStateParams[S]) ChannelState[S] {
 // Send checks if the current session is ready and uses it to append an encrypted version of msg to out
 // If there is no ready session Send returns ErrNoReadySession; the caller should use SendHandshake to establish
 // a secure Session.
-func (c *ChannelState[S]) Send(out []byte, msg []byte, now Time) ([]byte, error) {
+func (c *ChannelState[S]) Send(out []byte, now Time, msg []byte) ([]byte, error) {
 	c.expireSessions(now)
 	// Send always sends on the current ready session.
 	current := c.getCurrent()
@@ -117,7 +118,7 @@ func (c *ChannelState[S]) SendHandshake(out []byte, now Time) ([]byte, error) {
 // - Deliver returns (nil, non-nil) if there is an error.  The error can be logged, but the channel will recover.
 // - Deliver returns (nil, nil) if there is nothing for the application.
 // - Deliver returns (out ++ ptext, nil) if there is no error and plaintext for the application.
-func (c *ChannelState[S]) Deliver(out []byte, inbound []byte, now Time) ([]byte, error) {
+func (c *ChannelState[S]) Deliver(out []byte, now Time, inbound []byte) ([]byte, error) {
 	c.expireSessions(now)
 	// apply to all sessions.
 	var lastErr error
@@ -210,6 +211,8 @@ func (c *ChannelState[S]) expireSessions(now Time) {
 			tai64DeltaGt(now, se.CreatedAt, c.params.SessionLifetime),
 			// If the handshake has timed out.
 			(!sess.IsHandshakeDone() && tai64DeltaGt(now, se.CreatedAt, c.params.HandshakeTimeout)),
+			// session is exhausted
+			sess.IsExhausted(),
 		} {
 			shouldExpire = b || shouldExpire
 		}
@@ -221,7 +224,7 @@ func (c *ChannelState[S]) expireSessions(now Time) {
 
 func (c *ChannelState[S]) isReady(se *sessionEntry[S], now Time) bool {
 	sess := c.getSession(se)
-	return se.IsZero() && sess.IsHandshakeDone()
+	return se.IsZero() && sess.IsHandshakeDone() && !sess.IsExhausted()
 }
 
 func (c *ChannelState[S]) getSession(se *sessionEntry[S]) SessionAPI {

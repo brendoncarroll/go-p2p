@@ -12,6 +12,33 @@ import (
 type SessionV1 = Session[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1]
 
 func TestChannelState(t *testing.T) {
+	lc, rc := newChannelStates(t)
+	now := tai64.Now()
+	csTransmit(t, &lc, &rc, now, nil)
+	csTransmit(t, &rc, &lc, now, nil)
+	csTransmit(t, &lc, &rc, now, nil)
+	csTransmit(t, &rc, &lc, now, nil)
+	requireTransmit(t, &lc, &rc, now, []byte("hello world"))
+	requireTransmit(t, &rc, &lc, now, []byte("hello world2"))
+}
+
+func TestBidiHandshake(t *testing.T) {
+	lc, rc := newChannelStates(t)
+	now := tai64.Now()
+	// Initiators on both sides.
+	csTransmit(t, &lc, nil, now, nil)
+	csTransmit(t, &rc, nil, now, nil)
+
+	csTransmit(t, &lc, &rc, now, nil)
+	csTransmit(t, &rc, &lc, now, nil)
+	csTransmit(t, &lc, &rc, now, nil)
+	csTransmit(t, &rc, &lc, now, nil)
+
+	requireTransmit(t, &lc, &rc, now, []byte("hello world"))
+	requireTransmit(t, &rc, &lc, now, []byte("hello world2"))
+}
+
+func newChannelStates(t testing.TB) (lc, rc ChannelState[SessionV1]) {
 	resetSession := func(s *SessionV1, isInit bool) {
 		*s = NewSession(SessionParams[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1]{
 			Suite:  NewSuiteV1(),
@@ -27,7 +54,6 @@ func TestChannelState(t *testing.T) {
 			},
 		})
 	}
-	var lc, rc ChannelState[SessionV1]
 	lc = NewChannelState(ChannelStateParams[SessionV1]{
 		Accept: func([]byte) bool {
 			return true
@@ -44,13 +70,7 @@ func TestChannelState(t *testing.T) {
 			return s
 		},
 	})
-	now := tai64.Now()
-	csTransmit(t, &lc, &rc, now, nil)
-	csTransmit(t, &rc, &lc, now, nil)
-	csTransmit(t, &lc, &rc, now, nil)
-	csTransmit(t, &rc, &lc, now, nil)
-	requireTransmit(t, &lc, &rc, now, []byte("hello world"))
-	requireTransmit(t, &rc, &lc, now, []byte("hello world2"))
+	return lc, rc
 }
 
 func requireTransmit[S any](t testing.TB, send, recv *ChannelState[S], now Time, msg []byte) {
@@ -68,6 +88,9 @@ func csTransmit[S any](t testing.TB, send, recv *ChannelState[S], now Time, msg 
 		var err error
 		buf, err = send.Send(nil, msg, now)
 		require.NoError(t, err)
+	}
+	if recv == nil {
+		return nil
 	}
 	out, err := recv.Deliver(nil, buf, now)
 	require.NoError(t, err)

@@ -56,7 +56,7 @@ func (c *Channel[S]) Send(ctx context.Context, msg p2p.IOVec) error {
 func (c *Channel[S]) Deliver(out []byte, inbound []byte) ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.state.Deliver(out, inbound, c.now())
+	return c.state.Deliver(out, c.now(), inbound)
 }
 
 func (c *Channel[S]) Close() error {
