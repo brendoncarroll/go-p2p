@@ -21,6 +21,8 @@ type (
 	PublicKey  = ssh.PublicKey
 )
 
+var _ p2p.SecureSwarm[Addr, PublicKey] = &Swarm{}
+
 type Swarm struct {
 	ctx    context.Context
 	pubKey ssh.PublicKey

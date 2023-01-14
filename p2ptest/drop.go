@@ -11,21 +11,21 @@ import (
 //
 // NewDropFirstPairwise tracks src/dst combinations.
 // NewDropFirstTuple tracks src/dst permutations.
-func NewDropFirstPairwise() func(memswarm.Message) *memswarm.Message {
+func NewDropFirstPairwise() func(*memswarm.Message) bool {
 	type A = memswarm.Addr
 	type M = memswarm.Message
 	type FlowID [2]A
 	var mu sync.Mutex
 	m := map[FlowID]struct{}{}
-	return func(x M) *M {
+	return func(x *M) bool {
 		flowID := FlowID{min(x.Src, x.Dst), max(x.Src, x.Dst)}
 		mu.Lock()
 		defer mu.Unlock()
 		if _, exists := m[flowID]; exists {
-			return &x
+			return true
 		}
 		m[flowID] = struct{}{}
-		return nil
+		return false
 	}
 }
 
@@ -34,21 +34,21 @@ func NewDropFirstPairwise() func(memswarm.Message) *memswarm.Message {
 //
 // NewDropFirstTuple tracks src/dst permutations.
 // NewDropFirstPairwise tracks src/dst combinations.
-func NewDropFirstTuple() func(memswarm.Message) *memswarm.Message {
+func NewDropFirstTuple() func(*memswarm.Message) bool {
 	type A = memswarm.Addr
 	type M = memswarm.Message
 	type Tuple [2]A
 	var mu sync.Mutex
 	m := map[Tuple]struct{}{}
-	return func(x M) *M {
+	return func(x *M) bool {
 		t := Tuple{x.Src, x.Dst}
 		mu.Lock()
 		defer mu.Unlock()
 		if _, exists := m[t]; exists {
-			return &x
+			return true
 		}
 		m[t] = struct{}{}
-		return nil
+		return false
 	}
 }
 
