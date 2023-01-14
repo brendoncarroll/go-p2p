@@ -2,6 +2,8 @@ package p2pke
 
 import (
 	"fmt"
+	"io"
+	"math"
 	"sync/atomic"
 	"time"
 
@@ -460,13 +462,44 @@ func appendUint16(x []byte, n uint16) []byte {
 
 func sign(out []byte, privateKey *privateKey, purpose string, msg []byte) ([]byte, error) {
 	// TODO: purpose
-	return privateKey.Sign(out, msg)
+	presig, err := createPreSig(purpose, msg)
+	if err != nil {
+		return nil, err
+	}
+	return privateKey.Sign(out, presig[:])
 }
 
 func verify(publicKey x509.Verifier, purpose string, msg, sig []byte) error {
+	presig, err := createPreSig(purpose, msg)
+	if err != nil {
+		return err
+	}
 	// TODO: purpose
-	if !publicKey.Verify(msg, sig) {
+	if !publicKey.Verify(presig[:], sig) {
 		return errors.New("invalid signature")
 	}
 	return nil
+}
+
+func createPreSig(purpose string, msg []byte) (ret [64]byte, _ error) {
+	if len(purpose) > math.MaxUint8 {
+		return ret, fmt.Errorf("purpose is too long len=%d, max=%d", len(purpose), math.MaxUint8)
+	}
+	h, err := blake2b.NewXOF(64, nil)
+	if err != nil {
+		panic(err)
+	}
+	if _, err := h.Write([]byte{uint8(len(purpose))}); err != nil {
+		return ret, err
+	}
+	if _, err := h.Write([]byte(purpose)); err != nil {
+		return ret, err
+	}
+	if _, err := h.Write(msg); err != nil {
+		return ret, err
+	}
+	if _, err := io.ReadFull(h, ret[:]); err != nil {
+		return ret, err
+	}
+	return ret, nil
 }
