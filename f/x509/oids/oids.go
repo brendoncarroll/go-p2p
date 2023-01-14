@@ -7,7 +7,9 @@ import (
 	"strings"
 )
 
-type OID string
+type OID struct {
+	s string
+}
 
 func New(xs ...int) OID {
 	sb := strings.Builder{}
@@ -16,17 +18,17 @@ func New(xs ...int) OID {
 		binary.BigEndian.PutUint64(buf[:], uint64(x))
 		sb.Write(buf[:])
 	}
-	return OID(sb.String())
+	return OID{s: sb.String()}
 }
 
 func (oid OID) Len() int {
-	return len(oid) / 8
+	return len(oid.s) / 8
 }
 
 func (oid OID) At(i int) uint64 {
 	begin := i * 8
 	end := begin + 8
-	return binary.BigEndian.Uint64([]byte(oid[begin:end]))
+	return binary.BigEndian.Uint64([]byte(oid.s[begin:end]))
 }
 
 func (oid OID) String() string {
@@ -39,6 +41,10 @@ func (oid OID) String() string {
 		fmt.Fprintf(&sb, "%d", n)
 	}
 	return sb.String()
+}
+
+func (oid OID) IsZero() bool {
+	return oid.s == ""
 }
 
 func (oid OID) ASN1() (ret asn1.ObjectIdentifier) {

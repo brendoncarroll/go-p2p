@@ -21,7 +21,7 @@ type PublicKey struct {
 }
 
 func (pub *PublicKey) IsZero() bool {
-	return pub.Algorithm == "" && pub.Data == nil
+	return pub.Algorithm.IsZero() && pub.Data == nil
 }
 
 // MarshalPublicKey appends the marshalled bytes of x to out and returns the result.
@@ -65,9 +65,11 @@ func ParsePublicKey(input []byte) (PublicKey, error) {
 
 // EqualPublicKeys returns true if a and b are equal.
 func EqualPublicKeys(a, b *PublicKey) bool {
-	cmp := subtle.ConstantTimeCompare([]byte(a.Algorithm), []byte(b.Algorithm))
-	cmp += subtle.ConstantTimeCompare([]byte(a.Data), []byte(b.Data))
-	return cmp == 2
+	if a.Algorithm != b.Algorithm {
+		return false
+	}
+	cmp := subtle.ConstantTimeCompare([]byte(a.Data), []byte(b.Data))
+	return cmp == 1
 }
 
 type PrivateKey struct {
@@ -115,7 +117,7 @@ func ParsePrivateKey(input []byte) (PrivateKey, error) {
 }
 
 func (priv *PrivateKey) IsZero() bool {
-	return priv.Algorithm == "" && priv.Data == nil
+	return priv.Algorithm.IsZero() && priv.Data == nil
 }
 
 // Verifier contains the verify method
@@ -180,7 +182,7 @@ func SignerFromStandard(x crypto.Signer) (oids.OID, Signer) {
 		y := sig_ed25519.PrivateKeyFromStandard(x)
 		return Algo_Ed25519, NewSigner[sig_ed25519.PrivateKey, sig_ed25519.PublicKey](sig_ed25519.New(), &y)
 	default:
-		return "", nil
+		return oids.OID{}, nil
 	}
 }
 
@@ -192,7 +194,7 @@ func VerifierFromStandard(x crypto.PublicKey) (oids.OID, Verifier) {
 		y := sig_ed25519.PublicKeyFromStandard(x)
 		return Algo_Ed25519, NewVerifier[sig_ed25519.PrivateKey, sig_ed25519.PublicKey](sig_ed25519.New(), &y)
 	default:
-		return "", nil
+		return oids.OID{}, nil
 	}
 }
 
