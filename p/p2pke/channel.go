@@ -28,7 +28,7 @@ type ChannelConfig struct {
 	Send SendFunc
 	// AcceptKey is used to check if a key is allowed before connecting
 	// *REQUIRED*.
-	AcceptKey func(x509.PublicKey) bool
+	AcceptKey func(*x509.PublicKey) bool
 	// Logger is used for logging, nil disables logs.
 	Logger *slog.Logger
 
@@ -45,8 +45,9 @@ type ChannelConfig struct {
 }
 
 type Channel struct {
-	params ChannelConfig
-	log    *slog.Logger
+	params     ChannelConfig
+	log        *slog.Logger
+	privateKey privateKey
 
 	mu sync.RWMutex
 	// sessions holds the 3 sessions: previous, current, next
@@ -94,7 +95,11 @@ func NewChannel(params ChannelConfig) *Channel {
 	c := &Channel{
 		params: params,
 		log:    params.Logger,
-		ready:  make(chan struct{}),
+		privateKey: privateKey{
+			Registry: params.Registry,
+			Key:      params.PrivateKey,
+		},
+		ready: make(chan struct{}),
 	}
 	c.rekeyTimer = newTimer(c.onRekey)
 	c.handshakeTimer = newTimer(c.onHandshake)
@@ -204,7 +209,7 @@ func (c *Channel) Close() error {
 // LocalKey returns the public key used by the local party to authenticate.
 // It will correspond to the private key passed to NewChannel.
 func (c *Channel) LocalKey() x509.PublicKey {
-	return c.params.PrivateKey.Public()
+	return c.privateKey.Public().Key
 }
 
 // RemoteKey returns the public key used by the remote party to authenticate.
@@ -240,6 +245,7 @@ func (c *Channel) WaitReady(ctx context.Context) error {
 // newInit creates a new session as the initiator.
 func (c *Channel) newInit(now time.Time) ([32]byte, *Session) {
 	s := NewSession(SessionConfig{
+		Registry:    c.params.Registry,
 		PrivateKey:  c.params.PrivateKey,
 		IsInit:      true,
 		Logger:      c.params.Logger,
@@ -269,15 +275,16 @@ func (c *Channel) newResp(m0 []byte, minTime tai64.TAI64N) (*Session, error) {
 	if helloTime.Before(minTime) {
 		return nil, errors.New("timestamp too early to consider session")
 	}
-	pubKey, err := verifyAuthClaim(purposeTimestamp, initHello.KeyX509, initHello.TimestampTai64N, initHello.Sig)
+	pubKey, err := verifyAuthClaim(c.params.Registry, purposeTimestamp, initHello.KeyX509, initHello.TimestampTai64N, initHello.Sig)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.checkKey(pubKey); err != nil {
+	if err := c.checkKey(&pubKey.Key); err != nil {
 		return nil, err
 	}
 	now := time.Now()
 	s := NewSession(SessionConfig{
+		Registry:    c.params.Registry,
 		PrivateKey:  c.params.PrivateKey,
 		IsInit:      false,
 		Logger:      c.log,
@@ -318,7 +325,8 @@ func (c *Channel) proposeNewSession(sid [32]byte, newS *Session) (ret *Session) 
 // onReadySession is called when the prospective session becomes ready
 func (c *Channel) onReadySession(now time.Time) error {
 	se := c.sessions[2]
-	if c.remoteKey != nil && !p2p.EqualPublicKeys(c.remoteKey, se.Session.RemoteKey()) {
+	sessRemote := se.Session.RemoteKey()
+	if !c.remoteKey.IsZero() && !x509.EqualPublicKeys(&c.remoteKey, &sessRemote) {
 		c.setNext(sessionEntry{})
 		return errors.New("session negotiated with wrong peer")
 	}
@@ -349,10 +357,10 @@ func (c *Channel) setNext(x sessionEntry) {
 	c.sessions[2] = x
 }
 
-func (c *Channel) checkKey(pubKey p2p.PublicKey) error {
-	if c.remoteKey != nil && p2p.EqualPublicKeys(c.remoteKey, pubKey) {
+func (c *Channel) checkKey(pubKey *x509.PublicKey) error {
+	if !c.remoteKey.IsZero() && x509.EqualPublicKeys(&c.remoteKey, pubKey) {
 		return nil
-	} else if c.params.AcceptKey(pubKey) {
+	} else if c.remoteKey.IsZero() && c.params.AcceptKey(pubKey) {
 		return nil
 	}
 	return errors.New("key rejected")

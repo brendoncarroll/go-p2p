@@ -17,7 +17,7 @@ import (
 
 type Session struct {
 	registry   x509.Registry
-	privateKey x509.PrivateKey
+	privateKey privateKey
 	isInit     bool
 	log        *slog.Logger
 	expiresAt  time.Time
@@ -27,7 +27,7 @@ type Session struct {
 	msgCache      [4][]byte
 	hs            *noise.HandshakeState
 	initHelloTime tai64.TAI64N
-	remoteKey     x509.PublicKey
+	remoteKey     publicKey
 
 	// ciphers
 	cipherOut, cipherIn noise.Cipher
@@ -37,12 +37,12 @@ type Session struct {
 
 // SessionConfig configures a session all the parameters are required.
 type SessionConfig struct {
-	X509Registry x509.Registry
-	PrivateKey   x509.PrivateKey
-	IsInit       bool
-	Now          time.Time
-	RejectAfter  time.Duration
-	Logger       *slog.Logger
+	Registry    x509.Registry
+	PrivateKey  x509.PrivateKey
+	IsInit      bool
+	Now         time.Time
+	RejectAfter time.Duration
+	Logger      *slog.Logger
 }
 
 func NewSession(params SessionConfig) *Session {
@@ -55,17 +55,20 @@ func NewSession(params SessionConfig) *Session {
 		panic(err)
 	}
 	s := &Session{
-		registry:   params.X509Registry,
-		privateKey: params.PrivateKey,
-		isInit:     params.IsInit,
-		log:        params.Logger,
-		expiresAt:  params.Now.Add(params.RejectAfter),
-		hs:         hs,
-		rp:         &replay.Filter{},
+		registry: params.Registry,
+		privateKey: privateKey{
+			Registry: params.Registry,
+			Key:      params.PrivateKey,
+		},
+		isInit:    params.IsInit,
+		log:       params.Logger,
+		expiresAt: params.Now.Add(params.RejectAfter),
+		hs:        hs,
+		rp:        &replay.Filter{},
 	}
 	if s.isInit {
 		s.initHelloTime = tai64.FromGoTime(params.Now)
-		s.msgCache[0] = writeInitHello(nil, s.registry, s.hs, s.privateKey, s.initHelloTime)
+		s.msgCache[0] = writeInitHello(nil, s.hs, &s.privateKey, s.initHelloTime)
 	}
 	return s
 }
@@ -146,8 +149,12 @@ func (s *Session) IsReady() bool {
 	return s.canSend() && s.canReceive()
 }
 
+func (s *Session) LocalKey() x509.PublicKey {
+	return s.privateKey.Public().Key
+}
+
 func (s *Session) RemoteKey() x509.PublicKey {
-	return s.remoteKey
+	return s.remoteKey.Key
 }
 
 func (s *Session) ExpiresAt() time.Time {
@@ -222,7 +229,7 @@ func (s *Session) readHandshake(msg Message) error {
 	nonce := msg.GetNonce()
 	switch {
 	case !s.isInit && s.hsIndex == 0 && nonce == nonceInitHello:
-		res, err := readInitHello(s.hs, s.privateKey, msg)
+		res, err := readInitHello(s.registry, s.hs, &s.privateKey, msg)
 		if err != nil {
 			return err
 		}
@@ -233,7 +240,7 @@ func (s *Session) readHandshake(msg Message) error {
 		s.hsIndex = 1
 
 	case s.isInit && s.hsIndex == 0 && nonce == nonceRespHello:
-		res, err := readRespHello(s.hs, s.privateKey, msg)
+		res, err := readRespHello(s.registry, s.hs, &s.privateKey, msg)
 		if err != nil {
 			return err
 		}
@@ -242,7 +249,7 @@ func (s *Session) readHandshake(msg Message) error {
 		s.remoteKey = res.RemoteKey
 		s.hsIndex = 2 // the initiator doesn't know if the server got the initDone yet.
 	case !s.isInit && s.hsIndex == 1 && nonce == nonceInitDone:
-		res, err := readInitDone(s.hs, s.remoteKey, s.cipherIn, s.cipherOut, msg)
+		res, err := readInitDone(s.hs, &s.remoteKey, s.cipherIn, s.cipherOut, msg)
 		if err != nil {
 			return err
 		}
@@ -264,11 +271,11 @@ func (s *Session) readHandshake(msg Message) error {
 }
 
 // writeInit writes an InitHello message to out using hs, and initHelloTime
-func writeInitHello(out []byte, reg x509.Registry, hs *noise.HandshakeState, privateKey x509.PrivateKey, initHelloTime tai64.TAI64N) []byte {
+func writeInitHello(out []byte, hs *noise.HandshakeState, privateKey *privateKey, initHelloTime tai64.TAI64N) []byte {
 	msg := newMessage(0)
 	tsBytes := initHelloTime.Marshal()
 	var err error
-	keyX509, sig := makeTAI64NAuthClaim(reg, privateKey, initHelloTime)
+	keyX509, sig := makeTAI64NAuthClaim(privateKey, initHelloTime)
 	initHelloData := marshal(nil, &InitHello{
 		Version:         1,
 		TimestampTai64N: tsBytes[:],
@@ -286,12 +293,12 @@ func writeInitHello(out []byte, reg x509.Registry, hs *noise.HandshakeState, pri
 type initHelloResult struct {
 	CipherOut, CipherIn noise.Cipher
 	Timestamp           tai64.TAI64N
-	RemoteKey           x509.PublicKey
+	RemoteKey           publicKey
 	RespHello           []byte
 }
 
 // readInitHello
-func readInitHello(hs *noise.HandshakeState, privateKey x509.PrivateKey, msg Message) (*initHelloResult, error) {
+func readInitHello(reg x509.Registry, hs *noise.HandshakeState, privateKey *privateKey, msg Message) (*initHelloResult, error) {
 	payload, _, _, err := hs.ReadMessage(nil, msg.Body())
 	if err != nil {
 		return nil, err
@@ -304,7 +311,7 @@ func readInitHello(hs *noise.HandshakeState, privateKey x509.PrivateKey, msg Mes
 	if err != nil {
 		return nil, err
 	}
-	pubKey, err := verifyAuthClaim(purposeTimestamp, hello.KeyX509, hello.TimestampTai64N, hello.Sig)
+	pubKey, err := verifyAuthClaim(reg, purposeTimestamp, hello.KeyX509, hello.TimestampTai64N, hello.Sig)
 	if err != nil {
 		return nil, errors.Wrapf(err, "validating InitHello")
 	}
@@ -332,11 +339,11 @@ func readInitHello(hs *noise.HandshakeState, privateKey x509.PrivateKey, msg Mes
 // respHelloResult is the result of processing a RespHello message
 type respHelloResult struct {
 	CipherOut, CipherIn noise.Cipher
-	RemoteKey           x509.PublicKey
+	RemoteKey           publicKey
 	InitDone            []byte
 }
 
-func readRespHello(reg x509.Registry, hs *noise.HandshakeState, privateKey x509.Signer, msg Message) (*respHelloResult, error) {
+func readRespHello(reg x509.Registry, hs *noise.HandshakeState, privateKey *privateKey, msg Message) (*respHelloResult, error) {
 	cb := append([]byte{}, hs.ChannelBinding()...)
 	helloBytes, cs1, cs2, err := hs.ReadMessage(nil, msg.Body())
 	if err != nil {
@@ -372,11 +379,11 @@ func readRespHello(reg x509.Registry, hs *noise.HandshakeState, privateKey x509.
 
 // initDoneResult is returned by readInitDone
 type initDoneResult struct {
-	RemoteKey x509.PublicKey
+	RemoteKey publicKey
 	RespDone  []byte
 }
 
-func readInitDone(hs *noise.HandshakeState, pubKey x509.Verifier, cipherIn, cipherOut noise.Cipher, msg Message) (*initDoneResult, error) {
+func readInitDone(hs *noise.HandshakeState, pubKey *publicKey, cipherIn, cipherOut noise.Cipher, msg Message) (*initDoneResult, error) {
 	ptext, err := cipherIn.Decrypt(nil, uint64(nonceInitDone), msg.HeaderBytes(), msg.Body())
 	if err != nil {
 		return nil, errors.Wrapf(err, "readInitDone")
@@ -392,7 +399,7 @@ func readInitDone(hs *noise.HandshakeState, pubKey x509.Verifier, cipherIn, ciph
 	respDone := newMessage(nonceRespDone)
 	respDone = cipherOut.Encrypt(respDone, uint64(nonceRespDone), respDone.HeaderBytes(), nil)
 	return &initDoneResult{
-		RemoteKey: pubKey,
+		RemoteKey: *pubKey,
 		RespDone:  respDone,
 	}, nil
 }
@@ -402,52 +409,38 @@ func readRespDone(cipherIn noise.Cipher, msg Message) error {
 	return err
 }
 
-func makeChannelAuthClaim(registry x509.Registry, privateKey *x509.PrivateKey, cb []byte) ([]byte, []byte) {
-	pubKey, err := registry.PublicFromPrivate(privateKey)
-	if err != nil {
-		return err
-	}
-	signer, err := registry.LoadSigner(privateKey)
-	if err != nil {
-		return err
-	}
-	sig, err := sign(nil, signer, purposeChannelBinding, cb)
+func makeChannelAuthClaim(privateKey *privateKey, cb []byte) ([]byte, []byte) {
+	sig, err := sign(nil, privateKey, purposeChannelBinding, cb)
 	if err != nil {
 		panic(err)
 	}
-	return x509.MarshalPublicKey(pubKey), sig
+	pubKey := privateKey.Public()
+	return x509.MarshalPublicKey(nil, &pubKey.Key), sig
 }
 
-func makeTAI64NAuthClaim(registry x509.Registry, privateKey x509.PrivateKey, timestamp tai64.TAI64N) ([]byte, []byte) {
-	pubKey, err := registry.PublicFromPrivate(privateKey)
-	if err != nil {
-		return err
-	}
-	signer, err := registry.LoadSigner(privateKey)
-	if err != nil {
-		return err
-	}
+func makeTAI64NAuthClaim(privateKey *privateKey, timestamp tai64.TAI64N) ([]byte, []byte) {
 	tsBytes := timestamp.Marshal()
-	sig, err := sign(nil, signer, purposeTimestamp, tsBytes[:])
+	sig, err := sign(nil, privateKey, purposeTimestamp, tsBytes[:])
 	if err != nil {
 		panic(err)
 	}
-	return x509.MarshalPublicKey(pubKey), sig
+	pubKey := privateKey.Public().Key
+	return x509.MarshalPublicKey(nil, &pubKey), sig
 }
 
-func verifyAuthClaim(registry x509.Registry, purpose string, keyX509, data, sig []byte) (x509.PublicKey, error) {
+func verifyAuthClaim(reg x509.Registry, purpose string, keyX509, data, sig []byte) (publicKey, error) {
 	pubKey, err := x509.ParsePublicKey(keyX509)
 	if err != nil {
-		return x509.PublicKey{}, err
+		return publicKey{}, err
 	}
-	v, err := registry.LoadVerifier(&pubKey)
+	v, err := reg.LoadVerifier(&pubKey)
 	if err != nil {
-		return x509.PublicKey{}, err
+		return publicKey{}, err
 	}
 	if err := verify(v, purpose, data, sig); err != nil {
-		return x509.PublicKey{}, err
+		return publicKey{}, err
 	}
-	return pubKey, nil
+	return publicKey{Registry: reg, Key: pubKey}, nil
 }
 
 func pickCS(initiator bool, cs1, cs2 *noise.CipherState) (outCipher, inCipher noise.Cipher) {
@@ -465,7 +458,7 @@ func appendUint16(x []byte, n uint16) []byte {
 	return x
 }
 
-func sign(out []byte, privateKey x509.Signer, purpose string, msg []byte) ([]byte, error) {
+func sign(out []byte, privateKey *privateKey, purpose string, msg []byte) ([]byte, error) {
 	// TODO: purpose
 	return privateKey.Sign(out, msg)
 }

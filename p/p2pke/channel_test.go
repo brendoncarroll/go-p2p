@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/p2ptest"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/f/x509"
 )
 
 func TestChannel(t *testing.T) {
@@ -50,8 +51,10 @@ func TestChannelBidi(t *testing.T) {
 }
 
 func newChannelPair(t testing.TB, fn1, fn2 func([]byte)) (c1, c2 *Channel) {
+	reg := x509.DefaultRegistry()
 	c1 = NewChannel(ChannelConfig{
-		PrivateKey: p2ptest.NewTestKey(t, 0),
+		Registry:   reg,
+		PrivateKey: newTestKey(t, 0),
 		Send: func(x []byte) {
 			t.Logf("1->2: %q", x)
 			out, err := c2.Deliver(nil, x)
@@ -60,11 +63,12 @@ func newChannelPair(t testing.TB, fn1, fn2 func([]byte)) (c1, c2 *Channel) {
 				fn2(out)
 			}
 		},
-		AcceptKey: func(p2p.PublicKey) bool { return true },
+		AcceptKey: func(*x509.PublicKey) bool { return true },
 		Logger:    newTestLogger(t),
 	})
 	c2 = NewChannel(ChannelConfig{
-		PrivateKey: p2ptest.NewTestKey(t, 1),
+		Registry:   reg,
+		PrivateKey: newTestKey(t, 1),
 		Send: func(x []byte) {
 			t.Logf("2->1: %q", x)
 			out, err := c1.Deliver(nil, x)
@@ -73,7 +77,7 @@ func newChannelPair(t testing.TB, fn1, fn2 func([]byte)) (c1, c2 *Channel) {
 				fn1(out)
 			}
 		},
-		AcceptKey: func(p2p.PublicKey) bool { return true },
+		AcceptKey: func(*x509.PublicKey) bool { return true },
 		Logger:    newTestLogger(t),
 	})
 	t.Cleanup(func() {

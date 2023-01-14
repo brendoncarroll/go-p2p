@@ -4,6 +4,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/brendoncarroll/go-p2p/f/x509"
 	"github.com/flynn/noise"
 )
 
@@ -81,4 +82,48 @@ func IsHello(x []byte) bool {
 func IsPostHandshake(x []byte) bool {
 	msg, err := ParseMessage(x)
 	return err == nil && msg.GetNonce() >= noncePostHandshake
+}
+
+type privateKey struct {
+	Registry x509.Registry
+	Key      x509.PrivateKey
+}
+
+func (pk *privateKey) Public() publicKey {
+	if pk.Registry == nil || pk.Key.IsZero() {
+		return publicKey{}
+	}
+	pub, err := pk.Registry.PublicFromPrivate(&pk.Key)
+	if err != nil {
+		panic(err)
+	}
+	return publicKey{
+		Registry: pk.Registry,
+		Key:      pub,
+	}
+}
+
+func (pk *privateKey) Sign(out []byte, msg []byte) ([]byte, error) {
+	sign, err := pk.Registry.LoadSigner(&pk.Key)
+	if err != nil {
+		return nil, err
+	}
+	return sign.Sign(out, msg)
+}
+
+type publicKey struct {
+	Registry x509.Registry
+	Key      x509.PublicKey
+}
+
+func (pk *publicKey) Verify(msg, sig []byte) bool {
+	v, err := pk.Registry.LoadVerifier(&pk.Key)
+	if err != nil {
+		return false
+	}
+	return v.Verify(msg, sig)
+}
+
+func (pk *publicKey) IsZero() bool {
+	return pk.Registry == nil || pk.Key.IsZero()
 }

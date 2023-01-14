@@ -4,6 +4,7 @@ package x509
 import (
 	"crypto"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
@@ -17,6 +18,10 @@ import (
 type PublicKey struct {
 	Algorithm oids.OID
 	Data      []byte
+}
+
+func (pub *PublicKey) IsZero() bool {
+	return pub.Algorithm == "" && pub.Data == nil
 }
 
 // MarshalPublicKey appends the marshalled bytes of x to out and returns the result.
@@ -56,6 +61,13 @@ func ParsePublicKey(input []byte) (PublicKey, error) {
 		Algorithm: oids.New(record.Algorithm.Algorithm...),
 		Data:      record.PublicKey.RightAlign(),
 	}, nil
+}
+
+// EqualPublicKeys returns true if a and b are equal.
+func EqualPublicKeys(a, b *PublicKey) bool {
+	cmp := subtle.ConstantTimeCompare([]byte(a.Algorithm), []byte(b.Algorithm))
+	cmp += subtle.ConstantTimeCompare([]byte(a.Data), []byte(b.Data))
+	return cmp == 2
 }
 
 type PrivateKey struct {
@@ -102,6 +114,10 @@ func ParsePrivateKey(input []byte) (PrivateKey, error) {
 	}, nil
 }
 
+func (priv *PrivateKey) IsZero() bool {
+	return priv.Algorithm == "" && priv.Data == nil
+}
+
 // Verifier contains the verify method
 type Verifier interface {
 	Verify(msg, sig []byte) bool
@@ -139,7 +155,7 @@ type signer[Private, Public any] struct {
 func (s *signer[Private, Public]) Sign(out []byte, msg []byte) ([]byte, error) {
 	initLen := len(out)
 	out = append(out, make([]byte, s.scheme.SignatureSize())...)
-	s.scheme.Sign(out[:initLen], &s.private, msg)
+	s.scheme.Sign(out[initLen:], &s.private, msg)
 	return out, nil
 }
 
