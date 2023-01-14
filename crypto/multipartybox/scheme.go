@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/brendoncarroll/go-p2p/crypto/aead"
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
@@ -67,32 +68,31 @@ func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) ParsePublic(x []byte) (r
 	return PublicKey[KEMPub, SigPub]{KEM: kemPub, Sign: sigPub}, nil
 }
 
-func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Encrypt(out []byte, private *PrivateKey[KEMPriv, SigPriv], pubs []KEMPub, seed *[32]byte, ptext []byte) ([]byte, error) {
-	out = appendVarint(out, uint64(s.slotSize()*len(pubs)))
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Encrypt(out []byte, private *PrivateKey[KEMPriv, SigPriv], pubs []*KEMPub, seed *[32]byte, ptext []byte) ([]byte, error) {
+	out = appendUint32(out, uint32(s.slotSize()*len(pubs)))
 	slotsBegin := len(out)
 	var dek, kemSeed [32]byte
 	xof.DeriveKey256(s.XOF, dek[:], seed, []byte("dek"))
 	xof.DeriveKey256(s.XOF, kemSeed[:], seed, []byte("kem"))
 	for _, pub := range pubs {
 		var err error
-		out, err = s.encryptSlot(out, private, &pub, &kemSeed, &dek)
+		out, err = s.encryptSlot(out, private, pub, &kemSeed, &dek)
 		if err != nil {
 			return nil, err
 		}
 	}
 	slotsEnd := len(out)
-	out = appendVarint(out, uint64(len(ptext)+s.AEAD.Overhead()))
 	out = aead.AppendSealSUV256(s.AEAD, out, &dek, ptext, out[slotsBegin:slotsEnd])
 	return out, nil
 }
 
-func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) EncryptDet(out []byte, private *PrivateKey[KEMPriv, SigPriv], pubs []KEMPub, ptext []byte) ([]byte, error) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) EncryptDet(out []byte, private *PrivateKey[KEMPriv, SigPriv], pubs []*KEMPub, ptext []byte) ([]byte, error) {
 	var seed [32]byte
 	xof.Sum(s.XOF, seed[:], ptext)
 	return s.Encrypt(out, private, pubs, &seed, ptext)
 }
 
-func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Decrypt(out []byte, private *PrivateKey[KEMPriv, SigPriv], writers []SigPub, ctext []byte) (int, []byte, error) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Decrypt(out []byte, private *PrivateKey[KEMPriv, SigPriv], writers []*SigPub, ctext []byte) (int, []byte, error) {
 	m, err := ParseMessage(ctext)
 	if err != nil {
 		return -1, nil, err
@@ -131,7 +131,7 @@ func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) encryptSlot(out []byte, 
 
 // decryptSlot attempts to use private to recover a shared secret from the KEM ciphertext.
 // if it is successful, the remaining message is interpretted as a sealed AEAD ciphertext, containing a signature and the main DEK.
-func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) decryptSlot(private *PrivateKey[KEMPriv, SigPriv], pubs []SigPub, ctext []byte) (int, *[32]byte, error) {
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) decryptSlot(private *PrivateKey[KEMPriv, SigPriv], pubs []*SigPub, ctext []byte) (int, *[32]byte, error) {
 	kemCtext := ctext[:s.KEM.CiphertextSize()]
 	aeadCtext := ctext[s.KEM.CiphertextSize():]
 	var ss [32]byte
@@ -144,7 +144,7 @@ func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) decryptSlot(private *Pri
 	}
 	sig := ptext[:s.Sign.SignatureSize()]
 	for i, pub := range pubs {
-		if s.Sign.Verify(&pub, kemCtext, sig) {
+		if s.Sign.Verify(pub, kemCtext, sig) {
 			dek := ptext[s.Sign.SignatureSize():]
 			if len(dek) != 32 {
 				return -1, nil, errors.New("DEK is wrong length")
@@ -160,10 +160,8 @@ func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) slotSize() int {
 	return s.KEM.CiphertextSize() + s.Sign.SignatureSize() + AEADKeySize + s.AEAD.Overhead()
 }
 
-func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) CiphertextSize(numParties, ptextLen int) int {
-	slotsLen := numParties * s.slotSize()
-	mainLen := ptextLen + s.AEAD.Overhead()
-	return lpLen(slotsLen) + lpLen(mainLen)
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) CiphertextSize(numReaders, ptextLen int) int {
+	return ptextLen + s.Overhead(numReaders)
 }
 
 func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) PlaintextSize(ctext []byte) (int, error) {
@@ -174,46 +172,37 @@ func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) PlaintextSize(ctext []by
 	return len(m.Main) - s.AEAD.Overhead(), nil
 }
 
+func (s *Scheme[XOF, KEMPriv, KEMPub, SigPriv, SigPub]) Overhead(numReaders int) int {
+	return 4 + s.slotSize()*numReaders + s.AEAD.Overhead()
+}
+
 type Message struct {
 	Slots []byte
 	Main  []byte
 }
 
 func ParseMessage(x []byte) (*Message, error) {
-	l, n := binary.Uvarint(x)
-	if n <= 0 {
-		return nil, errors.New("error parsing varint")
+	if len(x) > math.MaxInt32 {
+		return nil, fmt.Errorf("message is too large")
 	}
-	start := n
-	end := start + int(l)
-	if end > len(x) {
+	if len(x) < 4 {
+		return nil, fmt.Errorf("multipartybox: too short to be message")
+	}
+	slotsLen := binary.BigEndian.Uint32(x[:4])
+	end := 4 + slotsLen
+	if int(end) > len(x) {
 		return nil, fmt.Errorf("varint points out of bounds")
 	}
-	slots := x[start:end]
-	l2, n2 := binary.Uvarint(x[end:])
-	if n2 <= 0 {
-		return nil, errors.New("error parsing varint")
-	}
-	start = end + n2
-	end = start + int(l2)
-	if start >= len(x) || end > len(x) {
-		return nil, fmt.Errorf("varint points out of bounds")
-	}
-	main := x[start:end]
+	slots := x[4:end]
+	main := x[end:]
 	return &Message{
 		Slots: slots,
 		Main:  main,
 	}, nil
 }
 
-func lpLen(x int) int {
-	buf := [binary.MaxVarintLen64]byte{}
-	l := binary.PutUvarint(buf[:], uint64(x))
-	return x + l
-}
-
-func appendVarint(out []byte, x uint64) []byte {
-	buf := [binary.MaxVarintLen64]byte{}
-	l := binary.PutUvarint(buf[:], x)
-	return append(out, buf[:l]...)
+func appendUint32(out []byte, x uint32) []byte {
+	buf := [4]byte{}
+	binary.BigEndian.PutUint32(buf[:], x)
+	return append(out, buf[:]...)
 }

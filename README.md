@@ -34,14 +34,8 @@ The power of the `Swarm` abstraction is exemplified by the fact we merely call s
 `Swarms` provide a `Tell` method, which makes a best effort to send the message payload to the destination.
 It will error if the message cannot be set in flight, but does not guarantee the transmision of the message if the error is nil.
 
-## Directory Organization 
+## Directory Organization
 
-### C is for Cell
-Compare-and-swap cells are a synchronization primitive.
-Cells are useful for modeling shared state that can change.
-
-- **Signed Cell**
-A cell which signs and verifies it's contents using the `p2p.Sign` and `p2p.Verify` functions
 
 ### D is for Discovery
 Services for discovering peers.

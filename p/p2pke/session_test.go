@@ -94,6 +94,5 @@ func newTestPair(t *testing.T) (s1, s2 *Session) {
 }
 
 func newTestLogger(t testing.TB) *slog.Logger {
-	log := slog.New(slog.NewTextHandler(os.Stderr))
-	return &log
+	return slog.New(slog.NewTextHandler(os.Stderr))
 }

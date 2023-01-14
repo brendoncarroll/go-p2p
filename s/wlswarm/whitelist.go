@@ -19,15 +19,15 @@ type swarm[A p2p.Addr] struct {
 
 func WrapSecureAsk[A p2p.Addr](x p2p.SecureAskSwarm[A], af AllowFunc[A]) p2p.SecureAskSwarm[A] {
 	log := slog.New(slog.NewTextHandler(io.Discard))
-	swarm := &swarm[A]{x, af, &log}
-	asker := &asker[A]{x, af, &log}
+	swarm := &swarm[A]{x, af, log}
+	asker := &asker[A]{x, af, log}
 	return p2p.ComposeSecureAskSwarm[A](swarm, asker, swarm)
 }
 
 func WrapSecure[A p2p.Addr](x p2p.SecureSwarm[A], af AllowFunc[A]) p2p.SecureSwarm[A] {
 	log := slog.New(slog.NewTextHandler(io.Discard))
 	return &swarm[A]{
-		log:         &log,
+		log:         log,
 		SecureSwarm: x,
 		af:          af,
 	}

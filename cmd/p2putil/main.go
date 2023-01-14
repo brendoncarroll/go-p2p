@@ -20,7 +20,7 @@ import (
 var ctx = func() context.Context {
 	ctx := context.Background()
 	l := slog.New(slog.NewTextHandler(os.Stderr))
-	ctx = logctx.NewContext(ctx, &l)
+	ctx = logctx.NewContext(ctx, l)
 	return ctx
 }()
 

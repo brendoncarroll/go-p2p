@@ -28,7 +28,7 @@ type Swarm[T p2p.Addr] struct {
 	fingerprinter p2p.Fingerprinter
 	allowFunc     func(p2p.Addr) bool
 	privKey       p2p.PrivateKey
-	log           slog.Logger
+	log           *slog.Logger
 	pconn         net.PacketConn
 	l             quic.Listener
 	cf            context.CancelFunc
@@ -68,7 +68,7 @@ func New[T p2p.Addr](x p2p.Swarm[T], privKey p2p.PrivateKey, opts ...Option[T]) 
 		opt(s)
 	}
 	ctx := context.Background()
-	ctx = slog.NewContext(ctx, s.log)
+	ctx = logctx.NewContext(ctx, s.log)
 	ctx, cf := context.WithCancel(ctx)
 	s.cf = cf
 	tlsConfig := s.generateServerTLS(privKey)

@@ -75,8 +75,7 @@ func NewChannel(params ChannelConfig) *Channel {
 		panic("AcceptKey must be set")
 	}
 	if params.Logger == nil {
-		nullLogger := slog.New(slog.NewTextHandler(io.Discard))
-		params.Logger = &nullLogger
+		params.Logger = slog.New(slog.NewTextHandler(io.Discard))
 	}
 	if params.KeepAliveTimeout == 0 {
 		params.KeepAliveTimeout = KeepAliveTimeout

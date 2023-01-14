@@ -17,12 +17,12 @@ func TestV1(t *testing.T) {
 		require.NoError(t, err)
 		return pub, priv
 	}
-	makeParties := func(n int) (privs []PrivateKeyV1, readers []KEMPublicKeyV1, writers []SignPublicKeyV1) {
+	makeParties := func(n int) (privs []PrivateKeyV1, readers []*KEMPublicKeyV1, writers []*SignPublicKeyV1) {
 		for i := 0; i < n; i++ {
 			pub, priv := generate(i)
 			privs = append(privs, priv)
-			readers = append(readers, pub.KEM)
-			writers = append(writers, pub.Sign)
+			readers = append(readers, &pub.KEM)
+			writers = append(writers, &pub.Sign)
 		}
 		return privs, readers, writers
 	}
