@@ -5,37 +5,37 @@ import (
 	"io"
 )
 
-type Option func(r *Realm)
+type Option[Pub any] func(r *Realm[Pub])
 
-func WithBackground(ctx context.Context) Option {
-	return func(r *Realm) {
+func WithBackground[Pub any](ctx context.Context) Option[Pub] {
+	return func(r *Realm[Pub]) {
 		r.ctx = ctx
 	}
 }
 
-func WithTrafficLogging(w io.Writer) Option {
-	return func(r *Realm) {
+func WithTrafficLogging[Pub any](w io.Writer) Option[Pub] {
+	return func(r *Realm[Pub]) {
 		r.trafficLog = w
 	}
 }
 
-func WithTellTransform(fn func(x Message) *Message) Option {
-	return func(r *Realm) {
+func WithTellTransform[Pub any](fn func(x *Message) bool) Option[Pub] {
+	return func(r *Realm[Pub]) {
 		r.tellTransform = fn
 	}
 }
 
-func WithMTU(x int) Option {
-	return func(r *Realm) {
+func WithMTU[Pub any](x int) Option[Pub] {
+	return func(r *Realm[Pub]) {
 		r.mtu = x
 	}
 }
 
-func WithBufferedTells(n int) Option {
+func WithBufferedTells[Pub any](n int) Option[Pub] {
 	if n < 0 {
 		panic("n < 0")
 	}
-	return func(r *Realm) {
+	return func(r *Realm[Pub]) {
 		r.bufferedTells = n
 	}
 }

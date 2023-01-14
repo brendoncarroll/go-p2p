@@ -8,19 +8,19 @@ import (
 )
 
 func NewStringMux[A p2p.Addr](x p2p.Swarm[A]) Mux[A, string] {
-	return mux[A, string]{newMuxCore(ctx, x, stringMuxFunc, stringDemuxFunc)}
+	return mux[A, string]{newMuxCore[A, string, struct{}](ctx, x, stringMuxFunc, stringDemuxFunc)}
 }
 
 func NewStringAskMux[A p2p.Addr](x p2p.AskSwarm[A]) AskMux[A, string] {
-	return askMux[A, string]{newMuxCore[A](ctx, x, stringMuxFunc, stringDemuxFunc)}
+	return askMux[A, string]{newMuxCore[A, string, struct{}](ctx, x, stringMuxFunc, stringDemuxFunc)}
 }
 
-func NewStringSecureMux[A p2p.Addr](x p2p.SecureSwarm[A]) SecureMux[A, string] {
-	return secureMux[A, string]{newMuxCore[A](ctx, x, stringMuxFunc, stringDemuxFunc)}
+func NewStringSecureMux[A p2p.Addr, Pub any](x p2p.SecureSwarm[A, Pub]) SecureMux[A, string, Pub] {
+	return secureMux[A, string, Pub]{newMuxCore[A, string, Pub](ctx, x, stringMuxFunc, stringDemuxFunc)}
 }
 
-func NewStringSecureAskMux[A p2p.Addr](x p2p.SecureAskSwarm[A]) SecureAskMux[A, string] {
-	return secureAskMux[A, string]{newMuxCore[A](ctx, x, stringMuxFunc, stringDemuxFunc)}
+func NewStringSecureAskMux[A p2p.Addr, Pub any](x p2p.SecureAskSwarm[A, Pub]) SecureAskMux[A, string, Pub] {
+	return secureAskMux[A, string, Pub]{newMuxCore[A, string, Pub](ctx, x, stringMuxFunc, stringDemuxFunc)}
 }
 
 func stringMuxFunc(c string, x p2p.IOVec) p2p.IOVec {

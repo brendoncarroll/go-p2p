@@ -97,11 +97,5 @@ The `p2pmux` package provides string and integer multiplexers.
 P2PKE is an authenticated key exchange suitable for securing `p2p.Swarms`.
 Provides a session state machine, and a long-lived secure channel, which is used by `s/p2pkeswarm`
 
-## PKI
-A `PeerID` type is provided to be used as the hash of public keys, for identifying peers.
-Canonical serialization functions are provided for public keys (just `x509.MarshalPKIXPublicKey`).
-
-The `Sign` and `Verify` methods provided allow for keys to sign in multiple protocols without the risk of signature collisions.
-
 ## Test Utilities
 The `p2ptest` packages contains utilities for testing, such as generating adjacency matricies for networks of various connectivities.

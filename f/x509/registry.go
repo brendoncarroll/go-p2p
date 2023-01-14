@@ -47,7 +47,8 @@ func NewCodec[Private, Public any](sch sign.Scheme[Private, Public]) Codec {
 			return NewSigner(sch, &priv), nil
 		},
 		MarshalPrivate: func(out []byte, s Signer) []byte {
-			panic("not implemented")
+			s2 := s.(*signer[Private, Public])
+			return sign.AppendPrivateKey[Private](out, sch, &s2.private)
 		},
 	}
 }

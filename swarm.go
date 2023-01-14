@@ -46,7 +46,7 @@ type Asker[A Addr] interface {
 	Ask(ctx context.Context, resp []byte, addr A, req IOVec) (int, error)
 	// ServeAsk calls fn to serve a single ask request, it returns an error if anything went wrong.
 	// Return values < 0 from fn will not result in an error returned from ServeAsk
-	ServeAsk(ctx context.Context, fn func(ctx context.Context, resp []byte, req Message[A]) int) error
+	ServeAsk(ctx context.Context, ah func(ctx context.Context, resp []byte, req Message[A]) int) error
 }
 
 func NoOpAskHandler[A Addr](ctx context.Context, resp []byte, req Message[A]) int { return 0 }
@@ -80,20 +80,20 @@ var (
 	ErrPublicKeyNotFound = errors.Errorf("public key not found")
 )
 
-type Secure[A Addr] interface {
+type Secure[A Addr, PublicKey any] interface {
 	PublicKey() PublicKey
 	LookupPublicKey(ctx context.Context, addr A) (PublicKey, error)
 }
 
-type SecureSwarm[A Addr] interface {
+type SecureSwarm[A Addr, PublicKey any] interface {
 	Swarm[A]
-	Secure[A]
+	Secure[A, PublicKey]
 }
 
-type SecureAskSwarm[A Addr] interface {
+type SecureAskSwarm[A Addr, PublicKey any] interface {
 	Swarm[A]
 	Asker[A]
-	Secure[A]
+	Secure[A, PublicKey]
 }
 
 type IOVec = net.Buffers
@@ -121,16 +121,13 @@ func VecBytes(out []byte, v IOVec) []byte {
 // be able to return a PublicKey retrieved from memory, during the
 // execution of an AskHandler or TellHandler.
 // to lookup a public key outside a handler, use the swarms LookupPublicKey method
-func LookupPublicKeyInHandler[A Addr](s Secure[A], target A) PublicKey {
+func LookupPublicKeyInHandler[A Addr, PublicKey any](s Secure[A, PublicKey], target A) PublicKey {
 	ctx, cf := context.WithCancel(context.Background())
 	cf()
 	pubKey, err := s.LookupPublicKey(ctx, target)
 	if err != nil {
 		err = errors.Wrapf(err, "swarms must provide public key during callback")
 		panic(err)
-	}
-	if pubKey == nil {
-		panic("swarms must provide public key during callback. got nil")
 	}
 	return pubKey
 }

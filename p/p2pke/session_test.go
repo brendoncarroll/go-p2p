@@ -5,9 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p/p2ptest"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slog"
+
+	"github.com/brendoncarroll/go-p2p/f/x509"
+	"github.com/brendoncarroll/go-p2p/p2ptest"
 )
 
 func TestHandshake(t *testing.T) {
@@ -28,8 +30,8 @@ func TestHandshake(t *testing.T) {
 	require.Len(t, m4, 0)
 
 	require.Equal(t, s1.hs.ChannelBinding(), s2.hs.ChannelBinding())
-	require.Equal(t, s1.privateKey.Public(), s2.RemoteKey())
-	require.Equal(t, s2.privateKey.Public(), s1.RemoteKey())
+	require.Equal(t, s1.LocalKey(), s2.RemoteKey())
+	require.Equal(t, s2.LocalKey(), s1.RemoteKey())
 }
 
 func TestHandshakeRepeats(t *testing.T) {
@@ -67,8 +69,8 @@ func TestHandshakeRepeats(t *testing.T) {
 	}
 
 	require.Equal(t, s1.hs.ChannelBinding(), s2.hs.ChannelBinding())
-	require.Equal(t, s1.privateKey.Public(), s2.RemoteKey())
-	require.Equal(t, s2.privateKey.Public(), s1.RemoteKey())
+	require.Equal(t, s1.LocalKey(), s2.RemoteKey())
+	require.Equal(t, s2.LocalKey(), s1.RemoteKey())
 }
 
 func logMsg(t *testing.T, direction Direction, data []byte) {
@@ -76,16 +78,19 @@ func logMsg(t *testing.T, direction Direction, data []byte) {
 }
 
 func newTestPair(t *testing.T) (s1, s2 *Session) {
+	reg := x509.DefaultRegistry()
 	s1 = NewSession(SessionConfig{
 		IsInit:      true,
-		PrivateKey:  p2ptest.NewTestKey(t, 0),
+		Registry:    reg,
+		PrivateKey:  newTestKey(t, 0),
 		Now:         time.Now(),
 		Logger:      newTestLogger(t),
 		RejectAfter: RejectAfterTime,
 	})
 	s2 = NewSession(SessionConfig{
 		IsInit:      false,
-		PrivateKey:  p2ptest.NewTestKey(t, 1),
+		Registry:    reg,
+		PrivateKey:  newTestKey(t, 1),
 		Now:         time.Now(),
 		Logger:      newTestLogger(t),
 		RejectAfter: RejectAfterTime,
@@ -95,4 +100,12 @@ func newTestPair(t *testing.T) (s1, s2 *Session) {
 
 func newTestLogger(t testing.TB) *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr))
+}
+
+func newTestKey(t testing.TB, i int) x509.PrivateKey {
+	reg := x509.DefaultRegistry()
+	algoID, signer := x509.SignerFromStandard(p2ptest.NewTestKey(t, i))
+	priv, err := reg.StoreSigner(algoID, signer)
+	require.NoError(t, err)
+	return priv
 }

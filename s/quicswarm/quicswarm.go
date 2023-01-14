@@ -2,6 +2,7 @@ package quicswarm
 
 import (
 	"context"
+	"crypto"
 	"crypto/tls"
 	"encoding/binary"
 	"io"
@@ -9,25 +10,34 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/p2pconn"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
-	"github.com/brendoncarroll/go-p2p/s/udpswarm"
 	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/pkg/errors"
 	"golang.org/x/exp/slog"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/f/x509"
+	"github.com/brendoncarroll/go-p2p/p2pconn"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"github.com/brendoncarroll/go-p2p/s/udpswarm"
 )
 
 const DefaultMTU = 1 << 20
 
+type (
+	PrivateKey = x509.PrivateKey
+	PublicKey  = x509.PublicKey
+)
+
 type Swarm[T p2p.Addr] struct {
 	inner         p2p.Swarm[T]
 	mtu           int
-	fingerprinter p2p.Fingerprinter
+	registry      x509.Registry
+	fingerprinter Fingerprinter
 	allowFunc     func(p2p.Addr) bool
-	privKey       p2p.PrivateKey
+	privateKey    x509.PrivateKey
+	publicKey     x509.PublicKey
 	log           *slog.Logger
 	pconn         net.PacketConn
 	l             quic.Listener
@@ -40,7 +50,7 @@ type Swarm[T p2p.Addr] struct {
 	asks  *swarmutil.AskHub[Addr[T]]
 }
 
-func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option[udpswarm.Addr]) (*Swarm[udpswarm.Addr], error) {
+func NewOnUDP(laddr string, privKey x509.PrivateKey, opts ...Option[udpswarm.Addr]) (*Swarm[udpswarm.Addr], error) {
 	x, err := udpswarm.New(laddr)
 	if err != nil {
 		return nil, err
@@ -49,16 +59,17 @@ func NewOnUDP(laddr string, privKey p2p.PrivateKey, opts ...Option[udpswarm.Addr
 }
 
 // New creates a new swarm on top of x, using privKey for authentication
-func New[T p2p.Addr](x p2p.Swarm[T], privKey p2p.PrivateKey, opts ...Option[T]) (*Swarm[T], error) {
+func New[T p2p.Addr](x p2p.Swarm[T], privKey x509.PrivateKey, opts ...Option[T]) (*Swarm[T], error) {
 	pconn := connWrapper{p2pconn.NewPacketConn(x)}
 	s := &Swarm[T]{
 		inner:         x,
 		mtu:           DefaultMTU,
-		fingerprinter: p2p.DefaultFingerprinter,
+		registry:      x509.DefaultRegistry(),
+		fingerprinter: DefaultFingerprinter,
 		allowFunc:     func(p2p.Addr) bool { return true },
 		log:           slog.New(slog.NewTextHandler(io.Discard)),
 		pconn:         pconn,
-		privKey:       privKey,
+		privateKey:    privKey,
 
 		sessCache: map[sessionKey]quic.Connection{},
 		tells:     swarmutil.NewTellHub[Addr[T]](),
@@ -67,11 +78,16 @@ func New[T p2p.Addr](x p2p.Swarm[T], privKey p2p.PrivateKey, opts ...Option[T]) 
 	for _, opt := range opts {
 		opt(s)
 	}
+	pubKey, err := s.registry.PublicFromPrivate(&s.privateKey)
+	if err != nil {
+		return nil, err
+	}
+	s.publicKey = pubKey
 	ctx := context.Background()
 	ctx = logctx.NewContext(ctx, s.log)
 	ctx, cf := context.WithCancel(ctx)
 	s.cf = cf
-	tlsConfig := s.generateServerTLS(privKey)
+	tlsConfig := generateServerTLS(&s.privateKey, &s.publicKey, s.fingerprinter)
 	l, err := quic.Listen(pconn, tlsConfig, generateQUICConfig())
 	if err != nil {
 		return nil, err
@@ -171,7 +187,7 @@ func (s *Swarm[T]) LocalAddrs() (ret []Addr[T]) {
 }
 
 func (s *Swarm[T]) LocalID() p2p.PeerID {
-	return s.fingerprinter(s.privKey.Public())
+	return s.fingerprinter(s.publicKey)
 }
 
 func (s *Swarm[T]) MTU(context.Context, Addr[T]) int {
@@ -182,21 +198,22 @@ func (s *Swarm[T]) MaxIncomingSize() int {
 	return s.mtu
 }
 
-func (s *Swarm[T]) PublicKey() p2p.PublicKey {
-	return s.privKey.Public()
+func (s *Swarm[T]) PublicKey() PublicKey {
+	return s.publicKey
 }
 
-func (s *Swarm[T]) LookupPublicKey(ctx context.Context, x Addr[T]) (p2p.PublicKey, error) {
-	var pubKey p2p.PublicKey
+func (s *Swarm[T]) LookupPublicKey(ctx context.Context, x Addr[T]) (PublicKey, error) {
+	var pubKey PublicKey
 	if err := s.withSession(ctx, x, func(sess quic.Connection) error {
 		tlsState := sess.ConnectionState().TLS
 		// ok to panic here on OOB, it is a bug to have a session with
 		// no certificates in the cache.
 		cert := tlsState.PeerCertificates[0]
-		pubKey = cert.PublicKey
-		return nil
+		var err error
+		pubKey, err = x509.ParsePublicKey(cert.RawSubjectPublicKeyInfo)
+		return err
 	}); err != nil {
-		return nil, err
+		return PublicKey{}, err
 	}
 	return pubKey, nil
 }
@@ -218,7 +235,11 @@ func (s *Swarm[T]) withSession(ctx context.Context, dst Addr[T], fn func(sess qu
 
 	raddr := p2pconn.NewAddr(s.inner, dst.Addr)
 	host := ""
-	sess, err := quic.DialContext(ctx, s.pconn, raddr, host, generateClientTLS(s.privKey), generateQUICConfig())
+	signer, err := x509.ToStandardSigner(&s.privateKey)
+	if err != nil {
+		return err
+	}
+	sess, err = quic.DialContext(ctx, s.pconn, raddr, host, generateClientTLS(signer), generateQUICConfig())
 	if err != nil {
 		return err
 	}
@@ -367,9 +388,11 @@ func (s *Swarm[T]) remoteAddrFromSession(x quic.Connection) (Addr[T], error) {
 	if len(tlsState.PeerCertificates) < 1 {
 		return Addr[T]{}, errors.New("no certificates")
 	}
-
 	cert := tlsState.PeerCertificates[0]
-	pubKey := cert.PublicKey
+	pubKey, err := x509.ParsePublicKey(cert.RawSubjectPublicKeyInfo)
+	if err != nil {
+		return Addr[T]{}, err
+	}
 	id := s.fingerprinter(pubKey)
 
 	raddr := x.RemoteAddr().(p2pconn.Addr[T])
@@ -379,7 +402,7 @@ func (s *Swarm[T]) remoteAddrFromSession(x quic.Connection) (Addr[T], error) {
 	}, nil
 }
 
-func generateClientTLS(privKey p2p.PrivateKey) *tls.Config {
+func generateClientTLS(privKey crypto.Signer) *tls.Config {
 	cert := swarmutil.GenerateSelfSigned(privKey)
 
 	return &tls.Config{
@@ -390,9 +413,13 @@ func generateClientTLS(privKey p2p.PrivateKey) *tls.Config {
 	}
 }
 
-func (s *Swarm[T]) generateServerTLS(privKey p2p.PrivateKey) *tls.Config {
-	cert := swarmutil.GenerateSelfSigned(privKey)
-	localID := s.fingerprinter(privKey.Public())
+func generateServerTLS(privKey *PrivateKey, publicKey *PublicKey, fp Fingerprinter) *tls.Config {
+	signer, err := x509.ToStandardSigner(privKey)
+	if err != nil {
+		panic(err)
+	}
+	cert := swarmutil.GenerateSelfSigned(signer)
+	localID := fp(*publicKey)
 	return &tls.Config{
 		Certificates:       []tls.Certificate{cert},
 		NextProtos:         []string{"p2p"},

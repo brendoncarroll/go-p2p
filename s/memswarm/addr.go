@@ -16,7 +16,7 @@ func (a Addr) MarshalText() ([]byte, error) {
 	return []byte(strconv.Itoa(a.N)), nil
 }
 
-func (s *Swarm) ParseAddr(data []byte) (Addr, error) {
+func (s *Swarm[Pub]) ParseAddr(data []byte) (Addr, error) {
 	a := Addr{}
 	n, err := strconv.Atoi(string(data))
 	if err != nil {

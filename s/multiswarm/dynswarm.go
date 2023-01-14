@@ -65,14 +65,14 @@ func (da dynAsker[T]) ServeAsk(ctx context.Context, fn func(context.Context, []b
 	})
 }
 
-type dynSecure[T p2p.Addr] struct {
-	secure p2p.Secure[T]
+type dynSecure[T p2p.Addr, Pub any] struct {
+	secure p2p.Secure[T, Pub]
 }
 
-func (ds dynSecure[T]) PublicKey() p2p.PublicKey {
+func (ds dynSecure[T, Pub]) PublicKey() Pub {
 	return ds.secure.PublicKey()
 }
 
-func (ds dynSecure[T]) LookupPublicKey(ctx context.Context, target p2p.Addr) (p2p.PublicKey, error) {
+func (ds dynSecure[T, Pub]) LookupPublicKey(ctx context.Context, target p2p.Addr) (Pub, error) {
 	return ds.secure.LookupPublicKey(ctx, target.(T))
 }

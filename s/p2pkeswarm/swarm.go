@@ -5,20 +5,26 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/p/p2pke"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/brendoncarroll/stdctx/logctx"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/brendoncarroll/go-p2p"
+	"github.com/brendoncarroll/go-p2p/f/x509"
+	"github.com/brendoncarroll/go-p2p/p/p2pke"
+	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"github.com/brendoncarroll/go-p2p/s/udpswarm"
 )
 
 const Overhead = p2pke.Overhead
 
+var _ p2p.SecureSwarm[Addr[udpswarm.Addr], x509.PublicKey] = &Swarm[udpswarm.Addr]{}
+
 type Swarm[T p2p.Addr] struct {
 	inner      p2p.Swarm[T]
-	privateKey p2p.PrivateKey
-	swarmConfig[T]
+	privateKey x509.PrivateKey
+	publicKey  x509.PublicKey
+	config     swarmConfig[T]
 
 	localID p2p.PeerID
 	hub     *swarmutil.TellHub[Addr[T]]
@@ -28,24 +34,29 @@ type Swarm[T p2p.Addr] struct {
 	eg      errgroup.Group
 }
 
-func New[T p2p.Addr](inner p2p.Swarm[T], privateKey p2p.PrivateKey, opts ...Option[T]) *Swarm[T] {
+func New[T p2p.Addr](inner p2p.Swarm[T], privateKey x509.PrivateKey, opts ...Option[T]) *Swarm[T] {
 	config := newDefaultConfig[T]()
 	for _, opt := range opts {
 		opt(&config)
 	}
+	pubKey, err := config.registry.PublicFromPrivate(&privateKey)
+	if err != nil {
+		panic(err)
+	}
 	ctx := config.bgCtx
 	ctx, cf := context.WithCancel(ctx)
 	s := &Swarm[T]{
-		inner:       inner,
-		privateKey:  privateKey,
-		swarmConfig: config,
+		inner:      inner,
+		privateKey: privateKey,
+		publicKey:  pubKey,
+		config:     config,
+		localID:    config.fingerprinter(&pubKey),
 
 		hub:   swarmutil.NewTellHub[Addr[T]](),
 		store: newStore[string, *channelState](),
 		ctx:   ctx,
 		cf:    cf,
 	}
-	s.localID = s.fingerprinter(privateKey.Public())
 	numWorkers := 1 + runtime.GOMAXPROCS(0)
 	for i := 0; i < numWorkers; i++ {
 		s.eg.Go(func() error {
@@ -89,15 +100,15 @@ func (s *Swarm[T]) LocalAddrs() []Addr[T] {
 }
 
 // PublicKey implements p2p.SecureSwarm.PublicKey
-func (s *Swarm[T]) PublicKey() p2p.PublicKey {
-	return s.privateKey.Public()
+func (s *Swarm[T]) PublicKey() x509.PublicKey {
+	return s.publicKey
 }
 
 // LookupPublicKey implements p2p.SecureSwarm.PublicKey
-func (s *Swarm[T]) LookupPublicKey(ctx context.Context, dst Addr[T]) (p2p.PublicKey, error) {
+func (s *Swarm[T]) LookupPublicKey(ctx context.Context, dst Addr[T]) (ret x509.PublicKey, _ error) {
 	c, err := s.getFullAddr(ctx, dst)
 	if err != nil {
-		return nil, err
+		return ret, err
 	}
 	return c.RemoteKey(), nil
 }
@@ -128,8 +139,8 @@ func (s *Swarm[T]) getFullAddr(ctx context.Context, addr Addr[T]) (*p2pke.Channe
 				CreatedAt: time.Now(),
 				Channel: p2pke.NewChannel(p2pke.ChannelConfig{
 					PrivateKey: s.privateKey,
-					AcceptKey: func(pubKey p2p.PublicKey) bool {
-						id := s.fingerprinter(pubKey)
+					AcceptKey: func(pubKey *x509.PublicKey) bool {
+						id := s.config.fingerprinter(pubKey)
 						return id == addr.ID
 					},
 					Send: s.getSender(addr.Addr),
@@ -139,7 +150,8 @@ func (s *Swarm[T]) getFullAddr(ctx context.Context, addr Addr[T]) (*p2pke.Channe
 		if err := c.Channel.WaitReady(ctx); err != nil {
 			return nil, err
 		}
-		remoteID := s.fingerprinter(c.Channel.RemoteKey())
+		remoteKey := c.Channel.RemoteKey()
+		remoteID := s.config.fingerprinter(&remoteKey)
 		if remoteID == addr.ID {
 			return c.Channel, nil
 		}
@@ -167,9 +179,9 @@ func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error 
 			CreatedAt: time.Now(),
 			Channel: p2pke.NewChannel(p2pke.ChannelConfig{
 				PrivateKey: s.privateKey,
-				AcceptKey: func(pubKey p2p.PublicKey) bool {
-					id := s.fingerprinter(pubKey)
-					return s.whitelist(Addr[T]{ID: id, Addr: msg.Src})
+				AcceptKey: func(pubKey *x509.PublicKey) bool {
+					id := s.config.fingerprinter(pubKey)
+					return s.config.whitelist(Addr[T]{ID: id, Addr: msg.Src})
 				},
 				Send: s.getSender(msg.Src),
 			}),
@@ -180,7 +192,8 @@ func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error 
 		return err
 	}
 	if out != nil {
-		srcID := s.fingerprinter(cs.Channel.RemoteKey())
+		remoteKey := cs.Channel.RemoteKey()
+		srcID := s.config.fingerprinter(&remoteKey)
 		return s.hub.Deliver(ctx, p2p.Message[Addr[T]]{
 			Src:     Addr[T]{ID: srcID, Addr: msg.Src},
 			Dst:     Addr[T]{ID: s.localID, Addr: msg.Dst},
@@ -192,7 +205,7 @@ func (s *Swarm[T]) handleMessage(ctx context.Context, msg p2p.Message[T]) error 
 
 func (s *Swarm[T]) getSender(dst T) p2pke.SendFunc {
 	return func(x []byte) {
-		ctx, cf := context.WithTimeout(s.ctx, s.tellTimeout)
+		ctx, cf := context.WithTimeout(s.ctx, s.config.tellTimeout)
 		defer cf()
 		if err := s.inner.Tell(ctx, dst, p2p.IOVec{x}); err != nil {
 			logctx.Debugln(ctx, "p2pkeswarm: during tell ", err)

@@ -1,16 +1,15 @@
 package swarmutil
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"math/big"
 	"time"
-
-	"github.com/brendoncarroll/go-p2p"
 )
 
-func GenerateSelfSigned(privKey p2p.PrivateKey) tls.Certificate {
+func GenerateSelfSigned(privKey crypto.Signer) tls.Certificate {
 	// serial number
 	maxBigInt := &big.Int{}
 	maxBigInt.Exp(big.NewInt(2), big.NewInt(130), nil).Sub(maxBigInt, big.NewInt(1))

@@ -16,9 +16,16 @@ import (
 
 const MTU = 1 << 17
 
+type (
+	PrivateKey = ssh.Signer
+	PublicKey  = ssh.PublicKey
+)
+
+var _ p2p.SecureSwarm[Addr, PublicKey] = &Swarm{}
+
 type Swarm struct {
 	ctx    context.Context
-	pubKey p2p.PublicKey
+	pubKey ssh.PublicKey
 	signer ssh.Signer
 	l      net.Listener
 
@@ -29,11 +36,7 @@ type Swarm struct {
 	conns map[string]*Conn
 }
 
-func New(laddr string, privateKey p2p.PrivateKey, opts ...Option) (*Swarm, error) {
-	signer, err := ssh.NewSignerFromSigner(privateKey)
-	if err != nil {
-		panic(err)
-	}
+func New(laddr string, privateKey ssh.Signer, opts ...Option) (*Swarm, error) {
 	l, err := net.Listen("tcp", laddr)
 	if err != nil {
 		return nil, err
@@ -41,8 +44,8 @@ func New(laddr string, privateKey p2p.PrivateKey, opts ...Option) (*Swarm, error
 	ctx := context.Background()
 	s := &Swarm{
 		ctx:    ctx,
-		pubKey: privateKey.Public(),
-		signer: signer,
+		pubKey: privateKey.PublicKey(),
+		signer: privateKey,
 		l:      l,
 
 		tellHub: swarmutil.NewTellHub[Addr](),
@@ -86,11 +89,11 @@ func (s *Swarm) Close() error {
 	return s.l.Close()
 }
 
-func (s *Swarm) PublicKey() p2p.PublicKey {
+func (s *Swarm) PublicKey() PublicKey {
 	return s.pubKey
 }
 
-func (s *Swarm) LookupPublicKey(ctx context.Context, x Addr) (p2p.PublicKey, error) {
+func (s *Swarm) LookupPublicKey(ctx context.Context, x Addr) (PublicKey, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -98,7 +101,7 @@ func (s *Swarm) LookupPublicKey(ctx context.Context, x Addr) (p2p.PublicKey, err
 	if c == nil {
 		return nil, p2p.ErrPublicKeyNotFound
 	}
-	return c.pubKey.(p2p.PublicKey), nil
+	return c.pubKey.(PublicKey), nil
 }
 
 func (s *Swarm) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[Addr]) int) error {

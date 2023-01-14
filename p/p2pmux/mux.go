@@ -13,29 +13,29 @@ import (
 
 var ctx = context.Background()
 
-type Mux[A p2p.Addr, C any] interface {
+type Mux[A p2p.Addr, C comparable] interface {
 	Open(c C) p2p.Swarm[A]
 }
 
-type AskMux[A p2p.Addr, C any] interface {
+type AskMux[A p2p.Addr, C comparable] interface {
 	Open(c C) p2p.AskSwarm[A]
 }
 
-type SecureMux[A p2p.Addr, C any] interface {
-	Open(c C) p2p.SecureSwarm[A]
+type SecureMux[A p2p.Addr, C comparable, Pub any] interface {
+	Open(c C) p2p.SecureSwarm[A, Pub]
 }
 
-type SecureAskMux[A p2p.Addr, C any] interface {
-	Open(c C) p2p.SecureAskSwarm[A]
+type SecureAskMux[A p2p.Addr, C comparable, Pub any] interface {
+	Open(c C) p2p.SecureAskSwarm[A, Pub]
 }
 
-type muxFunc[C any] func(c C, x p2p.IOVec) p2p.IOVec
-type demuxFunc[C any] func(data []byte) (C, []byte, error)
+type muxFunc[C comparable] func(c C, x p2p.IOVec) p2p.IOVec
+type demuxFunc[C comparable] func(data []byte) (C, []byte, error)
 
-type muxCore[A p2p.Addr, C any] struct {
+type muxCore[A p2p.Addr, C comparable, Pub any] struct {
 	swarm     p2p.Swarm[A]
 	asker     p2p.Asker[A]
-	secure    p2p.Secure[A]
+	secure    p2p.Secure[A, Pub]
 	muxFunc   muxFunc[C]
 	demuxFunc demuxFunc[C]
 
@@ -43,9 +43,9 @@ type muxCore[A p2p.Addr, C any] struct {
 	swarms sync.Map
 }
 
-func newMuxCore[A p2p.Addr, C any](bgCtx context.Context, swarm p2p.Swarm[A], mf muxFunc[C], dmf demuxFunc[C]) *muxCore[A, C] {
+func newMuxCore[A p2p.Addr, C comparable, Pub any](bgCtx context.Context, swarm p2p.Swarm[A], mf muxFunc[C], dmf demuxFunc[C]) *muxCore[A, C, Pub] {
 	ctx, cf := context.WithCancel(bgCtx)
-	mc := &muxCore[A, C]{
+	mc := &muxCore[A, C, Pub]{
 		swarm:     swarm,
 		muxFunc:   mf,
 		demuxFunc: dmf,
@@ -54,7 +54,7 @@ func newMuxCore[A p2p.Addr, C any](bgCtx context.Context, swarm p2p.Swarm[A], mf
 	if asker, ok := swarm.(p2p.Asker[A]); ok {
 		mc.asker = asker
 	}
-	if secure, ok := swarm.(p2p.Secure[A]); ok {
+	if secure, ok := swarm.(p2p.Secure[A, Pub]); ok {
 		mc.secure = secure
 	}
 	go func() {
@@ -72,7 +72,7 @@ func newMuxCore[A p2p.Addr, C any](bgCtx context.Context, swarm p2p.Swarm[A], mf
 	return mc
 }
 
-func (mc *muxCore[A, C]) recvLoop(ctx context.Context) error {
+func (mc *muxCore[A, C, Pub]) recvLoop(ctx context.Context) error {
 	for {
 		if err := mc.swarm.Receive(ctx, func(m p2p.Message[A]) {
 			if err := mc.handleRecv(ctx, m); err != nil {
@@ -84,7 +84,7 @@ func (mc *muxCore[A, C]) recvLoop(ctx context.Context) error {
 	}
 }
 
-func (mc *muxCore[A, C]) handleRecv(ctx context.Context, m p2p.Message[A]) error {
+func (mc *muxCore[A, C, Pub]) handleRecv(ctx context.Context, m p2p.Message[A]) error {
 	cid, body, err := mc.demuxFunc(m.Payload)
 	if err != nil {
 		return errors.Wrapf(err, "error demultiplexing: ")
@@ -100,7 +100,7 @@ func (mc *muxCore[A, C]) handleRecv(ctx context.Context, m p2p.Message[A]) error
 	})
 }
 
-func (mc *muxCore[A, C]) serveLoop(ctx context.Context) error {
+func (mc *muxCore[A, C, Pub]) serveLoop(ctx context.Context) error {
 	for {
 		if err := mc.asker.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message[A]) int {
 			var respN int
@@ -130,33 +130,33 @@ func (mc *muxCore[A, C]) serveLoop(ctx context.Context) error {
 	}
 }
 
-func (mc *muxCore[A, C]) tell(ctx context.Context, cid C, dst A, x p2p.IOVec) error {
+func (mc *muxCore[A, C, Pub]) tell(ctx context.Context, cid C, dst A, x p2p.IOVec) error {
 	y := mc.muxFunc(cid, x)
 	return mc.swarm.Tell(ctx, dst, y)
 }
 
-func (mc *muxCore[A, C]) ask(ctx context.Context, cid C, resp []byte, dst A, x p2p.IOVec) (int, error) {
+func (mc *muxCore[A, C, Pub]) ask(ctx context.Context, cid C, resp []byte, dst A, x p2p.IOVec) (int, error) {
 	y := mc.muxFunc(cid, x)
 	return mc.asker.Ask(ctx, resp, dst, y)
 }
 
-func (mc *muxCore[A, C]) lookupPublicKey(ctx context.Context, target A) (p2p.PublicKey, error) {
+func (mc *muxCore[A, C, Pub]) lookupPublicKey(ctx context.Context, target A) (Pub, error) {
 	return mc.secure.LookupPublicKey(ctx, target)
 }
 
-func (mc *muxCore[A, C]) publicKey() p2p.PublicKey {
+func (mc *muxCore[A, C, Pub]) publicKey() Pub {
 	return mc.secure.PublicKey()
 }
 
-func (mc *muxCore[A, C]) getSwarm(cid C) (*muxedSwarm[A, C], error) {
+func (mc *muxCore[A, C, Pub]) getSwarm(cid C) (*muxedSwarm[A, C, Pub], error) {
 	v, ok := mc.swarms.Load(cid)
 	if !ok {
 		return nil, errors.Errorf("p2pmux: no swarm for channel: %v", v)
 	}
-	return v.(*muxedSwarm[A, C]), nil
+	return v.(*muxedSwarm[A, C, Pub]), nil
 }
 
-func (mc *muxCore[A, C]) open(cid C) *muxedSwarm[A, C] {
+func (mc *muxCore[A, C, Pub]) open(cid C) *muxedSwarm[A, C, Pub] {
 	newMS := newMuxedSwarm[A, C](mc, cid)
 	_, exists := mc.swarms.LoadOrStore(cid, newMS)
 	if exists {
@@ -165,13 +165,13 @@ func (mc *muxCore[A, C]) open(cid C) *muxedSwarm[A, C] {
 	return newMS
 }
 
-func (mc *muxCore[A, C]) deleteSwarm(cid C) {
+func (mc *muxCore[A, C, Pub]) deleteSwarm(cid C) {
 	mc.swarms.Delete(cid)
 }
 
-type muxedSwarm[A p2p.Addr, C any] struct {
+type muxedSwarm[A p2p.Addr, C comparable, Pub any] struct {
 	cid C
-	m   *muxCore[A, C]
+	m   *muxCore[A, C, Pub]
 
 	tellHub *swarmutil.TellHub[A]
 	askHub  *swarmutil.AskHub[A]
@@ -180,8 +180,8 @@ type muxedSwarm[A p2p.Addr, C any] struct {
 	isClosed bool
 }
 
-func newMuxedSwarm[A p2p.Addr, C any](m *muxCore[A, C], cid C) *muxedSwarm[A, C] {
-	return &muxedSwarm[A, C]{
+func newMuxedSwarm[A p2p.Addr, C comparable, Pub any](m *muxCore[A, C, Pub], cid C) *muxedSwarm[A, C, Pub] {
+	return &muxedSwarm[A, C, Pub]{
 		cid:     cid,
 		m:       m,
 		tellHub: swarmutil.NewTellHub[A](),
@@ -189,53 +189,53 @@ func newMuxedSwarm[A p2p.Addr, C any](m *muxCore[A, C], cid C) *muxedSwarm[A, C]
 	}
 }
 
-func (ms *muxedSwarm[A, C]) Tell(ctx context.Context, dst A, data p2p.IOVec) error {
+func (ms *muxedSwarm[A, C, Pub]) Tell(ctx context.Context, dst A, data p2p.IOVec) error {
 	if err := ms.checkClosed(); err != nil {
 		return err
 	}
 	return ms.m.tell(ctx, ms.cid, dst, data)
 }
 
-func (ms *muxedSwarm[A, C]) Receive(ctx context.Context, th func(p2p.Message[A])) error {
+func (ms *muxedSwarm[A, C, Pub]) Receive(ctx context.Context, th func(p2p.Message[A])) error {
 	return ms.tellHub.Receive(ctx, th)
 }
 
-func (ms *muxedSwarm[A, C]) Ask(ctx context.Context, resp []byte, dst A, data p2p.IOVec) (int, error) {
+func (ms *muxedSwarm[A, C, Pub]) Ask(ctx context.Context, resp []byte, dst A, data p2p.IOVec) (int, error) {
 	if err := ms.checkClosed(); err != nil {
 		return 0, err
 	}
 	return ms.m.ask(ctx, ms.cid, resp, dst, data)
 }
 
-func (ms *muxedSwarm[A, C]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[A]) int) error {
+func (ms *muxedSwarm[A, C, Pub]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[A]) int) error {
 	return ms.askHub.ServeAsk(ctx, fn)
 }
 
-func (ms *muxedSwarm[A, C]) LocalAddrs() []A {
+func (ms *muxedSwarm[A, C, Pub]) LocalAddrs() []A {
 	return ms.m.swarm.LocalAddrs()
 }
 
-func (ms *muxedSwarm[A, C]) ParseAddr(data []byte) (A, error) {
+func (ms *muxedSwarm[A, C, Pub]) ParseAddr(data []byte) (A, error) {
 	return ms.m.swarm.ParseAddr(data)
 }
 
-func (ms *muxedSwarm[A, C]) MTU(ctx context.Context, addr A) int {
+func (ms *muxedSwarm[A, C, Pub]) MTU(ctx context.Context, addr A) int {
 	return ms.m.swarm.MTU(ctx, addr) - binary.MaxVarintLen64
 }
 
-func (ms *muxedSwarm[A, C]) MaxIncomingSize() int {
+func (ms *muxedSwarm[A, C, Pub]) MaxIncomingSize() int {
 	return ms.m.swarm.MaxIncomingSize()
 }
 
-func (ms *muxedSwarm[A, C]) LookupPublicKey(ctx context.Context, target A) (p2p.PublicKey, error) {
+func (ms *muxedSwarm[A, C, Pub]) LookupPublicKey(ctx context.Context, target A) (Pub, error) {
 	return ms.m.lookupPublicKey(ctx, target)
 }
 
-func (ms *muxedSwarm[A, C]) PublicKey() p2p.PublicKey {
+func (ms *muxedSwarm[A, C, Pub]) PublicKey() Pub {
 	return ms.m.publicKey()
 }
 
-func (ms *muxedSwarm[A, C]) Close() error {
+func (ms *muxedSwarm[A, C, Pub]) Close() error {
 	ms.mu.Lock()
 	ms.isClosed = true
 	ms.mu.Unlock()
@@ -245,7 +245,7 @@ func (ms *muxedSwarm[A, C]) Close() error {
 	return nil
 }
 
-func (ms *muxedSwarm[A, C]) checkClosed() error {
+func (ms *muxedSwarm[A, C, Pub]) checkClosed() error {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 	if ms.isClosed {
@@ -254,34 +254,34 @@ func (ms *muxedSwarm[A, C]) checkClosed() error {
 	return nil
 }
 
-type mux[A p2p.Addr, C any] struct {
-	*muxCore[A, C]
+type mux[A p2p.Addr, C comparable] struct {
+	*muxCore[A, C, struct{}]
 }
 
 func (m mux[A, C]) Open(c C) p2p.Swarm[A] {
 	return m.muxCore.open(c)
 }
 
-type askMux[A p2p.Addr, C any] struct {
-	*muxCore[A, C]
+type askMux[A p2p.Addr, C comparable] struct {
+	*muxCore[A, C, struct{}]
 }
 
 func (m askMux[A, C]) Open(c C) p2p.AskSwarm[A] {
 	return m.muxCore.open(c)
 }
 
-type secureMux[A p2p.Addr, C any] struct {
-	*muxCore[A, C]
+type secureMux[A p2p.Addr, C comparable, Pub any] struct {
+	*muxCore[A, C, Pub]
 }
 
-func (m secureMux[A, C]) Open(c C) p2p.SecureSwarm[A] {
+func (m secureMux[A, C, Pub]) Open(c C) p2p.SecureSwarm[A, Pub] {
 	return m.muxCore.open(c)
 }
 
-type secureAskMux[A p2p.Addr, C any] struct {
-	*muxCore[A, C]
+type secureAskMux[A p2p.Addr, C comparable, Pub any] struct {
+	*muxCore[A, C, Pub]
 }
 
-func (m secureAskMux[A, C]) Open(c C) p2p.SecureAskSwarm[A] {
+func (m secureAskMux[A, C, Pub]) Open(c C) p2p.SecureAskSwarm[A, Pub] {
 	return m.muxCore.open(c)
 }

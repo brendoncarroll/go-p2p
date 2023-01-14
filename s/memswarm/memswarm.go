@@ -19,27 +19,27 @@ import (
 
 type Message = p2p.Message[Addr]
 
-type Realm struct {
+type Realm[Pub any] struct {
 	ctx           context.Context
 	clock         clockwork.Clock
 	trafficLog    io.Writer
-	tellTransform func(Message) *Message
+	tellTransform func(*Message) bool
 	mtu           int
 	bufferedTells int
 
 	mu     sync.RWMutex
 	n      int
-	swarms map[int]*Swarm
+	swarms map[int]*Swarm[Pub]
 }
 
-func NewRealm(opts ...Option) *Realm {
-	r := &Realm{
+func NewRealm[Pub any](opts ...Option[Pub]) *Realm[Pub] {
+	r := &Realm[Pub]{
 		ctx:           context.Background(),
 		clock:         clockwork.NewRealClock(),
 		trafficLog:    ioutil.Discard,
-		tellTransform: func(x Message) *Message { return &x },
+		tellTransform: func(x *Message) bool { return true },
 		mtu:           1 << 20,
-		swarms:        make(map[int]*Swarm),
+		swarms:        make(map[int]*Swarm[Pub]),
 		bufferedTells: 0,
 	}
 	for _, opt := range opts {
@@ -48,7 +48,7 @@ func NewRealm(opts ...Option) *Realm {
 	return r
 }
 
-func (r *Realm) logTraffic(isAsk bool, msg *p2p.Message[Addr]) {
+func (r *Realm[Pub]) logTraffic(isAsk bool, msg *p2p.Message[Addr]) {
 	if r.trafficLog == ioutil.Discard {
 		return
 	}
@@ -59,22 +59,20 @@ func (r *Realm) logTraffic(isAsk bool, msg *p2p.Message[Addr]) {
 	fmt.Fprintf(r.trafficLog, "%s: %v -> %v : %x\n", method, msg.Src, msg.Dst, msg.Payload)
 }
 
-func (r *Realm) NewSwarm() *Swarm {
-	return r.NewSwarmWithKey(nil)
+func (r *Realm[Pub]) NewSwarm() *Swarm[Pub] {
+	var zero Pub
+	return r.NewSwarmWithKey(zero)
 }
 
-func (r *Realm) NewSwarmWithKey(privateKey p2p.PrivateKey) *Swarm {
+func (r *Realm[Pub]) NewSwarmWithKey(publicKey Pub) *Swarm[Pub] {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n := r.n
 	r.n++
-	if privateKey == nil {
-		privateKey = genPrivateKey(n)
-	}
-	s := &Swarm{
-		r:          r,
-		n:          n,
-		privateKey: privateKey,
+	s := &Swarm[Pub]{
+		r:           r,
+		n:           n,
+		localPublic: publicKey,
 
 		tells: make(chan p2p.Message[Addr], r.bufferedTells),
 		asks:  swarmutil.NewAskHub[Addr](),
@@ -83,24 +81,24 @@ func (r *Realm) NewSwarmWithKey(privateKey p2p.PrivateKey) *Swarm {
 	return s
 }
 
-func (r *Realm) removeSwarm(s *Swarm) {
+func (r *Realm[Pub]) removeSwarm(s *Swarm[Pub]) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.swarms, s.n)
 }
 
-func (r *Realm) getSwarm(i int) *Swarm {
+func (r *Realm[Pub]) getSwarm(i int) *Swarm[Pub] {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.swarms[i]
 }
 
-var _ p2p.SecureAskSwarm[Addr] = &Swarm{}
+var _ p2p.SecureAskSwarm[Addr, struct{}] = &Swarm[struct{}]{}
 
-type Swarm struct {
-	r          *Realm
-	n          int
-	privateKey p2p.PrivateKey
+type Swarm[Pub any] struct {
+	r           *Realm[Pub]
+	n           int
+	localPublic Pub
 
 	tells chan p2p.Message[Addr]
 	asks  *swarmutil.AskHub[Addr]
@@ -109,7 +107,7 @@ type Swarm struct {
 	isClosed bool
 }
 
-func (s *Swarm) Ask(ctx context.Context, resp []byte, addr Addr, data p2p.IOVec) (int, error) {
+func (s *Swarm[Pub]) Ask(ctx context.Context, resp []byte, addr Addr, data p2p.IOVec) (int, error) {
 	if err := s.checkClosed(); err != nil {
 		return 0, err
 	}
@@ -133,7 +131,7 @@ func (s *Swarm) Ask(ctx context.Context, resp []byte, addr Addr, data p2p.IOVec)
 	return n, nil
 }
 
-func (s *Swarm) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
+func (s *Swarm[Pub]) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
 	if err := s.checkClosed(); err != nil {
 		return err
 	}
@@ -145,8 +143,7 @@ func (s *Swarm) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
 		Dst:     dst,
 		Payload: p2p.VecBytes(nil, data),
 	}
-	msg = s.r.tellTransform(*msg)
-	if msg == nil {
+	if !s.r.tellTransform(msg) {
 		return nil
 	}
 	s.r.logTraffic(false, msg)
@@ -164,7 +161,7 @@ func (s *Swarm) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
 	}
 }
 
-func (s *Swarm) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
+func (s *Swarm[Pub]) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -174,25 +171,25 @@ func (s *Swarm) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
 	}
 }
 
-func (s *Swarm) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[Addr]) int) error {
+func (s *Swarm[Pub]) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[Addr]) int) error {
 	return s.asks.ServeAsk(ctx, fn)
 }
 
-func (s *Swarm) LocalAddrs() []Addr {
+func (s *Swarm[Pub]) LocalAddrs() []Addr {
 	return []Addr{
 		{N: s.n},
 	}
 }
 
-func (s *Swarm) MTU(context.Context, Addr) int {
+func (s *Swarm[Pub]) MTU(context.Context, Addr) int {
 	return s.r.mtu
 }
 
-func (s *Swarm) MaxIncomingSize() int {
+func (s *Swarm[Pub]) MaxIncomingSize() int {
 	return s.r.mtu
 }
 
-func (s *Swarm) Close() error {
+func (s *Swarm[Pub]) Close() error {
 	s.mu.Lock()
 	s.isClosed = true
 	s.mu.Unlock()
@@ -201,7 +198,7 @@ func (s *Swarm) Close() error {
 	return nil
 }
 
-func (s *Swarm) checkClosed() error {
+func (s *Swarm[Pub]) checkClosed() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.isClosed {
@@ -210,21 +207,22 @@ func (s *Swarm) checkClosed() error {
 	return nil
 }
 
-func (s *Swarm) PublicKey() p2p.PublicKey {
-	return s.privateKey.Public()
+func (s *Swarm[Pub]) PublicKey() Pub {
+	return s.localPublic
 }
 
-func (s *Swarm) LookupPublicKey(ctx context.Context, addr Addr) (p2p.PublicKey, error) {
+func (s *Swarm[Pub]) LookupPublicKey(ctx context.Context, addr Addr) (Pub, error) {
 	s.r.mu.RLock()
 	defer s.r.mu.RUnlock()
 	other := s.r.swarms[addr.N]
 	if other == nil {
-		return nil, p2p.ErrPublicKeyNotFound
+		var zero Pub
+		return zero, p2p.ErrPublicKeyNotFound
 	}
-	return other.privateKey.Public(), nil
+	return other.localPublic, nil
 }
 
-func (s *Swarm) String() string {
+func (s *Swarm[Pub]) String() string {
 	return fmt.Sprintf("MemSwarm@%p", s)
 }
 

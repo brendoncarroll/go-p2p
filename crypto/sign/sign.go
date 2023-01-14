@@ -71,3 +71,10 @@ func AppendPublicKey[Public any](out []byte, sch PublicKeyScheme[Public], pub *P
 	sch.MarshalPublic(out[initLen:], pub)
 	return out
 }
+
+func AppendPrivateKey[Private any](out []byte, sch PrivateKeyScheme[Private], priv *Private) []byte {
+	initLen := len(out)
+	out = append(out, make([]byte, sch.PrivateKeySize())...)
+	sch.MarshalPrivate(out[initLen:], priv)
+	return out
+}

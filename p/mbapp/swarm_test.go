@@ -14,17 +14,17 @@ func init() {
 
 func TestSwarm(t *testing.T) {
 	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm[memswarm.Addr]) {
-		r := memswarm.NewRealm(memswarm.WithMTU(1 << 16))
+		r := memswarm.NewRealm[struct{}](memswarm.WithMTU[struct{}](1 << 16))
 		for i := range xs {
 			s := r.NewSwarm()
-			xs[i] = New[memswarm.Addr](s, 1<<20)
+			xs[i] = New[memswarm.Addr, struct{}](s, 1<<20)
 		}
 	})
 	swarmtest.TestAskSwarm(t, func(t testing.TB, xs []p2p.AskSwarm[memswarm.Addr]) {
-		r := memswarm.NewRealm(memswarm.WithMTU(1 << 16))
+		r := memswarm.NewRealm[struct{}](memswarm.WithMTU[struct{}](1 << 16))
 		for i := range xs {
 			s := r.NewSwarm()
-			xs[i] = New[memswarm.Addr](s, 1<<20)
+			xs[i] = New[memswarm.Addr, struct{}](s, 1<<20)
 		}
 	})
 }
