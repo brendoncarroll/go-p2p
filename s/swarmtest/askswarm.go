@@ -97,5 +97,5 @@ func TestErrorResponse[A p2p.Addr](t *testing.T, src, dst p2p.AskSwarm[A]) {
 		return nil
 	})
 	require.NoError(t, eg.Wait())
-	require.NotNil(t, callerError)
+	require.Error(t, callerError)
 }

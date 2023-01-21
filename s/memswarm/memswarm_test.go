@@ -1,6 +1,7 @@
 package memswarm
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/brendoncarroll/go-p2p"
@@ -11,7 +12,7 @@ import (
 func TestSwarm(t *testing.T) {
 	t.Parallel()
 	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm[Addr]) {
-		r := NewRealm[struct{}]()
+		r := NewRealm(WithQueueLen(10))
 		for i := range xs {
 			xs[i] = r.NewSwarm()
 		}
@@ -20,7 +21,7 @@ func TestSwarm(t *testing.T) {
 		})
 	})
 	swarmtest.TestAskSwarm(t, func(t testing.TB, xs []p2p.AskSwarm[Addr]) {
-		r := NewRealm[struct{}]()
+		r := NewRealm()
 		for i := range xs {
 			xs[i] = r.NewSwarm()
 		}
@@ -31,9 +32,9 @@ func TestSwarm(t *testing.T) {
 		})
 	})
 	swarmtest.TestSecureSwarm(t, func(t testing.TB, xs []p2p.SecureSwarm[Addr, string]) {
-		r := NewRealm[string]()
+		r := NewSecureRealm[string]()
 		for i := range xs {
-			xs[i] = r.NewSwarm()
+			xs[i] = r.NewSwarm(strconv.Itoa(i))
 		}
 		t.Cleanup(func() {
 			for i := range xs {

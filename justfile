@@ -1,6 +1,4 @@
 
-.PHONY: test test2 docker
-
 test:
 	go test --race ./...
 

@@ -30,8 +30,8 @@ type Swarm[A p2p.Addr, Pub any] struct {
 	fragLayer *fragLayer
 	asker     *asker
 	counter   uint32
-	tells     *swarmutil.TellHub[A]
-	asks      *swarmutil.AskHub[A]
+	tells     swarmutil.TellHub[A]
+	asks      swarmutil.AskHub[A]
 }
 
 func New[A p2p.Addr, Pub any](x p2p.SecureSwarm[A, Pub], mtu int, opts ...Option) *Swarm[A, Pub] {

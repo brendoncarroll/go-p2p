@@ -27,7 +27,7 @@ type Swarm[T p2p.Addr] struct {
 	config     swarmConfig[T]
 
 	localID p2p.PeerID
-	hub     *swarmutil.TellHub[Addr[T]]
+	hub     swarmutil.TellHub[Addr[T]]
 	store   *store[string, *channelState]
 	ctx     context.Context
 	cf      context.CancelFunc

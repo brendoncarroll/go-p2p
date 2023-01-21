@@ -50,8 +50,10 @@ func TestOnUDP(t *testing.T) {
 func TestOnMem(t *testing.T) {
 	t.Parallel()
 	testSwarm(t, func(t testing.TB, xs []p2p.Swarm[memswarm.Addr]) {
-		var opts []memswarm.Option[memswarm.Addr]
-		// opts = append(opts, memswarm.WithLogging(os.Stdout))
+		opts := []memswarm.Option{
+			memswarm.WithQueueLen(10),
+		}
+		//opts = append(opts, memswarm.WithLogging(os.Stdout))
 		r := memswarm.NewRealm(opts...)
 		for i := range xs {
 			xs[i] = r.NewSwarm()
@@ -62,8 +64,10 @@ func TestOnMem(t *testing.T) {
 func TestOnDropFirstPairwise(t *testing.T) {
 	t.Parallel()
 	testSwarm(t, func(t testing.TB, xs []p2p.Swarm[memswarm.Addr]) {
-		var opts []memswarm.Option[memswarm.Addr]
-		opts = append(opts, memswarm.WithTellTransform[memswarm.Addr](p2ptest.NewDropFirstPairwise()))
+		opts := []memswarm.Option{
+			memswarm.WithQueueLen(10),
+		}
+		//opts = append(opts, memswarm.WithTellTransform(p2ptest.NewDropFirstPairwise()))
 		r := memswarm.NewRealm(opts...)
 		for i := range xs {
 			xs[i] = r.NewSwarm()

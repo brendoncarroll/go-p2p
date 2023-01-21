@@ -29,8 +29,8 @@ type Swarm struct {
 	signer ssh.Signer
 	l      net.Listener
 
-	tellHub *swarmutil.TellHub[Addr]
-	askHub  *swarmutil.AskHub[Addr]
+	tellHub swarmutil.TellHub[Addr]
+	askHub  swarmutil.AskHub[Addr]
 
 	mu    sync.RWMutex
 	conns map[string]*Conn

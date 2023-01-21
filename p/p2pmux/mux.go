@@ -29,12 +29,17 @@ type SecureAskMux[A p2p.Addr, C comparable, Pub any] interface {
 	Open(c C) p2p.SecureAskSwarm[A, Pub]
 }
 
+type askBidi[A p2p.Addr] interface {
+	p2p.Asker[A]
+	p2p.AskServer[A]
+}
+
 type muxFunc[C comparable] func(c C, x p2p.IOVec) p2p.IOVec
 type demuxFunc[C comparable] func(data []byte) (C, []byte, error)
 
 type muxCore[A p2p.Addr, C comparable, Pub any] struct {
 	swarm     p2p.Swarm[A]
-	asker     p2p.Asker[A]
+	asker     askBidi[A]
 	secure    p2p.Secure[A, Pub]
 	muxFunc   muxFunc[C]
 	demuxFunc demuxFunc[C]
@@ -51,7 +56,7 @@ func newMuxCore[A p2p.Addr, C comparable, Pub any](bgCtx context.Context, swarm 
 		demuxFunc: dmf,
 		cf:        cf,
 	}
-	if asker, ok := swarm.(p2p.Asker[A]); ok {
+	if asker, ok := swarm.(askBidi[A]); ok {
 		mc.asker = asker
 	}
 	if secure, ok := swarm.(p2p.Secure[A, Pub]); ok {
@@ -173,8 +178,8 @@ type muxedSwarm[A p2p.Addr, C comparable, Pub any] struct {
 	cid C
 	m   *muxCore[A, C, Pub]
 
-	tellHub *swarmutil.TellHub[A]
-	askHub  *swarmutil.AskHub[A]
+	tellHub swarmutil.TellHub[A]
+	askHub  swarmutil.AskHub[A]
 
 	mu       sync.RWMutex
 	isClosed bool
