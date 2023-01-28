@@ -1,5 +1,10 @@
 package p2p
 
+type askBidi[A Addr] interface {
+	Asker[A]
+	AskServer[A]
+}
+
 type composedSecureSwarm[A Addr, Pub any] struct {
 	Swarm[A]
 	Secure[A, Pub]
@@ -7,27 +12,27 @@ type composedSecureSwarm[A Addr, Pub any] struct {
 
 type composedAskSwarm[A Addr] struct {
 	Swarm[A]
-	Asker[A]
+	askBidi[A]
 }
 
 type composedSecureAskSwarm[A Addr, Pub any] struct {
 	Swarm[A]
-	Asker[A]
+	askBidi[A]
 	Secure[A, Pub]
 }
 
-func ComposeAskSwarm[A Addr](swarm Swarm[A], ask Asker[A]) AskSwarm[A] {
+func ComposeAskSwarm[A Addr](swarm Swarm[A], ask askBidi[A]) AskSwarm[A] {
 	return composedAskSwarm[A]{
-		Swarm: swarm,
-		Asker: ask,
+		Swarm:   swarm,
+		askBidi: ask,
 	}
 }
 
-func ComposeSecureAskSwarm[A Addr, Pub any](swarm Swarm[A], ask Asker[A], sec Secure[A, Pub]) SecureAskSwarm[A, Pub] {
+func ComposeSecureAskSwarm[A Addr, Pub any](swarm Swarm[A], ask askBidi[A], sec Secure[A, Pub]) SecureAskSwarm[A, Pub] {
 	return composedSecureAskSwarm[A, Pub]{
-		Swarm:  swarm,
-		Asker:  ask,
-		Secure: sec,
+		Swarm:   swarm,
+		askBidi: ask,
+		Secure:  sec,
 	}
 }
 

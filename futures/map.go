@@ -14,17 +14,17 @@ type mapper[A, Z any] struct {
 }
 
 func Map[A, Z any](x Future[A], fn func(A) Z) Future[Z] {
-	return mapper[A, Z]{
+	return &mapper[A, Z]{
 		x:  x,
 		fn: fn,
 	}
 }
 
-func (m mapper[A, Z]) wait(ctx context.Context) error {
+func (m *mapper[A, Z]) wait(ctx context.Context) error {
 	return m.x.wait(ctx)
 }
 
-func (m mapper[A, Z]) unwrap() (Z, error) {
+func (m *mapper[A, Z]) unwrap() (Z, error) {
 	m.once.Do(func() {
 		x, err := m.x.unwrap()
 		if err != nil {
@@ -36,6 +36,6 @@ func (m mapper[A, Z]) unwrap() (Z, error) {
 	return m.y, m.err
 }
 
-func (m mapper[A, Z]) IsDone() bool {
+func (m *mapper[A, Z]) IsDone() bool {
 	return m.x.IsDone()
 }

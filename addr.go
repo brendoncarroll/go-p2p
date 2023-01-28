@@ -4,6 +4,12 @@ import (
 	"bytes"
 )
 
+// ComparableAddr is an Addr which also satisfies comparable
+type ComparableAddr interface {
+	Addr
+	comparable
+}
+
 type Addr interface {
 	// MarshalText serializes the address in a way that can be unambiguously parsed by the Swarm
 	// that produced this address.

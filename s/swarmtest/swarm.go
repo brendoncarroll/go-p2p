@@ -222,3 +222,34 @@ func readMessage[A p2p.Addr](ctx context.Context, s p2p.Swarm[A]) (p2p.Message[A
 	}
 	return mCopy, nil
 }
+
+func BenchSwarm[A p2p.Addr](b *testing.B, sf func(testing.TB, []p2p.Swarm[A])) {
+	ctx := context.Background()
+	b.Run("2NodeSerialTell", func(b *testing.B) {
+		xs := make([]p2p.Swarm[A], 2)
+		sf(b, xs)
+
+		const msgSize = 1 << 16
+		dataIn := make([]byte, msgSize)
+
+		v := p2p.IOVec{dataIn}
+		dst := xs[1].LocalAddrs()[0]
+		b.SetBytes(msgSize)
+		b.ReportAllocs()
+		b.ResetTimer()
+		var count int
+		for i := 0; i < b.N; i++ {
+			if err := xs[0].Tell(ctx, dst, v); err != nil {
+				require.NoError(b, err)
+			}
+			if err := xs[1].Receive(ctx, func(p2p.Message[A]) {
+				count++
+			}); err != nil {
+				require.NoError(b, err)
+			}
+		}
+		if count != b.N {
+			b.Fail()
+		}
+	})
+}

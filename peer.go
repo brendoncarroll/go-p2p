@@ -3,8 +3,7 @@ package p2p
 import (
 	"bytes"
 	"encoding/base64"
-
-	"github.com/pkg/errors"
+	"errors"
 )
 
 const (

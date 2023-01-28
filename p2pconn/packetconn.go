@@ -111,7 +111,7 @@ func NewAddr[A p2p.Addr](s p2p.Swarm[A], a A) net.Addr {
 }
 
 func (a Addr[A]) Network() string {
-	return fmt.Sprintf("p2p-%T-%v", a.Swarm, a.Swarm)
+	return fmt.Sprintf("p2p-%T", a.Swarm)
 }
 
 func (a Addr[A]) String() string {

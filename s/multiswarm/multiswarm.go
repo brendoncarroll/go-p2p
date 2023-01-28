@@ -59,7 +59,7 @@ func NewSecure[Pub any](m map[string]DynSecureSwarm[Pub]) p2p.SecureSwarm[Addr, 
 
 func NewSecureAsk[Pub any](m map[string]DynSecureAskSwarm[Pub]) p2p.SecureAskSwarm[Addr, Pub] {
 	ms := newMultiSwarm(convertSecureAsk(m))
-	ma := newMultiAsker(map[string]p2p.Asker[p2p.Addr]{})
+	ma := newMultiAsker(map[string]p2p.AskSwarm[p2p.Addr]{})
 	msec := multiSecure[Pub]{}
 
 	for name, s := range m {
@@ -67,9 +67,13 @@ func NewSecureAsk[Pub any](m map[string]DynSecureAskSwarm[Pub]) p2p.SecureAskSwa
 		msec[name] = s
 	}
 	ctx := context.Background()
-	go ms.recvLoops(ctx)
 	go func() {
-		if err := ma.serveLoops(ctx); err != nil && err != p2p.ErrClosed {
+		if err := ms.recvLoops(ctx); err != nil && !errors.Is(err, p2p.ErrClosed) {
+			logctx.Errorln(ctx, err)
+		}
+	}()
+	go func() {
+		if err := ma.serveLoops(ctx); err != nil && !errors.Is(err, p2p.ErrClosed) {
 			logctx.Errorln(ctx, err)
 		}
 	}()
@@ -80,11 +84,11 @@ type multiSwarm struct {
 	ctx        context.Context
 	addrSchema AddrSchema
 	swarms     map[string]DynSwarm
-	tells      *swarmutil.TellHub[Addr]
+	tells      swarmutil.TellHub[Addr]
 }
 
-func newMultiSwarm(m map[string]DynSwarm) multiSwarm {
-	s := multiSwarm{
+func newMultiSwarm(m map[string]DynSwarm) *multiSwarm {
+	s := &multiSwarm{
 		ctx:        context.Background(),
 		addrSchema: NewSchemaFromSwarms(m),
 		swarms:     m,
@@ -93,7 +97,7 @@ func newMultiSwarm(m map[string]DynSwarm) multiSwarm {
 	return s
 }
 
-func (mt multiSwarm) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
+func (mt *multiSwarm) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
 	t, ok := mt.swarms[dst.Scheme]
 	if !ok {
 		return ErrTransportNotExist
@@ -101,11 +105,11 @@ func (mt multiSwarm) Tell(ctx context.Context, dst Addr, data p2p.IOVec) error {
 	return t.Tell(ctx, dst.Addr, data)
 }
 
-func (mt multiSwarm) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
+func (mt *multiSwarm) Receive(ctx context.Context, th func(p2p.Message[Addr])) error {
 	return mt.tells.Receive(ctx, th)
 }
 
-func (mt multiSwarm) recvLoops(ctx context.Context) error {
+func (mt *multiSwarm) recvLoops(ctx context.Context) error {
 	eg := errgroup.Group{}
 	for tname, t := range mt.swarms {
 		tname := tname
@@ -127,11 +131,11 @@ func (mt multiSwarm) recvLoops(ctx context.Context) error {
 	return eg.Wait()
 }
 
-func (ms multiSwarm) ParseAddr(data []byte) (Addr, error) {
+func (ms *multiSwarm) ParseAddr(data []byte) (Addr, error) {
 	return ms.addrSchema.ParseAddr(data)
 }
 
-func (mt multiSwarm) MTU(ctx context.Context, target Addr) int {
+func (mt *multiSwarm) MTU(ctx context.Context, target Addr) int {
 	t, ok := mt.swarms[target.Scheme]
 	if !ok {
 		return -1
@@ -139,7 +143,7 @@ func (mt multiSwarm) MTU(ctx context.Context, target Addr) int {
 	return t.MTU(ctx, target.Addr)
 }
 
-func (mt multiSwarm) MaxIncomingSize() int {
+func (mt *multiSwarm) MaxIncomingSize() int {
 	var max int
 	for _, t := range mt.swarms {
 		x := t.MaxIncomingSize()
@@ -150,7 +154,7 @@ func (mt multiSwarm) MaxIncomingSize() int {
 	return max
 }
 
-func (mt multiSwarm) LocalAddrs() (ret []Addr) {
+func (mt *multiSwarm) LocalAddrs() (ret []Addr) {
 	for tname, t := range mt.swarms {
 		for _, addr := range t.LocalAddrs() {
 			a := Addr{
@@ -163,7 +167,7 @@ func (mt multiSwarm) LocalAddrs() (ret []Addr) {
 	return ret
 }
 
-func (mt multiSwarm) Close() error {
+func (mt *multiSwarm) Close() error {
 	var err error
 	for _, t := range mt.swarms {
 		if err2 := t.Close(); err2 != nil {
@@ -176,19 +180,19 @@ func (mt multiSwarm) Close() error {
 }
 
 type multiAsker struct {
-	swarms map[string]p2p.Asker[p2p.Addr]
-	asks   *swarmutil.AskHub[Addr]
+	swarms map[string]p2p.AskSwarm[p2p.Addr]
+	asks   swarmutil.AskHub[Addr]
 }
 
-func newMultiAsker(m map[string]p2p.Asker[p2p.Addr]) multiAsker {
-	ma := multiAsker{
+func newMultiAsker(m map[string]p2p.AskSwarm[p2p.Addr]) *multiAsker {
+	ma := &multiAsker{
 		swarms: m,
 		asks:   swarmutil.NewAskHub[Addr](),
 	}
 	return ma
 }
 
-func (ma multiAsker) Ask(ctx context.Context, resp []byte, dst Addr, data p2p.IOVec) (int, error) {
+func (ma *multiAsker) Ask(ctx context.Context, resp []byte, dst Addr, data p2p.IOVec) (int, error) {
 	t, ok := ma.swarms[dst.Scheme]
 	if !ok {
 		return 0, ErrTransportNotExist
@@ -196,11 +200,11 @@ func (ma multiAsker) Ask(ctx context.Context, resp []byte, dst Addr, data p2p.IO
 	return t.Ask(ctx, resp, dst.Addr, data)
 }
 
-func (ma multiAsker) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[Addr]) int) error {
+func (ma *multiAsker) ServeAsk(ctx context.Context, fn func(context.Context, []byte, p2p.Message[Addr]) int) error {
 	return ma.asks.ServeAsk(ctx, fn)
 }
 
-func (ma multiAsker) serveLoops(ctx context.Context) error {
+func (ma *multiAsker) serveLoops(ctx context.Context) error {
 	eg := errgroup.Group{}
 	for scheme, t := range ma.swarms {
 		scheme := scheme

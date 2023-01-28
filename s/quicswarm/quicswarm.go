@@ -46,8 +46,8 @@ type Swarm[T p2p.Addr] struct {
 	mu        sync.RWMutex
 	sessCache map[sessionKey]quic.Connection
 
-	tells *swarmutil.TellHub[Addr[T]]
-	asks  *swarmutil.AskHub[Addr[T]]
+	tells swarmutil.TellHub[Addr[T]]
+	asks  swarmutil.AskHub[Addr[T]]
 }
 
 func NewOnUDP(laddr string, privKey x509.PrivateKey, opts ...Option[udpswarm.Addr]) (*Swarm[udpswarm.Addr], error) {

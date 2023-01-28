@@ -12,7 +12,7 @@ import (
 )
 
 func TestStringMux(t *testing.T) {
-	r := memswarm.NewRealm[struct{}]()
+	r := memswarm.NewRealm(memswarm.WithQueueLen(10))
 	s1 := r.NewSwarm()
 	s2 := r.NewSwarm()
 
@@ -56,7 +56,7 @@ func TestStringMux(t *testing.T) {
 }
 
 func TestVarintMux(t *testing.T) {
-	r := memswarm.NewRealm[struct{}]()
+	r := memswarm.NewRealm(memswarm.WithQueueLen(10))
 	s1 := r.NewSwarm()
 	s2 := r.NewSwarm()
 

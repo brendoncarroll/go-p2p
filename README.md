@@ -36,21 +36,11 @@ It will error if the message cannot be set in flight, but does not guarantee the
 
 ## Directory Organization
 
-
-### D is for Discovery
-Services for discovering peers.
-
-- **Cell Tracker**
-A tracker for announcing and looking up peer addresses.
-Works on top of any cell.
-A default client and server implementation are provided.
-
 ### F is for Formats
 Formats are just protocols that send/write once and receive/read many times.
 
 - **x509**
 Deals with the formats in the x509 public key infrastructure.
-
 
 ### S is for Swarm
 
@@ -77,6 +67,9 @@ An insecure swarm, included mainly as a building block.
 - **Fragmenting Swarm**
 A higher order swarm which increases the MTU of an underlying swarm by breaking apart messages,
 and assembling them on the other side.
+
+- **Virtual Swarm**
+A swarm which can be used to mock swarms of any comparable address type, and any public key type.
 
 The `swarmutil` package contains utilities for writing `Swarms`.
 The `swarmtest` package contains a test suite which checks that a given Swarm implementation exhibits all the behaviors expected.

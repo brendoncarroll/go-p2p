@@ -48,7 +48,10 @@ func (ds dynSwarm[T]) Close() error {
 }
 
 type dynAsker[T p2p.Addr] struct {
-	asker p2p.Asker[T]
+	asker interface {
+		p2p.Asker[T]
+		p2p.AskServer[T]
+	}
 }
 
 func (da dynAsker[T]) Ask(ctx context.Context, resp []byte, dst p2p.Addr, req p2p.IOVec) (int, error) {

@@ -35,7 +35,7 @@ type swarm[A p2p.Addr] struct {
 	mu     sync.Mutex
 	aggs   map[aggKey]*aggregator
 	msgIDs map[string]uint32
-	tells  *swarmutil.TellHub[A]
+	tells  swarmutil.TellHub[A]
 }
 
 func newSwarm[A p2p.Addr](x p2p.Swarm[A], mtu int) *swarm[A] {

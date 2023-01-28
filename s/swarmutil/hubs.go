@@ -20,8 +20,8 @@ type TellHub[A p2p.Addr] struct {
 	err       error
 }
 
-func NewTellHub[A p2p.Addr]() *TellHub[A] {
-	return &TellHub[A]{
+func NewTellHub[A p2p.Addr]() TellHub[A] {
+	return TellHub[A]{
 		delivers: make(chan *deliverReq[A]),
 		closed:   make(chan struct{}),
 	}
@@ -84,6 +84,9 @@ func (q *TellHub[A]) checkClosed() error {
 }
 
 func (q *TellHub[A]) CloseWithError(err error) {
+	if err == nil {
+		err = p2p.ErrClosed
+	}
 	q.closeOnce.Do(func() {
 		q.err = err
 		close(q.closed)
@@ -105,8 +108,8 @@ type AskHub[A p2p.Addr] struct {
 	err       error
 }
 
-func NewAskHub[A p2p.Addr]() *AskHub[A] {
-	return &AskHub[A]{
+func NewAskHub[A p2p.Addr]() AskHub[A] {
+	return AskHub[A]{
 		reqs:   make(chan *serveReq[A]),
 		closed: make(chan struct{}),
 	}
@@ -154,9 +157,18 @@ func (q *AskHub[A]) checkClosed() error {
 	}
 }
 
+func (q *AskHub[A]) Close() error {
+	q.CloseWithError(nil)
+	return nil
+}
+
 func (q *AskHub[A]) CloseWithError(err error) {
 	q.closeOnce.Do(func() {
 		q.err = err
 		close(q.closed)
 	})
+}
+
+func (q *AskHub[A]) String() string {
+	return "AskHub{}"
 }

@@ -63,7 +63,7 @@ func TestOnUDP(t *testing.T) {
 func TestOnMem(t *testing.T) {
 	t.Parallel()
 	testSwarm(t, func(t testing.TB, xs []p2p.Swarm[memswarm.Addr]) {
-		var opts []memswarm.Option[struct{}]
+		opts := []memswarm.Option{memswarm.WithQueueLen(10)}
 		// opts = append(opts, memswarm.WithLogging(os.Stdout))
 		r := memswarm.NewRealm(opts...)
 		for i := range xs {
