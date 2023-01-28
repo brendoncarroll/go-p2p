@@ -11,29 +11,13 @@ import (
 
 type Time = tai64.TAI64N
 
-type Authenticator interface {
-	// Intro is called by the Initiator.
-	Intro(out []byte) []byte
-	// Accept is called by the Responder on the first message.
-	Accept(x []byte) bool
-
-	// Prove is called by both sides in order to create a proof for the other party.
-	Prove(out []byte, target *[64]byte) []byte
-	// Verify is called by both sides in order to verify a proofs made by parties.
-	Verify(target *[64]byte, proof []byte) bool
-}
-
-type Prover = func(out []byte, target *[64]byte) []byte
-
-type Verifier = func(target *[64]byte, proof []byte) bool
-
 func IsInitHello(x []byte) bool {
 	return bytes.HasPrefix(x, []byte{0, 0, 0, 0})
 }
 
 type InitHello[KEMPub any] struct {
 	KEMPublic KEMPub
-	Proof     []byte
+	Rest      []byte
 }
 
 func ParseInitHello[KEMPub any](sch kem.PublicKeyScheme[KEMPub], x []byte) (*InitHello[KEMPub], error) {

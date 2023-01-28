@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/brendoncarroll/go-tai64"
 )
 
 type HostParams[K comparable, S any] struct {
@@ -69,16 +71,28 @@ func (h *Host[K, S]) Send(ctx context.Context, k K, now Time, msg []byte, fn fun
 	}
 }
 
-func (h *Host[K, S]) Heartbeat(k K, now Time, fn func([]byte)) {
+func (h *Host[K, S]) Heartbeat(k K, now Time, sendFunc func(k K, data []byte)) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, ce := range h.channels {
-		h.heartbeatEntry(ce, now, fn)
+		h.heartbeatEntry(ce, now, func(data []byte) {
+			sendFunc(k, data)
+		})
 	}
 }
 
 func (h *Host[K, S]) heartbeatEntry(ce *channelEntry[S], now Time, fn func([]byte)) {
-
+	var out []byte
+	var err error
+	ce.mu.Lock()
+	if ce.state.ShouldHandshake(now) {
+		out, err = ce.state.SendHandshake(out, now)
+	}
+	ce.mu.Unlock()
+	if err != nil {
+		return
+	}
+	fn(out)
 }
 
 func (h *Host[K, S]) getEntry(k K) *channelEntry[S] {
@@ -89,7 +103,7 @@ func (h *Host[K, S]) getEntry(k K) *channelEntry[S] {
 		upgradeLock(&h.mu)
 		if _, exists := h.channels[k]; !exists {
 			ce = &channelEntry[S]{
-				state: NewChannelState[S](h.params),
+				state: NewChannelState[S](h.params.ChannelStateParams),
 			}
 			h.channels[k] = ce
 		}

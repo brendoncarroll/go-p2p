@@ -86,13 +86,13 @@ func csTransmit[S any](t testing.TB, send, recv *ChannelState[S], now Time, msg 
 		require.NoError(t, err)
 	} else {
 		var err error
-		buf, err = send.Send(nil, msg, now)
+		buf, err = send.Send(nil, now, msg)
 		require.NoError(t, err)
 	}
 	if recv == nil {
 		return nil
 	}
-	out, err := recv.Deliver(nil, buf, now)
+	out, err := recv.Deliver(nil, now, buf)
 	require.NoError(t, err)
 	return out
 }

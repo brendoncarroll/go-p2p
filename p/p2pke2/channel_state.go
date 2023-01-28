@@ -186,7 +186,7 @@ func (c *ChannelState[S]) LastRecv() (ret Time) {
 }
 
 // ShouldHandshake returns true if a call to SendHandshake is needed
-// If IsReady == false, or if the current session is more than half SessionTimeout, and we are the initiator
+// If IsReady == false, or if the current session is more than half SessionTimeout old, and we are the initiator
 func (c *ChannelState[S]) ShouldHandshake(now Time) bool {
 	if !c.IsReady(now) {
 		return true
@@ -224,7 +224,7 @@ func (c *ChannelState[S]) expireSessions(now Time) {
 
 func (c *ChannelState[S]) isReady(se *sessionEntry[S], now Time) bool {
 	sess := c.getSession(se)
-	return se.IsZero() && sess.IsHandshakeDone() && !sess.IsExhausted()
+	return !se.IsZero() && sess.IsHandshakeDone() && !sess.IsExhausted()
 }
 
 func (c *ChannelState[S]) getSession(se *sessionEntry[S]) SessionAPI {

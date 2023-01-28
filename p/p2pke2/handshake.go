@@ -10,6 +10,12 @@ import (
 	"github.com/brendoncarroll/go-p2p/crypto/xof"
 )
 
+// Prover appends a proof to out, that relates to target.
+type Prover = func(out []byte, target *[64]byte) []byte
+
+// Verify verifies a proof to target
+type Verifier = func(target *[64]byte, proof []byte) bool
+
 type HandshakeParams[XOF, KEMPriv, KEMPub any] struct {
 	Suite  Suite[XOF, KEMPriv, KEMPub]
 	Seed   *[32]byte
@@ -256,6 +262,26 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Zero() {
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) IsInitiator() bool {
 	return hs.params.IsInit
+}
+
+func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) CanRepeat(index uint8) bool {
+	switch index {
+	case 0:
+		// The initiator can repeat an InitHello
+		return true
+	case 1:
+		// The responder should not repeat a RespHello.
+		// It should only be sent in response to an InitHello.
+		return false
+	case 2:
+		// The initiator can resend an InitDone, since RespHello contains an authentication proof for the session
+		return true
+	case 3:
+		// The responder can resend an RespDone, since the session is authenticated.
+		return true
+	default:
+		return false
+	}
 }
 
 func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) stateIs(isInit bool, index uint8) bool {

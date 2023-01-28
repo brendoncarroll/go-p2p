@@ -11,16 +11,14 @@ import (
 
 const MaxCounter = 1<<32 - 1
 
-type SessionParams[XOF, KEMPriv, KEMPub any] struct {
+type SessionParams[XOF, KEMPriv, KEMPub, Iden any] struct {
 	Suite  Suite[XOF, KEMPriv, KEMPub]
 	Seed   *[32]byte
 	IsInit bool
-	Prove  Prover
-	Verify Verifier
 }
 
-func (s *SessionParams[XOF, KEMPriv, KEMPub]) HandshakeParams() HandshakeParams[XOF, KEMPriv, KEMPub] {
-	return HandshakeParams[XOF, KEMPriv, KEMPub]{
+func (s *SessionParams[XOF, KEMPriv, KEMPub, Iden]) HandshakeParams() HandshakeParams[XOF, KEMPriv, KEMPub] {
+	return HandshakeParams[XOF, KEMPriv, KEMPub, Iden]{
 		Suite:  s.Suite,
 		Seed:   s.Seed,
 		IsInit: s.IsInit,
@@ -33,9 +31,9 @@ func (s *SessionParams[XOF, KEMPriv, KEMPub]) HandshakeParams() HandshakeParams[
 // Session contains the state for a cryptographic session.
 // Session has a non-looping state machine, and eventually moves to a dead state where no more messages can be sent.
 type Session[XOF, KEMPriv, KEMPub any] struct {
+	initialized bool
 	aead        aead.K256N64
 	hs          HandshakeState[XOF, KEMPriv, KEMPub]
-	initialized bool
 
 	inboundKey, outboundKey [32]byte
 	replay                  replayFilter
@@ -63,7 +61,7 @@ func (s *Session[XOF, KEMPriv, KEMPub]) Send(out []byte, payload []byte) ([]byte
 		return nil, errors.New("this session has sent the maximum number of messages")
 	}
 	counter := atomic.AddUint32(&s.counter, 1) - 1
-	out = appendUint32(out, counter)
+	out = binary.BigEndian.AppendUint32(out, counter)
 	var nonce [8]byte
 	binary.BigEndian.PutUint64(nonce[:], uint64(counter))
 	return aead.AppendSealK256N64(out, s.aead, &s.outboundKey, nonce, payload, nil), nil
@@ -73,14 +71,14 @@ func (s *Session[XOF, KEMPriv, KEMPub]) SendHandshake(out []byte) ([]byte, error
 	if s.hs.IsDone() {
 		return nil, errors.New("handshake is already complete")
 	}
-	out = appendUint32(out, uint32(s.hs.Index()))
+	out = binary.BigEndian.AppendUint32(out, uint32(s.hs.Index()))
 	out, err := s.hs.Send(out)
 	if err != nil {
 		return nil, err
 	}
 	if s.IsHandshakeDone() {
 		s.inboundKey, s.outboundKey = s.hs.Split()
-		s.counter = 4
+		s.counter = 8
 	}
 	return out, nil
 }
@@ -145,10 +143,8 @@ func (s *Session[XOF, KEMPriv, KEMPub]) Zero() {
 	*s = Session[XOF, KEMPriv, KEMPub]{}
 }
 
-func appendUint32(out []byte, x uint32) []byte {
-	var buf [4]byte
-	binary.BigEndian.PutUint32(buf[:], x)
-	return append(out, buf[:]...)
+func (s *Session[XOF, KEMPriv, KEMPub]) Remote() {
+	// TODO:
 }
 
 type ErrShortMessage struct{}
