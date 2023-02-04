@@ -16,7 +16,7 @@ require (
 	golang.org/x/exp v0.0.0-20230202163644-54bba9f4231b
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.1.0
-	golang.zx2c4.com/wireguard v0.0.0-20210927201915-bb745b2ea326
+	golang.zx2c4.com/wireguard v0.0.0-20220920152132-bb719d3a6e2c
 	google.golang.org/protobuf v1.26.0
 )
 
