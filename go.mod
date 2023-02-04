@@ -3,19 +3,17 @@ module github.com/brendoncarroll/go-p2p
 go 1.19
 
 require (
-	github.com/brendoncarroll/go-state v0.0.0-20230114155940-0d163a3abbd6
 	github.com/brendoncarroll/go-tai64 v0.0.0-20220726191612-c9e9c0704db4
 	github.com/brendoncarroll/stdctx v0.0.0-20230114173309-0ff5de5eda5a
 	github.com/companyzero/sntrup4591761 v0.0.0-20220309191932-9e0f3af2f07a
 	github.com/flynn/noise v1.0.0
 	github.com/golang/protobuf v1.5.2
-	github.com/jonboulle/clockwork v0.1.1-0.20190114141812-62fb9bc030d1
 	github.com/lucas-clemente/quic-go v0.29.2
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v0.0.5
 	github.com/stretchr/testify v1.8.1
 	golang.org/x/crypto v0.1.0
-	golang.org/x/exp v0.0.0-20230113213754-f9f960f08ad4
+	golang.org/x/exp v0.0.0-20230202163644-54bba9f4231b
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.1.0
 	golang.zx2c4.com/wireguard v0.0.0-20210927201915-bb745b2ea326
