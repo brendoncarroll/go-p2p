@@ -11,8 +11,8 @@ import (
 	"sync"
 
 	"github.com/brendoncarroll/stdctx/logctx"
-	"github.com/lucas-clemente/quic-go"
 	"github.com/pkg/errors"
+	"github.com/quic-go/quic-go"
 	"golang.org/x/exp/slog"
 	"golang.org/x/sync/errgroup"
 
