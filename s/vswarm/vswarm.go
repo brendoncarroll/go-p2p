@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/brendoncarroll/stdctx/logctx"
-	"golang.org/x/exp/slog"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
@@ -91,7 +90,7 @@ func (r *SecureRealm[A, Pub]) tell(ctx context.Context, src, dst A, v p2p.IOVec)
 	}
 	s := r.getSwarm(dst)
 	onDrop := func() {
-		logctx.Debug(ctx, "vswarm: dropping message", slog.Any("src", src), slog.Any("dst", dst), slog.Int("len", p2p.VecSize(v)))
+		logctx.Debug(ctx, "vswarm: dropping message", logctx.Any("src", src), logctx.Any("dst", dst), logctx.Int("len", p2p.VecSize(v)))
 	}
 	if s == nil {
 		onDrop()
@@ -119,7 +118,7 @@ func (r *SecureRealm[A, Pub]) ask(ctx context.Context, resp []byte, src, dst A, 
 	s := r.getSwarm(dst)
 	onDrop := func() {
 		log.Println("dropping")
-		logctx.Debug(ctx, "vswarm: dropping ask", slog.Any("src", src), slog.Any("dst", dst), slog.Int("len", p2p.VecSize(v)))
+		logctx.Debug(ctx, "vswarm: dropping ask", logctx.Any("src", src), logctx.Any("dst", dst), logctx.Int("len", p2p.VecSize(v)))
 	}
 	if s == nil {
 		onDrop()

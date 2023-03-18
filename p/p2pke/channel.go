@@ -3,7 +3,6 @@ package p2pke
 import (
 	"bytes"
 	"context"
-	"io"
 	sync "sync"
 	"time"
 
@@ -11,8 +10,8 @@ import (
 	"github.com/brendoncarroll/go-p2p/f/x509"
 	"github.com/brendoncarroll/go-tai64"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/blake2b"
-	"golang.org/x/exp/slog"
 )
 
 // SendFunc is the type of functions called to send messages by the channel.
@@ -30,7 +29,7 @@ type ChannelConfig struct {
 	// *REQUIRED*.
 	AcceptKey func(*x509.PublicKey) bool
 	// Logger is used for logging, nil disables logs.
-	Logger *slog.Logger
+	Logger *zap.Logger
 
 	// KeepAliveTimeout is the amount of time to consider a session alive wihtout receiving a message
 	// through it.
@@ -46,7 +45,7 @@ type ChannelConfig struct {
 
 type Channel struct {
 	params     ChannelConfig
-	log        *slog.Logger
+	log        *zap.Logger
 	privateKey privateKey
 
 	mu sync.RWMutex
@@ -78,7 +77,7 @@ func NewChannel(params ChannelConfig) *Channel {
 		panic("AcceptKey must be set")
 	}
 	if params.Logger == nil {
-		params.Logger = slog.New(slog.NewTextHandler(io.Discard))
+		params.Logger, _ = zap.NewProduction()
 	}
 	if params.KeepAliveTimeout == 0 {
 		params.KeepAliveTimeout = KeepAliveTimeout
@@ -306,10 +305,10 @@ func (c *Channel) proposeNewSession(sid [32]byte, newS *Session) (ret *Session) 
 		c.log.Debug("not replacing prospective session")
 		return s
 	} else if s != nil {
-		c.log.Debug("replacing prospective session", slog.Any("old", s), slog.Any("new", newS))
+		c.log.Debug("replacing prospective session", zap.Any("old", s), zap.Any("new", newS))
 		ret = newS
 	} else {
-		c.log.Debug("creating new session", slog.Any("new", newS))
+		c.log.Debug("creating new session", zap.Any("new", newS))
 		ret = newS
 	}
 	c.setNext(sessionEntry{

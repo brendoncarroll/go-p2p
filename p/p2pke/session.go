@@ -10,8 +10,8 @@ import (
 	"github.com/brendoncarroll/go-tai64"
 	"github.com/flynn/noise"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/blake2b"
-	"golang.org/x/exp/slog"
 	"golang.zx2c4.com/wireguard/replay"
 
 	"github.com/brendoncarroll/go-p2p/f/x509"
@@ -21,7 +21,7 @@ type Session struct {
 	registry   x509.Registry
 	privateKey privateKey
 	isInit     bool
-	log        *slog.Logger
+	log        *zap.Logger
 	expiresAt  time.Time
 
 	// handshake
@@ -44,7 +44,7 @@ type SessionConfig struct {
 	IsInit      bool
 	Now         time.Time
 	RejectAfter time.Duration
-	Logger      *slog.Logger
+	Logger      *zap.Logger
 }
 
 func NewSession(params SessionConfig) *Session {

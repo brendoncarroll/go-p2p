@@ -3,16 +3,15 @@ package main
 import (
 	"context"
 	"log"
-	"os"
 
 	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/spf13/cobra"
-	"golang.org/x/exp/slog"
+	"go.uber.org/zap"
 )
 
 var ctx = func() context.Context {
 	ctx := context.Background()
-	l := slog.New(slog.NewTextHandler(os.Stderr))
+	l, _ := zap.NewProduction()
 	ctx = logctx.NewContext(ctx, l)
 	return ctx
 }()

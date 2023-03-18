@@ -39,7 +39,7 @@ func MarshalPublicKey(out []byte, x *PublicKey) []byte {
 		},
 	})
 	if err != nil {
-		panic(err)
+		return out
 	}
 	return append(out, data...)
 }

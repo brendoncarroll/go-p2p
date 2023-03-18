@@ -1,12 +1,11 @@
 package p2pke
 
 import (
-	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/slog"
+	"go.uber.org/zap"
 
 	"github.com/brendoncarroll/go-p2p/f/x509"
 	"github.com/brendoncarroll/go-p2p/p2ptest"
@@ -98,8 +97,9 @@ func newTestPair(t *testing.T) (s1, s2 *Session) {
 	return s1, s2
 }
 
-func newTestLogger(t testing.TB) *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stderr))
+func newTestLogger(t testing.TB) *zap.Logger {
+	l, _ := zap.NewDevelopment()
+	return l
 }
 
 func newTestKey(t testing.TB, i int) x509.PrivateKey {

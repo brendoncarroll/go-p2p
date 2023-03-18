@@ -11,7 +11,6 @@ import (
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
 	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/pkg/errors"
-	"golang.org/x/exp/slog"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -126,7 +125,7 @@ func (s *swarm[A]) recvLoops(ctx context.Context, numWorkers int) error {
 func (s *swarm[A]) handleTell(ctx context.Context, x p2p.Message[A]) error {
 	id, part, totalParts, data, err := parseMessage(x.Payload)
 	if err != nil {
-		logctx.Error(ctx, "error parsing message", slog.Any("src", x.Src))
+		logctx.Error(ctx, "error parsing message", logctx.Any("src", x.Src))
 		return err
 	}
 	// if there is only one part skip creating the aggregator
