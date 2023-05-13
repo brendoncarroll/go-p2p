@@ -8,47 +8,46 @@ import (
 	"github.com/brendoncarroll/go-p2p/crypto/aead"
 	"github.com/brendoncarroll/go-p2p/crypto/kem"
 	"github.com/brendoncarroll/go-p2p/crypto/xof"
+	"github.com/brendoncarroll/go-p2p/crypto/xof/xof_sha3"
 )
 
 // Prover appends a proof to out, that relates to target.
 type Prover = func(out []byte, target *[64]byte) []byte
 
 // Verify verifies a proof to target
-type Verifier = func(target *[64]byte, proof []byte) bool
+type Verifier = func(target *[64]byte, proof []byte) error
 
-type HandshakeParams[XOF, KEMPriv, KEMPub any] struct {
-	Suite  Suite[XOF, KEMPriv, KEMPub]
+type HandshakeParams[KEMPriv, KEMPub any] struct {
+	Suite  Suite[KEMPriv, KEMPub]
 	Seed   *[32]byte
 	IsInit bool
 
-	Prove  func(out []byte, target *[64]byte) []byte
-	Verify func(target *[64]byte, proof []byte) bool
+	Prove  Prover
+	Verify Verifier
 }
 
-type HandshakeState[XOF, KEMPriv, KEMPub any] struct {
-	params      HandshakeParams[XOF, KEMPriv, KEMPub]
+type HandshakeState[KEMPriv, KEMPub any] struct {
+	params      HandshakeParams[KEMPriv, KEMPub]
 	seed        [32]byte
 	initialized bool
 
 	// index is the position in the handshake state machine.
-	index   uint8
-	state   XOF
-	kemPriv KEMPriv
-	kemPub  KEMPub
+	index     uint8
+	hashState [64]byte
+	kemPriv   KEMPriv
+	kemPub    KEMPub
 }
 
-func NewHandshakeState[XOF, KEMPriv, KEMPub any](params HandshakeParams[XOF, KEMPriv, KEMPub]) HandshakeState[XOF, KEMPriv, KEMPub] {
-	hs := HandshakeState[XOF, KEMPriv, KEMPub]{
+func NewHandshakeState[KEMPriv, KEMPub any](params HandshakeParams[KEMPriv, KEMPub]) HandshakeState[KEMPriv, KEMPub] {
+	hs := HandshakeState[KEMPriv, KEMPub]{
 		params:      params,
 		seed:        *params.Seed,
 		initialized: true,
-
-		state: params.Suite.XOF.New(),
 	}
 	if params.IsInit {
 		var kemKeyGenSeed [32]byte
-		xof.DeriveKey256(params.Suite.XOF, kemKeyGenSeed[:], params.Seed, []byte("KEM-keygen"))
-		rng := xof.NewRand256(params.Suite.XOF, &kemKeyGenSeed)
+		params.Suite.XOFSum(kemKeyGenSeed[:], params.Seed[:], []byte("KEM-keygen"))
+		rng := xof.NewRand256[xof_sha3.SHAKE256State](xof_sha3.SHAKE256{}, &kemKeyGenSeed)
 		var err error
 		hs.kemPub, hs.kemPriv, err = params.Suite.KEM.Generate(&rng)
 		if err != nil {
@@ -59,7 +58,7 @@ func NewHandshakeState[XOF, KEMPriv, KEMPub any](params HandshakeParams[XOF, KEM
 	return hs
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error) {
+func (hs *HandshakeState[KEMPriv, KEMPub]) Send(out []byte) ([]byte, error) {
 	initLen := len(out)
 	switch {
 	case hs.stateIs(true, 0+1):
@@ -129,7 +128,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Send(out []byte) ([]byte, error)
 	return out, nil
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
+func (hs *HandshakeState[KEMPriv, KEMPub]) Deliver(x []byte) error {
 	switch {
 	case hs.stateIs(false, 0):
 		// InitHello
@@ -167,7 +166,7 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 		}
 		var sigTarget [64]byte
 		hs.deriveSharedKey(sigTarget[:], "1-sig-target")
-		if !hs.params.Verify(&sigTarget, ptext[:]) {
+		if err := hs.params.Verify(&sigTarget, ptext[:]); err != nil {
 			return errors.New("verification failed")
 		}
 		hs.index = 2
@@ -203,22 +202,22 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Deliver(x []byte) error {
 	return nil
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) IsDone() bool {
+func (hs *HandshakeState[KEMPriv, KEMPub]) IsDone() bool {
 	// if initialized is false then the handshake has been zeroed.
 	return hs.index >= 4 || !hs.initialized
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) ShouldSend() bool {
+func (hs *HandshakeState[KEMPriv, KEMPub]) ShouldSend() bool {
 	shouldSend := (hs.params.IsInit && hs.index%2 == 0) || (!hs.params.IsInit && hs.index%2 == 1)
 	return hs.IsDone() && shouldSend
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) ChannelBinding() (ret [64]byte) {
+func (hs *HandshakeState[KEMPriv, KEMPub]) ChannelBinding() (ret [64]byte) {
 	hs.deriveSharedKey(ret[:], "channel-binding")
 	return ret
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Split() (inbound, outbound [32]byte) {
+func (hs *HandshakeState[KEMPriv, KEMPub]) Split() (inbound, outbound [32]byte) {
 	if hs.index < 4 {
 		panic("split called before end of handshake")
 	}
@@ -236,35 +235,30 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Split() (inbound, outbound [32]b
 	return inbound, outbound
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Index() uint8 {
+func (hs *HandshakeState[KEMPriv, KEMPub]) Index() uint8 {
 	return hs.index
 }
 
-// XOF returns the XOF used by this handshake
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) XOF() xof.Scheme[XOF] {
-	return hs.params.Suite.XOF
-}
-
 // KEM returns the KEM used by this handshake
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) KEM() kem.Scheme256[KEMPriv, KEMPub] {
+func (hs *HandshakeState[KEMPriv, KEMPub]) KEM() kem.Scheme256[KEMPriv, KEMPub] {
 	return hs.params.Suite.KEM
 }
 
 // AEAD returns the AEAD used by this handshake
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) AEAD() aead.K256N64 {
+func (hs *HandshakeState[KEMPriv, KEMPub]) AEAD() aead.K256N64 {
 	return hs.params.Suite.AEAD
 }
 
 // Zeros the memory in the HandshakeState
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) Zero() {
-	*hs = HandshakeState[XOF, KEMPriv, KEMPub]{}
+func (hs *HandshakeState[KEMPriv, KEMPub]) Zero() {
+	*hs = HandshakeState[KEMPriv, KEMPub]{}
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) IsInitiator() bool {
+func (hs *HandshakeState[KEMPriv, KEMPub]) IsInitiator() bool {
 	return hs.params.IsInit
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) CanRepeat(index uint8) bool {
+func (hs *HandshakeState[KEMPriv, KEMPub]) CanRepeat(index uint8) bool {
 	switch index {
 	case 0:
 		// The initiator can repeat an InitHello
@@ -284,55 +278,51 @@ func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) CanRepeat(index uint8) bool {
 	}
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) stateIs(isInit bool, index uint8) bool {
+func (hs *HandshakeState[KEMPriv, KEMPub]) stateIs(isInit bool, index uint8) bool {
 	return hs.IsInitiator() == isInit && hs.index == index
 }
 
 // mixSecret is called to mix secret state
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) mixSecret(secret *[32]byte) {
-	hs.XOF().Absorb(&hs.state, secret[:])
+func (hs *HandshakeState[KEMPriv, KEMPub]) mixSecret(secret *[32]byte) {
+	hs.params.Suite.XOFSum(hs.hashState[:], hs.hashState[:], secret[:])
 }
 
 // mixPublic is called ot mix public state
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) mixPublic(data []byte) {
-	sum := xof.Sum512(hs.XOF(), data)
-	hs.XOF().Absorb(&hs.state, sum[:])
+func (hs *HandshakeState[KEMPriv, KEMPub]) mixPublic(data []byte) {
+	hs.params.Suite.XOFSum(hs.hashState[:], hs.hashState[:], data[:])
 }
 
 // deriveSharedKey writes pseudorandom bytes to dst from the shared state.
 // deriveSharedKey does not affect HandshakeState.
 // multiple calls with the same purpose produce the same data, unless a mix is called.
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) deriveSharedKey(dst []byte, purpose string) {
-	out := hs.state
-	hs.XOF().Absorb(&out, []byte{uint8(len(purpose))})
-	hs.XOF().Absorb(&out, []byte(purpose))
-	hs.XOF().Expand(&out, dst)
+func (hs *HandshakeState[KEMPriv, KEMPub]) deriveSharedKey(dst []byte, purpose string) {
+	hs.params.Suite.XOFSum(dst, []byte{uint8(len(purpose))}, []byte(purpose))
 }
 
 // generateKey uses the seed to generate a random key.
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) generateKey(dst []byte, purpose string) {
-	xof.DeriveKey256(hs.XOF(), dst, &hs.seed, []byte(purpose))
+func (hs *HandshakeState[KEMPriv, KEMPub]) generateKey(dst []byte, purpose string) {
+	hs.params.Suite.XOFSum(dst, hs.seed[:], []byte(purpose))
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) appendAEADSeal(out []byte, key *[32]byte, nonce uint64, fn func(ptext []byte) []byte) []byte {
+func (hs *HandshakeState[KEMPriv, KEMPub]) appendAEADSeal(out []byte, key *[32]byte, nonce uint64, fn func(ptext []byte) []byte) []byte {
 	ptext := fn(nil)
 	nonceBytes := makeNonce(nonce)
 	return aead.AppendSealK256N64(out, hs.AEAD(), key, nonceBytes, ptext, nil)
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) appendKEMEncap(out []byte, shared *[32]byte, pub *KEMPub, seed *[32]byte) []byte {
+func (hs *HandshakeState[KEMPriv, KEMPub]) appendKEMEncap(out []byte, shared *[32]byte, pub *KEMPub, seed *[32]byte) []byte {
 	kemCtext := make([]byte, hs.KEM().CiphertextSize())
 	hs.KEM().Encapsulate(shared, kemCtext, pub, seed)
 	return append(out, kemCtext...)
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) kemDecap(priv *KEMPriv, ctext []byte) ([32]byte, error) {
+func (hs *HandshakeState[KEMPriv, KEMPub]) kemDecap(priv *KEMPriv, ctext []byte) ([32]byte, error) {
 	var kemShared kem.Secret256
 	err := hs.KEM().Decapsulate(&kemShared, &hs.kemPriv, ctext)
 	return kemShared, err
 }
 
-func (hs *HandshakeState[XOF, KEMPriv, KEMPub]) aeadOpen(key *[32]byte, nonce uint64, ctext []byte) ([]byte, error) {
+func (hs *HandshakeState[KEMPriv, KEMPub]) aeadOpen(key *[32]byte, nonce uint64, ctext []byte) ([]byte, error) {
 	ptext := make([]byte, 0, len(ctext)-hs.AEAD().Overhead())
 	nonceBytes := makeNonce(nonce)
 	return aead.AppendOpenK256N64(ptext, hs.AEAD(), key, nonceBytes, ctext, nil)

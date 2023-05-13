@@ -13,11 +13,11 @@ import (
 )
 
 // Suite is a set of cryptographic primitives used to establish and send data over a secure channel
-type Suite[XOF, KEMPriv, KEMPub any] struct {
-	Name string
-	XOF  xof.Scheme[XOF]
-	AEAD aead.K256N64
-	KEM  kem.Scheme256[KEMPriv, KEMPub]
+type Suite[KEMPriv, KEMPub any] struct {
+	Name   string
+	AEAD   aead.K256N64
+	KEM    kem.Scheme256[KEMPriv, KEMPub]
+	XOFSum func(dst []byte, ins ...[]byte)
 }
 
 func MakeName(xof, aead, kem string) string {
@@ -28,22 +28,22 @@ type (
 	KEMPrivateKeyV1 = kem.DualKey[kem_x25519.PrivateKey, kem_sntrup.PrivateKey4591761]
 	KEMPublicKeyV1  = kem.DualKey[kem_x25519.PublicKey, kem_sntrup.PublicKey4591761]
 	XOFStateV1      = xof_sha3.SHAKE256State
-
-	XOFV1 = xof_sha3.SHAKE256
 )
 
-type SuiteV1 = Suite[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1]
+type SuiteV1 = Suite[KEMPrivateKeyV1, KEMPublicKeyV1]
 
 func NewSuiteV1() SuiteV1 {
 	xofScheme := xof_sha3.SHAKE256{}
 	return SuiteV1{
 		Name: MakeName("shake256", "chacha20poly1305", dualKEMName("x25519", "sntrup4591761")),
-		XOF:  xofScheme,
 		AEAD: aead_chacha20poly1305.Scheme{},
 		KEM: kem.Dual256[kem_x25519.PrivateKey, kem_x25519.PublicKey, kem_sntrup.PrivateKey4591761, kem_sntrup.PublicKey4591761, XOFStateV1]{
 			L:   kem_x25519.New(),
 			R:   kem_sntrup.New4591761(),
 			XOF: xofScheme,
+		},
+		XOFSum: func(dst []byte, srcs ...[]byte) {
+			xof.SumMany[xof_sha3.SHAKE256State](xofScheme, dst, srcs...)
 		},
 	}
 }
