@@ -57,7 +57,7 @@ func (s *swarm[A]) Tell(ctx context.Context, addr A, data p2p.IOVec) error {
 	if p2p.VecSize(data) > s.mtu {
 		return p2p.ErrMTUExceeded
 	}
-	underMTU := s.Swarm.MTU(ctx, addr) - Overhead
+	underMTU := s.Swarm.MTU() - Overhead
 	s.mu.Lock()
 	id := s.msgIDs[keyForAddr(addr)]
 	s.msgIDs[keyForAddr(addr)]++
@@ -95,10 +95,6 @@ func (s *swarm[A]) Tell(ctx context.Context, addr A, data p2p.IOVec) error {
 
 func (s *swarm[A]) Receive(ctx context.Context, th func(p2p.Message[A])) error {
 	return s.tells.Receive(ctx, th)
-}
-
-func (s *swarm[A]) MaxIncomingSize() int {
-	return s.mtu
 }
 
 func (s *swarm[A]) recvLoops(ctx context.Context, numWorkers int) error {
@@ -157,7 +153,7 @@ func (s *swarm[A]) handleTell(ctx context.Context, x p2p.Message[A]) error {
 	return err
 }
 
-func (s *swarm[A]) MTU(ctx context.Context, target A) int {
+func (s *swarm[A]) MTU() int {
 	return s.mtu
 }
 

@@ -159,14 +159,14 @@ func TestTellMTU[A p2p.Addr](t *testing.T, a, b p2p.Swarm[A]) {
 	ctx, cf := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cf()
 
-	size := a.MTU(ctx, b.LocalAddrs()[0])
+	size := a.MTU()
 	err := a.Tell(ctx, b.LocalAddrs()[0], p2p.IOVec{make([]byte, size+1)})
 	require.Equal(t, p2p.ErrMTUExceeded, err)
 
 	var sent, received []byte
 	eg := errgroup.Group{}
 	eg.Go(func() error {
-		size := a.MTU(ctx, b.LocalAddrs()[0])
+		size := a.MTU()
 		buf := make([]byte, size)
 		sent = buf
 		return a.Tell(ctx, b.LocalAddrs()[0], p2p.IOVec{buf})

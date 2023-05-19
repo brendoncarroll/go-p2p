@@ -57,7 +57,7 @@ func TestAsk[A p2p.Addr](t *testing.T, src, dst p2p.AskSwarm[A]) {
 	dstAddr := dst.LocalAddrs()[0]
 
 	eg := errgroup.Group{}
-	actualRespData := make([]byte, src.MTU(ctx, dstAddr))
+	actualRespData := make([]byte, src.MTU())
 	eg.Go(func() error {
 		reqData := []byte("ping")
 		n, err := src.Ask(ctx, actualRespData, dstAddr, p2p.IOVec{reqData})
@@ -91,7 +91,7 @@ func TestErrorResponse[A p2p.Addr](t *testing.T, src, dst p2p.AskSwarm[A]) {
 	})
 	var callerError error
 	eg.Go(func() error {
-		resp := make([]byte, src.MaxIncomingSize())
+		resp := make([]byte, src.MTU())
 		_, err := src.Ask(ctx, resp, dst.LocalAddrs()[0], p2p.IOVec{})
 		callerError = err
 		return nil

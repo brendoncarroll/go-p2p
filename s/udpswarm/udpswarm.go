@@ -45,7 +45,7 @@ func New(laddr string) (*Swarm, error) {
 }
 
 func (s *Swarm) Tell(ctx context.Context, a Addr, data p2p.IOVec) error {
-	if p2p.VecSize(data) > s.MTU(ctx, a) {
+	if p2p.VecSize(data) > s.MTU() {
 		return p2p.ErrMTUExceeded
 	}
 	a2 := a.AsNetAddr()
@@ -72,16 +72,12 @@ func (s *Swarm) LocalAddrs() []Addr {
 	return p2p.ExpandUnspecifiedIPs([]Addr{FromNetAddr(*laddr)})
 }
 
-func (s *Swarm) MTU(ctx context.Context, addr Addr) int {
+func (s *Swarm) MTU() int {
 	laddr := s.conn.LocalAddr().(*net.UDPAddr)
 	if laddr.IP.To16() != nil {
 		return IPv6MTU
 	}
 	return IPv4MTU
-}
-
-func (s *Swarm) MaxIncomingSize() int {
-	return TheoreticalMTU
 }
 
 func (s *Swarm) ParseAddr(x []byte) (Addr, error) {

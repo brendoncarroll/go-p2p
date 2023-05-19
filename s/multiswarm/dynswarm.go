@@ -31,12 +31,8 @@ func (ds dynSwarm[T]) LocalAddrs() (ret []p2p.Addr) {
 	return ret
 }
 
-func (ds dynSwarm[T]) MTU(ctx context.Context, target p2p.Addr) int {
-	return ds.swarm.MTU(ctx, target.(T))
-}
-
-func (ds dynSwarm[T]) MaxIncomingSize() int {
-	return ds.swarm.MaxIncomingSize()
+func (ds dynSwarm[T]) MTU() int {
+	return ds.swarm.MTU()
 }
 
 func (ds dynSwarm[T]) ParseAddr(data []byte) (p2p.Addr, error) {

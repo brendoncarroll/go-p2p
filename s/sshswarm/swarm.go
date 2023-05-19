@@ -59,11 +59,7 @@ func New(laddr string, privateKey ssh.Signer, opts ...Option) (*Swarm, error) {
 	return s, nil
 }
 
-func (s *Swarm) MTU(context.Context, Addr) int {
-	return MTU
-}
-
-func (s *Swarm) MaxIncomingSize() int {
+func (s *Swarm) MTU() int {
 	return MTU
 }
 

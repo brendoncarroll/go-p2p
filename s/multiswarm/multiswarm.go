@@ -2,6 +2,7 @@ package multiswarm
 
 import (
 	"context"
+	"math"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/s/swarmutil"
@@ -135,23 +136,14 @@ func (ms *multiSwarm) ParseAddr(data []byte) (Addr, error) {
 	return ms.addrSchema.ParseAddr(data)
 }
 
-func (mt *multiSwarm) MTU(ctx context.Context, target Addr) int {
-	t, ok := mt.swarms[target.Scheme]
-	if !ok {
-		return -1
-	}
-	return t.MTU(ctx, target.Addr)
-}
-
-func (mt *multiSwarm) MaxIncomingSize() int {
-	var max int
-	for _, t := range mt.swarms {
-		x := t.MaxIncomingSize()
-		if x > max {
-			max = x
+func (mt *multiSwarm) MTU() int {
+	ret := math.MaxInt
+	for _, s := range mt.swarms {
+		if m := s.MTU(); m < ret {
+			ret = m
 		}
 	}
-	return max
+	return ret
 }
 
 func (mt *multiSwarm) LocalAddrs() (ret []Addr) {

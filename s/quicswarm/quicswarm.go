@@ -190,11 +190,7 @@ func (s *Swarm[T]) LocalID() p2p.PeerID {
 	return s.fingerprinter(s.publicKey)
 }
 
-func (s *Swarm[T]) MTU(context.Context, Addr[T]) int {
-	return s.mtu
-}
-
-func (s *Swarm[T]) MaxIncomingSize() int {
+func (s *Swarm[T]) MTU() int {
 	return s.mtu
 }
 

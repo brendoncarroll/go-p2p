@@ -147,7 +147,7 @@ func (r *SecureRealm[A, Pub]) lookupPublicKey(ctx context.Context, target A) (re
 	return s.publicKey, nil
 }
 
-func (r *SecureRealm[A, Pub]) mtu(ctx context.Context, target A) int {
+func (r *SecureRealm[A, Pub]) mtu() int {
 	return r.config.mtu
 }
 
@@ -184,12 +184,8 @@ func (s *SecureSwarm[A, Pub]) LocalAddrs() []A {
 	return []A{s.local}
 }
 
-func (s *SecureSwarm[A, Pub]) MTU(ctx context.Context, target A) int {
-	return s.r.mtu(ctx, target)
-}
-
-func (s *SecureSwarm[A, Pub]) MaxIncomingSize() int {
-	return s.r.config.mtu
+func (s *SecureSwarm[A, Pub]) MTU() int {
+	return s.r.mtu()
 }
 
 func (s *SecureSwarm[A, Pub]) Close() error {
@@ -259,14 +255,9 @@ func (s *Swarm[A]) LocalAddrs() []A {
 	return ss.LocalAddrs()
 }
 
-func (s *Swarm[A]) MaxIncomingSize() int {
+func (s *Swarm[A]) MTU() int {
 	ss := (*SecureSwarm[A, struct{}])(s)
-	return ss.MaxIncomingSize()
-}
-
-func (s *Swarm[A]) MTU(ctx context.Context, target A) int {
-	ss := (*SecureSwarm[A, struct{}])(s)
-	return ss.MTU(ctx, target)
+	return ss.MTU()
 }
 
 func (s *Swarm[A]) Close() error {

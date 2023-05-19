@@ -224,12 +224,10 @@ func (ms *muxedSwarm[A, C, Pub]) ParseAddr(data []byte) (A, error) {
 	return ms.m.swarm.ParseAddr(data)
 }
 
-func (ms *muxedSwarm[A, C, Pub]) MTU(ctx context.Context, addr A) int {
-	return ms.m.swarm.MTU(ctx, addr) - binary.MaxVarintLen64
-}
-
-func (ms *muxedSwarm[A, C, Pub]) MaxIncomingSize() int {
-	return ms.m.swarm.MaxIncomingSize()
+func (ms *muxedSwarm[A, C, Pub]) MTU() int {
+	m := ms.m.swarm.MTU()
+	n := binary.PutVarint(make([]byte, binary.MaxVarintLen64), int64(m))
+	return m - n
 }
 
 func (ms *muxedSwarm[A, C, Pub]) LookupPublicKey(ctx context.Context, target A) (Pub, error) {

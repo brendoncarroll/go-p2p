@@ -71,7 +71,7 @@ func New[T p2p.Addr](inner p2p.Swarm[T], privateKey x509.PrivateKey, opts ...Opt
 
 // Tell implements p2p.Swarm.Tell
 func (s *Swarm[T]) Tell(ctx context.Context, dst Addr[T], v p2p.IOVec) error {
-	if p2p.VecSize(v) > s.MTU(ctx, dst) {
+	if p2p.VecSize(v) > s.MTU() {
 		return p2p.ErrMTUExceeded
 	}
 	c, err := s.getFullAddr(ctx, dst)
@@ -113,13 +113,8 @@ func (s *Swarm[T]) LookupPublicKey(ctx context.Context, dst Addr[T]) (ret x509.P
 	return c.RemoteKey(), nil
 }
 
-func (s *Swarm[T]) MTU(ctx context.Context, target Addr[T]) int {
-	n := s.inner.MTU(ctx, target.Addr) - Overhead
-	return min(n, p2pke.MaxMessageLen)
-}
-
-func (s *Swarm[T]) MaxIncomingSize() int {
-	n := s.inner.MaxIncomingSize() - Overhead
+func (s *Swarm[T]) MTU() int {
+	n := s.inner.MTU() - Overhead
 	return min(n, p2pke.MaxMessageLen)
 }
 

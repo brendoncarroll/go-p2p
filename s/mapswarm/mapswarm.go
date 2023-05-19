@@ -56,8 +56,8 @@ func (s *swarm[Above, Below]) LocalAddrs() []Above {
 	return ys
 }
 
-func (s *swarm[Above, Below]) MTU(ctx context.Context, addr Above) int {
-	return s.Swarm.MTU(ctx, s.downward(addr))
+func (s *swarm[Above, Below]) MTU() int {
+	return s.Swarm.MTU()
 }
 
 func (s *swarm[Above, Below]) ParseAddr(data []byte) (Above, error) {

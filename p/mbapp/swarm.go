@@ -2,6 +2,7 @@ package mbapp
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -140,11 +141,7 @@ func (s *Swarm[A, Pub]) LookupPublicKey(ctx context.Context, x A) (Pub, error) {
 	return s.inner.LookupPublicKey(ctx, x)
 }
 
-func (s *Swarm[A, Pub]) MTU(ctx context.Context, target A) int {
-	return s.mtu
-}
-
-func (s *Swarm[A, Pub]) MaxIncomingSize() int {
+func (s *Swarm[A, Pub]) MTU() int {
 	return s.mtu
 }
 
@@ -184,7 +181,7 @@ func (s *Swarm[A, Pub]) handleMessage(ctx context.Context, src, dst A, data []by
 	totalSize := hdr.GetTotalSize()
 	partIndex := hdr.GetPartIndex()
 	if totalSize > uint32(s.mtu) {
-		return errors.Errorf("total message size exceeds max")
+		return fmt.Errorf("total message size exceeds mtu %d", s.mtu)
 	}
 	gid := hdr.GroupID()
 	timeout := hdr.GetTimeout()
@@ -265,7 +262,7 @@ func (s *Swarm[A, Pub]) send(ctx context.Context, dst A, params sendParams) erro
 	hdr.SetOriginTime(params.originTime)
 	hdr.SetTimeout(params.timeout)
 
-	mtu := s.inner.MTU(ctx, dst)
+	mtu := s.inner.MTU()
 	partSize := (mtu - HeaderSize)
 	totalSize := p2p.VecSize(params.m)
 	partCount := totalSize / partSize

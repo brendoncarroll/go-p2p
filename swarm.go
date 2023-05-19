@@ -65,16 +65,14 @@ type Swarm[A Addr] interface {
 
 	// LocalAddrs returns all the addresses that can be used to contact this Swarm
 	LocalAddrs() []A
-	// MTU returns the maximum transmission unit for a particular address,
-	// If the context is done, MTU returns a safe default value.
-	MTU(ctx context.Context, addr A) int
+	// MTU returns the maximum transmission unit for the Swarm.
+	// This is the maxiumum size of messages incoming and outgoing.
+	MTU() int
 	// Close releases all resources held by the swarm.
 	// It should be called when the swarm is no longer in use.
 	Close() error
 	// ParseAddr attempts to parse an address from data
 	ParseAddr(data []byte) (A, error)
-	// MaxIncomingSize returns the minimum size the payload of an incoming message could be
-	MaxIncomingSize() int
 }
 
 type AskSwarm[A Addr] interface {
