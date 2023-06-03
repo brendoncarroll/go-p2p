@@ -3,8 +3,8 @@ package quicswarm
 import (
 	"testing"
 
+	"github.com/brendoncarroll/go-exp/crypto/sign/sig_ed25519"
 	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/crypto/sign/sig_ed25519"
 	"github.com/brendoncarroll/go-p2p/f/x509"
 	"github.com/brendoncarroll/go-p2p/p2ptest"
 	"github.com/brendoncarroll/go-p2p/s/memswarm"

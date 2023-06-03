@@ -9,8 +9,8 @@ import (
 	"encoding/asn1"
 	"errors"
 
-	"github.com/brendoncarroll/go-p2p/crypto/sign"
-	"github.com/brendoncarroll/go-p2p/crypto/sign/sig_ed25519"
+	"github.com/brendoncarroll/go-exp/crypto/sign"
+	"github.com/brendoncarroll/go-exp/crypto/sign/sig_ed25519"
 	"github.com/brendoncarroll/go-p2p/f/x509/oids"
 )
 
