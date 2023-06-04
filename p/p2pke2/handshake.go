@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/brendoncarroll/go-p2p/crypto/aead"
-	"github.com/brendoncarroll/go-p2p/crypto/kem"
-	"github.com/brendoncarroll/go-p2p/crypto/xof"
-	"github.com/brendoncarroll/go-p2p/crypto/xof/xof_sha3"
+	"github.com/brendoncarroll/go-exp/crypto/aead"
+	"github.com/brendoncarroll/go-exp/crypto/kem"
+	"github.com/brendoncarroll/go-exp/crypto/xof"
+	"github.com/brendoncarroll/go-exp/crypto/xof/xof_sha3"
 )
 
 // Prover appends a proof to out, that relates to target.
@@ -46,7 +46,7 @@ func NewHandshakeState[KEMPriv, KEMPub any](params HandshakeParams[KEMPriv, KEMP
 	}
 	if params.IsInit {
 		var kemKeyGenSeed [32]byte
-		params.Suite.XOFSum(kemKeyGenSeed[:], params.Seed[:], []byte("KEM-keygen"))
+		params.Suite.XOFSum(kemKeyGenSeed[:], hs.seed[:], []byte("KEM-keygen"))
 		rng := xof.NewRand256[xof_sha3.SHAKE256State](xof_sha3.SHAKE256{}, &kemKeyGenSeed)
 		var err error
 		hs.kemPub, hs.kemPriv, err = params.Suite.KEM.Generate(&rng)

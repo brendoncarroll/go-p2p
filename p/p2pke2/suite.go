@@ -3,13 +3,13 @@ package p2pke2
 import (
 	"strings"
 
-	"github.com/brendoncarroll/go-p2p/crypto/aead"
-	"github.com/brendoncarroll/go-p2p/crypto/aead/aead_chacha20poly1305"
-	"github.com/brendoncarroll/go-p2p/crypto/kem"
-	"github.com/brendoncarroll/go-p2p/crypto/kem/kem_sntrup"
-	"github.com/brendoncarroll/go-p2p/crypto/kem/kem_x25519"
-	"github.com/brendoncarroll/go-p2p/crypto/xof"
-	"github.com/brendoncarroll/go-p2p/crypto/xof/xof_sha3"
+	"github.com/brendoncarroll/go-exp/crypto/aead"
+	"github.com/brendoncarroll/go-exp/crypto/aead/aead_chacha20poly1305"
+	"github.com/brendoncarroll/go-exp/crypto/kem"
+	"github.com/brendoncarroll/go-exp/crypto/kem/kem_sntrup"
+	"github.com/brendoncarroll/go-exp/crypto/kem/kem_x25519"
+	"github.com/brendoncarroll/go-exp/crypto/xof"
+	"github.com/brendoncarroll/go-exp/crypto/xof/xof_sha3"
 )
 
 // Suite is a set of cryptographic primitives used to establish and send data over a secure channel

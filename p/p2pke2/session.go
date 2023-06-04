@@ -6,29 +6,17 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/brendoncarroll/go-p2p/crypto/aead"
+	"github.com/brendoncarroll/go-exp/crypto/aead"
 )
 
 const MaxCounter = 1<<32 - 1
 
-type Authenticator interface {
-	// Intro is called to produce an introduction message.
-	// The message is used to convince the remote party to allocate resources to communicate with us.
-	Intro(out []byte) ([]byte, error)
-	// Accept is used to validate an intro message and determine if it is from a known party.
-	Accept(intro []byte) error
-
-	// Prove is used to produce a proof that relates the authenticating party to the target.
-	Prove(out []byte, target *[64]byte) []byte
-	// Verify is used to verify that proof relates to target.
-	Verify(target *[64]byte, proof []byte) error
-}
-
 type SessionParams[KEMPriv, KEMPub any] struct {
-	Suite         Suite[KEMPriv, KEMPub]
-	Seed          *[32]byte
-	IsInit        bool
-	Authenticator Authenticator
+	Suite  Suite[KEMPriv, KEMPub]
+	Seed   *[32]byte
+	IsInit bool
+	Prove  Prover
+	Verify Verifier
 }
 
 func (s *SessionParams[KEMPriv, KEMPub]) HandshakeParams() HandshakeParams[KEMPriv, KEMPub] {
@@ -36,9 +24,8 @@ func (s *SessionParams[KEMPriv, KEMPub]) HandshakeParams() HandshakeParams[KEMPr
 		Suite:  s.Suite,
 		Seed:   s.Seed,
 		IsInit: s.IsInit,
-
-		Prove:  s.Authenticator.Prove,
-		Verify: s.Authenticator.Verify,
+		Prove:  s.Prove,
+		Verify: s.Verify,
 	}
 }
 
@@ -48,7 +35,6 @@ type Session[KEMPriv, KEMPub any] struct {
 	initialized bool
 	aead        aead.K256N64
 	hs          HandshakeState[KEMPriv, KEMPub]
-	auth        Authenticator
 
 	inboundKey, outboundKey [32]byte
 	replay                  replayFilter
@@ -60,7 +46,6 @@ func NewSession[KEMPriv, KEMPub any](params SessionParams[KEMPriv, KEMPub]) Sess
 		initialized: true,
 		aead:        params.Suite.AEAD,
 		hs:          NewHandshakeState(params.HandshakeParams()),
-		auth:        params.Authenticator,
 	}
 }
 
@@ -89,17 +74,6 @@ func (s *Session[KEMPriv, KEMPub]) SendHandshake(out []byte) ([]byte, error) {
 	}
 	idx := s.hs.Index()
 	out = binary.BigEndian.AppendUint32(out, uint32(idx))
-
-	switch idx {
-	case 0:
-		var err error
-		out, err = s.auth.Intro(out)
-		if err != nil {
-			return nil, err
-		}
-	case 1:
-		// TODO: verify
-	}
 
 	out, err := s.hs.Send(out)
 	if err != nil {
@@ -170,10 +144,6 @@ func (s *Session[KEMPriv, KEMPub]) IsExhausted() bool {
 // Zero clears all the state in session.
 func (s *Session[KEMPriv, KEMPub]) Zero() {
 	*s = Session[KEMPriv, KEMPub]{}
-}
-
-func (s *Session[KEMPriv, KEMPub]) Authenticator() Authenticator {
-	return s.Authenticator()
 }
 
 type ErrShortMessage struct{}

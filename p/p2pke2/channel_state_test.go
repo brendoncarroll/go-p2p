@@ -2,6 +2,7 @@ package p2pke2
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"github.com/brendoncarroll/go-tai64"
@@ -9,7 +10,7 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-type SessionV1 = Session[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1]
+type SessionV1 = Session[KEMPrivateKeyV1, KEMPublicKeyV1]
 
 func TestChannelState(t *testing.T) {
 	lc, rc := newChannelStates(t)
@@ -40,7 +41,7 @@ func TestBidiHandshake(t *testing.T) {
 
 func newChannelStates(t testing.TB) (lc, rc ChannelState[SessionV1]) {
 	resetSession := func(s *SessionV1, isInit bool) {
-		*s = NewSession(SessionParams[XOFStateV1, KEMPrivateKeyV1, KEMPublicKeyV1]{
+		*s = NewSession(SessionParams[KEMPrivateKeyV1, KEMPublicKeyV1]{
 			Suite:  NewSuiteV1(),
 			Seed:   newSeed(t, 0),
 			IsInit: isInit,
@@ -48,9 +49,12 @@ func newChannelStates(t testing.TB) (lc, rc ChannelState[SessionV1]) {
 				sum := sha3.Sum256(target[:])
 				return append(out, sum[:]...)
 			},
-			Verify: func(target *[64]byte, proof []byte) bool {
+			Verify: func(target *[64]byte, proof []byte) error {
 				sum := sha3.Sum256(target[:])
-				return bytes.Equal(sum[:], proof)
+				if !bytes.Equal(sum[:], proof) {
+					return errors.New("invalid proof")
+				}
+				return nil
 			},
 		})
 	}

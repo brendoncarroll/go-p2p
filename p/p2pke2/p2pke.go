@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"github.com/brendoncarroll/go-p2p/crypto/kem"
+	"github.com/brendoncarroll/go-exp/crypto/kem"
 	"github.com/brendoncarroll/go-tai64"
 )
 
@@ -29,4 +29,17 @@ func ParseInitHello[KEMPub any](sch kem.PublicKeyScheme[KEMPub], x []byte) (*Ini
 		return nil, errors.New("not a InitHello message")
 	}
 	return &InitHello[KEMPub]{}, nil
+}
+
+type Authenticator interface {
+	// Intro is called to produce an introduction message.
+	// The message is used to convince the remote party to allocate resources to communicate with us.
+	Intro(out []byte) ([]byte, error)
+	// Accept is used to validate an intro message and determine if it is from a known party.
+	Accept(intro []byte) error
+
+	// Prove is used to produce a proof that relates the authenticating party to the target.
+	Prove(out []byte, target *[64]byte) []byte
+	// Verify is used to verify that proof relates to target.
+	Verify(target *[64]byte, proof []byte) error
 }
