@@ -4,7 +4,7 @@ import "github.com/brendoncarroll/go-p2p"
 
 const (
 	DefaultMTU      = 1 << 16
-	DefaultQueueLen = 1
+	DefaultQueueLen = 2
 )
 
 type realmConfig[A p2p.ComparableAddr] struct {

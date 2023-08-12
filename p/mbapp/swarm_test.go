@@ -13,8 +13,11 @@ func init() {
 }
 
 func TestSwarm(t *testing.T) {
+	const underMTU = 1 << 16
+	const aboveMTU = 1 << 20
+	const queueLen = (aboveMTU / underMTU) + 1
 	swarmtest.TestSwarm(t, func(t testing.TB, xs []p2p.Swarm[memswarm.Addr]) {
-		r := memswarm.NewSecureRealm[struct{}](memswarm.WithMTU(1<<16), memswarm.WithQueueLen(10))
+		r := memswarm.NewSecureRealm[struct{}](memswarm.WithMTU(1<<16), memswarm.WithQueueLen(queueLen))
 		for i := range xs {
 			s := r.NewSwarm(struct{}{})
 			xs[i] = New[memswarm.Addr, struct{}](s, 1<<20)

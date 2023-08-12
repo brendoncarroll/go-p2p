@@ -5,13 +5,14 @@ import (
 	"crypto"
 	"crypto/tls"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
 	"sync"
 
 	"github.com/brendoncarroll/stdctx/logctx"
-	"github.com/pkg/errors"
 	"github.com/quic-go/quic-go"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -39,9 +40,12 @@ type Swarm[T p2p.Addr] struct {
 	privateKey    x509.PrivateKey
 	publicKey     x509.PublicKey
 	log           *zap.Logger
-	pconn         net.PacketConn
-	l             quic.Listener
-	cf            context.CancelFunc
+
+	pconn     net.PacketConn
+	transport quic.Transport
+	l         *quic.Listener
+	bgCtx     context.Context
+	cf        context.CancelFunc
 
 	mu        sync.RWMutex
 	sessCache map[sessionKey]quic.Connection
@@ -71,6 +75,9 @@ func New[T p2p.Addr](x p2p.Swarm[T], privKey x509.PrivateKey, opts ...Option[T])
 		pconn:         pconn,
 		privateKey:    privKey,
 
+		transport: quic.Transport{
+			Conn: pconn,
+		},
 		sessCache: map[sessionKey]quic.Connection{},
 		tells:     swarmutil.NewTellHub[Addr[T]](),
 		asks:      swarmutil.NewAskHub[Addr[T]](),
@@ -83,12 +90,15 @@ func New[T p2p.Addr](x p2p.Swarm[T], privKey x509.PrivateKey, opts ...Option[T])
 		return nil, err
 	}
 	s.publicKey = pubKey
+
 	ctx := context.Background()
 	ctx = logctx.NewContext(ctx, s.log)
 	ctx, cf := context.WithCancel(ctx)
+	s.bgCtx = ctx
 	s.cf = cf
+
 	tlsConfig := generateServerTLS(&s.privateKey, &s.publicKey, s.fingerprinter)
-	l, err := quic.Listen(pconn, tlsConfig, generateQUICConfig())
+	l, err := s.transport.Listen(tlsConfig, generateQUICConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -167,13 +177,21 @@ func (s *Swarm[T]) ServeAsk(ctx context.Context, fn func(context.Context, []byte
 }
 
 func (s *Swarm[T]) Close() (retErr error) {
-	var el swarmutil.ErrList
 	s.cf()
 	s.tells.CloseWithError(p2p.ErrClosed)
 	s.asks.CloseWithError(p2p.ErrClosed)
-	el.Add(s.l.Close())
-	el.Add(s.inner.Close())
-	return el.Err()
+	for _, close := range []func() error{
+		s.l.Close,
+		// This is not the typical order to shutdown connections, but the quic implementation depends on this connection being closed
+		// to properly exit.
+		s.inner.Close,
+		s.transport.Close,
+	} {
+		if err := close(); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
+	}
+	return retErr
 }
 
 func (s *Swarm[T]) LocalAddrs() (ret []Addr[T]) {
@@ -230,12 +248,11 @@ func (s *Swarm[T]) withSession(ctx context.Context, dst Addr[T], fn func(sess qu
 	}
 
 	raddr := p2pconn.NewAddr(s.inner, dst.Addr)
-	host := ""
 	signer, err := x509.ToStandardSigner(&s.privateKey)
 	if err != nil {
 		return err
 	}
-	sess, err = quic.DialContext(ctx, s.pconn, raddr, host, generateClientTLS(signer), generateQUICConfig())
+	sess, err = s.transport.Dial(ctx, raddr, generateClientTLS(signer), generateQUICConfig())
 	if err != nil {
 		return err
 	}
@@ -244,11 +261,11 @@ func (s *Swarm[T]) withSession(ctx context.Context, dst Addr[T], fn func(sess qu
 		return err
 	}
 	if !(peerAddr.ID == dst.ID) {
-		return errors.Errorf("wrong peer HAVE: %v WANT: %v", peerAddr.ID, dst.ID)
+		return fmt.Errorf("wrong peer HAVE: %v WANT: %v", peerAddr.ID, dst.ID)
 	}
 	s.putSession(peerAddr, sess, true)
 	s.log.With(logctx.Any("remote_addr", peerAddr)).Debug("session established via dial")
-	go s.handleSession(context.Background(), sess, peerAddr, true)
+	go s.handleSession(s.bgCtx, sess, peerAddr, true)
 	return fn(sess)
 }
 
@@ -288,12 +305,16 @@ func (s *Swarm[T]) handleSession(ctx context.Context, sess quic.Connection, src 
 	eg.Go(func() error {
 		return s.handleTells(ctx, sess, src)
 	})
-	if err := eg.Wait(); quicErr(err) != nil && err != context.Canceled {
+	err := quicErr(eg.Wait())
+	if err != nil && !errors.Is(err, context.Canceled) {
 		if err := sess.CloseWithError(1, err.Error()); err != nil {
 			logctx.Errorln(ctx, err)
 		}
+	} else {
+		if err := sess.CloseWithError(0, ""); err != nil {
+			logctx.Errorln(ctx, err)
+		}
 	}
-	sess.CloseWithError(0, "")
 }
 
 func (s *Swarm[T]) handleAsks(ctx context.Context, sess quic.Connection, srcAddr Addr[T]) error {
