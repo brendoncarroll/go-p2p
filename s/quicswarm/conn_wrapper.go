@@ -3,7 +3,7 @@ package quicswarm
 import (
 	"net"
 
-	"github.com/brendoncarroll/go-p2p"
+	"go.brendoncarroll.net/p2p"
 )
 
 type connWrapper struct {

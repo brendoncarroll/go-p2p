@@ -3,8 +3,8 @@ package p2pmux
 import (
 	"encoding/binary"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
+	"go.brendoncarroll.net/p2p"
 )
 
 func NewUint32Mux[A p2p.Addr](x p2p.Swarm[A]) Mux[A, uint32] {

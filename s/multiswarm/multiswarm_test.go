@@ -4,9 +4,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/memswarm"
-	"github.com/brendoncarroll/go-p2p/s/swarmtest"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/s/memswarm"
+	"go.brendoncarroll.net/p2p/s/swarmtest"
 )
 
 func TestMultiSwarm(t *testing.T) {

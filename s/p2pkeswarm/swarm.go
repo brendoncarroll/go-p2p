@@ -5,15 +5,15 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/brendoncarroll/stdctx/logctx"
+	"go.brendoncarroll.net/stdctx/logctx"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/f/x509"
-	"github.com/brendoncarroll/go-p2p/p/p2pke"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
-	"github.com/brendoncarroll/go-p2p/s/udpswarm"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/f/x509"
+	"go.brendoncarroll.net/p2p/p/p2pke"
+	"go.brendoncarroll.net/p2p/s/swarmutil"
+	"go.brendoncarroll.net/p2p/s/udpswarm"
 )
 
 const Overhead = p2pke.Overhead

@@ -3,8 +3,8 @@ package memswarm
 import (
 	"sync/atomic"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/vswarm"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/s/vswarm"
 )
 
 type Message = p2p.Message[Addr]

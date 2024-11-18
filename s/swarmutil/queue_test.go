@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/stretchr/testify/require"
+	"go.brendoncarroll.net/p2p"
 )
 
 func TestQueue(t *testing.T) {

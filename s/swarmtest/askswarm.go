@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.brendoncarroll.net/p2p"
 	"golang.org/x/sync/errgroup"
 )
 

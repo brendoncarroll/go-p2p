@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/memswarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/s/memswarm"
 	"golang.org/x/sync/errgroup"
 )
 

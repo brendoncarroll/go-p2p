@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p"
+	"go.brendoncarroll.net/p2p"
 )
 
 // DHTNode is the state of a single node in a DHT.

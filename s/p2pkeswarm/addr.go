@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
+	"go.brendoncarroll.net/p2p"
 )
 
 type Addr[T p2p.Addr] struct {

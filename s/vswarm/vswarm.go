@@ -8,10 +8,10 @@ import (
 	"log"
 	"sync"
 
-	"github.com/brendoncarroll/stdctx/logctx"
+	"go.brendoncarroll.net/stdctx/logctx"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/s/swarmutil"
 )
 
 type SecureRealm[A p2p.ComparableAddr, Pub any] struct {

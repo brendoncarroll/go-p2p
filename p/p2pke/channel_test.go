@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/f/x509"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/f/x509"
 )
 
 func TestChannel(t *testing.T) {

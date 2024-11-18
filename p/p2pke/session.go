@@ -7,14 +7,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/brendoncarroll/go-tai64"
 	"github.com/flynn/noise"
 	"github.com/pkg/errors"
+	"go.brendoncarroll.net/tai64"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/blake2b"
 	"golang.zx2c4.com/wireguard/replay"
 
-	"github.com/brendoncarroll/go-p2p/f/x509"
+	"go.brendoncarroll.net/p2p/f/x509"
 )
 
 type Session struct {

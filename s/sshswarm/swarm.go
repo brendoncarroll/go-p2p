@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/s/swarmutil"
 	"golang.org/x/crypto/ssh"
 )
 

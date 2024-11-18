@@ -3,9 +3,9 @@ package udpswarm
 import (
 	"testing"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmtest"
 	"github.com/stretchr/testify/require"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/s/swarmtest"
 )
 
 func TestSwarm(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p"
+	"go.brendoncarroll.net/p2p"
 	"golang.org/x/exp/slices"
 )
 

@@ -3,7 +3,7 @@ package multiswarm
 import (
 	"context"
 
-	"github.com/brendoncarroll/go-p2p"
+	"go.brendoncarroll.net/p2p"
 )
 
 type dynSwarm[T p2p.Addr] struct {

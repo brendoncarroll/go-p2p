@@ -1,6 +1,6 @@
 package x509
 
-import "github.com/brendoncarroll/go-p2p/f/x509/oids"
+import "go.brendoncarroll.net/p2p/f/x509/oids"
 
 var (
 	// https://www.rfc-editor.org/rfc/rfc8410#section-3

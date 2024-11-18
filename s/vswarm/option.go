@@ -1,6 +1,6 @@
 package vswarm
 
-import "github.com/brendoncarroll/go-p2p"
+import "go.brendoncarroll.net/p2p"
 
 const (
 	DefaultMTU      = 1 << 16

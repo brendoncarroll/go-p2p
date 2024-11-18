@@ -3,8 +3,8 @@ package swarmtest
 import (
 	"testing"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/stretchr/testify/require"
+	"go.brendoncarroll.net/p2p"
 )
 
 func TestSecureSwarm[A p2p.Addr, Pub any](t *testing.T, newSwarms func(testing.TB, []p2p.SecureSwarm[A, Pub])) {

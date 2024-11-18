@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"regexp"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
+	"go.brendoncarroll.net/p2p"
 )
 
 var _ p2p.UnwrapAddr = Addr{}

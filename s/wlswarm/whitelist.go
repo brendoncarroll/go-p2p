@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/stdctx/logctx"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/stdctx/logctx"
 	"go.uber.org/zap"
 )
 

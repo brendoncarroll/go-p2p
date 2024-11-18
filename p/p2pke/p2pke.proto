@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-option go_package = "github.com/brendoncarroll/go-p2p/p/p2pke";
+option go_package = "go.brendoncarroll.net/p2p/p/p2pke";
 
 message InitHello {
     uint32 version = 1;

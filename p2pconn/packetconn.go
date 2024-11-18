@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p"
+	"go.brendoncarroll.net/p2p"
 )
 
 // NewPacketConn turns a Swarm into a net.PacketConn

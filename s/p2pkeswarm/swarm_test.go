@@ -5,12 +5,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/f/x509"
-	"github.com/brendoncarroll/go-p2p/p2ptest"
-	"github.com/brendoncarroll/go-p2p/s/memswarm"
-	"github.com/brendoncarroll/go-p2p/s/swarmtest"
-	"github.com/brendoncarroll/go-p2p/s/udpswarm"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/f/x509"
+	"go.brendoncarroll.net/p2p/p2ptest"
+	"go.brendoncarroll.net/p2p/s/memswarm"
+	"go.brendoncarroll.net/p2p/s/swarmtest"
+	"go.brendoncarroll.net/p2p/s/udpswarm"
 )
 
 func testSwarm[T p2p.Addr](t *testing.T, baseSwarms func(testing.TB, []p2p.Swarm[T])) {

@@ -6,9 +6,9 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/pkg/errors"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/stdctx/logctx"
 	"golang.org/x/crypto/ssh"
 )
 

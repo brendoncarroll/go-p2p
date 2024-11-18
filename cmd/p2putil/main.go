@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 
-	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/spf13/cobra"
+	"go.brendoncarroll.net/stdctx/logctx"
 	"go.uber.org/zap"
 )
 

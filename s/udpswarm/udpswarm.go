@@ -4,7 +4,7 @@ import (
 	"context"
 	"net"
 
-	"github.com/brendoncarroll/go-p2p"
+	"go.brendoncarroll.net/p2p"
 )
 
 const (

@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"github.com/brendoncarroll/go-p2p/f/x509"
-	"github.com/brendoncarroll/go-p2p/p2ptest"
+	"go.brendoncarroll.net/p2p/f/x509"
+	"go.brendoncarroll.net/p2p/p2ptest"
 )
 
 func TestHandshake(t *testing.T) {

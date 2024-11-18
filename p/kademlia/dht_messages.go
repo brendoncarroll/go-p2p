@@ -1,8 +1,8 @@
 package kademlia
 
 import (
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-tai64"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/tai64"
 )
 
 // FindNodeReq is the request in the FindNode rpc

@@ -3,7 +3,7 @@ package p2ptest
 import (
 	"sync"
 
-	"github.com/brendoncarroll/go-p2p/s/memswarm"
+	"go.brendoncarroll.net/p2p/s/memswarm"
 )
 
 // NewDropFirstPairwise returns a Message transformer which drops the first message between each pair

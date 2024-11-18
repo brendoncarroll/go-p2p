@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/stretchr/testify/require"
+	"go.brendoncarroll.net/p2p"
 	"golang.org/x/crypto/sha3"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"

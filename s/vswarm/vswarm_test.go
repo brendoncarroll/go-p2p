@@ -4,10 +4,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/s/swarmtest"
-	"github.com/brendoncarroll/go-p2p/s/vswarm"
 	"github.com/stretchr/testify/require"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/s/swarmtest"
+	"go.brendoncarroll.net/p2p/s/vswarm"
 )
 
 func TestSwarm(t *testing.T) {

@@ -1,6 +1,6 @@
 package quicswarm
 
-import "github.com/brendoncarroll/go-p2p"
+import "go.brendoncarroll.net/p2p"
 
 type Option[T p2p.Addr] func(s *Swarm[T])
 

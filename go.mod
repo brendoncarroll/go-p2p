@@ -1,17 +1,18 @@
-module github.com/brendoncarroll/go-p2p
+module go.brendoncarroll.net/p2p
 
 go 1.21
 
 require (
-	github.com/brendoncarroll/go-exp v0.0.0-20230603162556-069bd4cbec7a
-	github.com/brendoncarroll/go-tai64 v0.0.0-20220726191612-c9e9c0704db4
-	github.com/brendoncarroll/stdctx v0.0.0-20230318183431-4786d63efd50
 	github.com/flynn/noise v1.0.0
 	github.com/golang/protobuf v1.5.3
 	github.com/pkg/errors v0.9.1
 	github.com/quic-go/quic-go v0.37.4
 	github.com/spf13/cobra v0.0.5
 	github.com/stretchr/testify v1.8.4
+	go.brendoncarroll.net/exp v0.0.0-20241118183830-280772e567eb
+	go.brendoncarroll.net/state v0.0.0-20241118200920-627c9c196901
+	go.brendoncarroll.net/stdctx v0.0.0-20241118190518-40d09f4d11e7
+	go.brendoncarroll.net/tai64 v0.0.0-20241118171318-6e12d283d5e4
 	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.9.0
 	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
@@ -21,9 +22,11 @@ require (
 )
 
 require (
+	github.com/companyzero/sntrup4591761 v0.0.0-20220309191932-9e0f3af2f07a // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
 	github.com/golang/mock v1.6.0 // indirect
+	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/pprof v0.0.0-20210407192527-94a9f03dee38 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/onsi/ginkgo/v2 v2.9.5 // indirect

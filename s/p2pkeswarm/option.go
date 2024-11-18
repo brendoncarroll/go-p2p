@@ -6,8 +6,8 @@ import (
 
 	"golang.org/x/crypto/sha3"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/f/x509"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/f/x509"
 )
 
 type Fingerprinter = func(*x509.PublicKey) p2p.PeerID

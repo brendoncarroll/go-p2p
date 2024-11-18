@@ -3,7 +3,7 @@ package mapswarm
 import (
 	"context"
 
-	"github.com/brendoncarroll/go-p2p"
+	"go.brendoncarroll.net/p2p"
 )
 
 func New[Above, Below p2p.Addr](x p2p.Swarm[Below], downward func(Above) Below, upward func(Below) Above, parser p2p.AddrParser[Above]) p2p.Swarm[Above] {

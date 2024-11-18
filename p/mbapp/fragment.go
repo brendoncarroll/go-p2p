@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
+	"go.brendoncarroll.net/p2p"
 )
 
 type collector struct {

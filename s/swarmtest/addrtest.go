@@ -4,8 +4,8 @@ import (
 	"net"
 	"testing"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/stretchr/testify/assert"
+	"go.brendoncarroll.net/p2p"
 )
 
 func TestHasUDP(t *testing.T, newAddr func() p2p.Addr) {

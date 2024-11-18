@@ -6,10 +6,10 @@ import (
 	sync "sync"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/f/x509"
-	"github.com/brendoncarroll/go-tai64"
 	"github.com/pkg/errors"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/f/x509"
+	"go.brendoncarroll.net/tai64"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/blake2b"
 )

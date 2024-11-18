@@ -12,16 +12,16 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/quic-go/quic-go"
+	"go.brendoncarroll.net/stdctx/logctx"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/f/x509"
-	"github.com/brendoncarroll/go-p2p/p2pconn"
-	"github.com/brendoncarroll/go-p2p/s/swarmutil"
-	"github.com/brendoncarroll/go-p2p/s/udpswarm"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/f/x509"
+	"go.brendoncarroll.net/p2p/p2pconn"
+	"go.brendoncarroll.net/p2p/s/swarmutil"
+	"go.brendoncarroll.net/p2p/s/udpswarm"
 )
 
 const DefaultMTU = 1 << 20

@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/pkg/errors"
+	"go.brendoncarroll.net/p2p"
 	"golang.org/x/crypto/ssh"
 )
 

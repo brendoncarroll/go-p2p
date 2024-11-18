@@ -4,8 +4,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/brendoncarroll/go-p2p/f/x509"
 	"github.com/flynn/noise"
+	"go.brendoncarroll.net/p2p/f/x509"
 )
 
 const (
